@@ -548,7 +548,10 @@ def main(max_frames=None):
         idx = np.where(mask)[0]
         cell = camera.cell_px()
         xs, ys = colony_obj.x[idx], colony_obj.y[idx]
+        thetas = colony_obj.theta[idx]
         carrying = colony_obj.carrying[idx]
+        carry_type = colony_obj.carry_type[idx]
+        carry_food_type = colony_obj.carry_food_type[idx]
         is_major = colony_obj.role[idx] == cfg.ROLE_MAJOR
         sxs = CENTER_X + (xs - camera.cx) * cell
         sys_ = CENTER_Y + (ys - camera.cy) * cell
@@ -560,6 +563,23 @@ def main(max_frames=None):
             r = max(1, int(base_r * (cfg.MAJOR_SIZE_SCALE if is_major[i] else 1.0)))
             color = color_carry if carrying[i] else color_normal
             pygame.draw.circle(surf, color, (int(sx), int(sy)), r)
+
+            # --- Mồi tha trên lưng: 1 miếng nhỏ đúng màu loại thức ăn thật,
+            # hiện rõ ràng ngay trước đầu con kiến (theo hướng đang đi) để
+            # nhìn thấy NGAY nó đang tha gì về tổ, không chỉ đổi màu thân ---
+            if carrying[i]:
+                th = float(thetas[i])
+                ox = math.cos(th) * r * 1.6
+                oy = math.sin(th) * r * 1.6
+                mx, my = int(sx + ox), int(sy + oy)
+                morsel_r = max(2, int(r * 0.85))
+                if carry_type[i] == 2:  # nước - giọt xanh
+                    pygame.draw.circle(surf, (60, 140, 230), (mx, my), morsel_r)
+                    pygame.draw.circle(surf, (200, 230, 255), (mx, my), max(1, morsel_r // 2))
+                else:  # thức ăn - đúng màu loại thức ăn thật đã nhặt
+                    fc = cfg.FOOD_TYPE_COLOR.get(int(carry_food_type[i]), (150, 115, 60))
+                    pygame.draw.circle(surf, fc, (mx, my), morsel_r)
+                pygame.draw.circle(surf, (20, 15, 10), (mx, my), morsel_r, 1)
 
     # -------------------------------------------------------------
     # Biểu đồ dân số theo thời gian (panel góc phải trên)

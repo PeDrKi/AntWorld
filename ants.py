@@ -51,6 +51,9 @@ class AntColony:
         self.carrying = np.zeros(self.n, dtype=bool)
         self.carry_type = np.zeros(self.n, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
         self.carry_amount = np.zeros(self.n, dtype=np.float32)
+        # Loại thức ăn CỤ THỂ đang tha (hạt/côn trùng/mật hoa) - chỉ dùng để
+        # VẼ đúng màu miếng mồi trên lưng kiến, không ảnh hưởng mô phỏng
+        self.carry_food_type = np.zeros(self.n, dtype=np.int8)
 
         # --- Phân vai: đa số thợ nhỏ, 1 phần nhỏ là lính (thợ lớn) ---
         self.role = (rng.uniform(0, 1, self.n) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
@@ -161,6 +164,7 @@ class AntColony:
                 self.carrying[got_idx] = True
                 self.carry_type[got_idx] = 1
                 self.carry_amount[got_idx] = values
+                self.carry_food_type[got_idx] = food_types[got_food]
                 self.state[got_idx] = cfg.STATE_RETURNING
                 self.total_food_collected += len(got_idx)
 

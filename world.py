@@ -11,8 +11,10 @@ class SurfaceWorld:
         self.food = np.zeros((n, n), dtype=np.float32)
         self.food_type = np.zeros((n, n), dtype=np.int8)  # loại thức ăn tại mỗi ô
         self.pheromone = np.zeros((n, n), dtype=np.float32)
+        self.danger_pheromone = np.zeros((n, n), dtype=np.float32)
         self.terrain = np.zeros((n, n), dtype=np.int8)  # 0=đất, 1=đá, 2=nước
-        self.terrain_features = []  # [(loại, cx, cy, radius), ...] để vẽ 3D
+        self.terrain_features = []  # [(id, loại, cx, cy, radius), ...] để vẽ 3D
+        self._next_feature_id = 0
         self.protected_nests = protected_nests if protected_nests else [cfg.NEST_POS]
         self._spawn_food_clusters()
         self._spawn_terrain_obstacles()
@@ -59,8 +61,8 @@ class SurfaceWorld:
 
     def add_obstacle(self, cx, cy, terrain_type, radius):
         """Đánh dấu 1 vùng địa hình (đá/nước) trên lưới - dùng cả lúc khởi
-        tạo lẫn khi người chơi tự đặt bằng công cụ. Trả về feature để
-        main.py vẽ thêm lên màn hình 3D."""
+        tạo lẫn khi người chơi tự đặt bằng công cụ. Trả về feature (kèm ID
+        duy nhất) để main.py vẽ thêm lên màn hình 3D và có thể xóa sau này."""
         n = cfg.GRID_SIZE
         r = int(round(radius))
         x0, x1 = max(0, cx - r), min(n, cx + r + 1)
@@ -71,9 +73,44 @@ class SurfaceWorld:
         self.terrain[xs[mask], ys[mask]] = terrain_type
         # Xóa thức ăn nếu lỡ trùng vị trí (không cho thức ăn mọc trong đá/nước)
         self.food[xs[mask], ys[mask]] = 0
-        feature = (terrain_type, int(cx), int(cy), float(radius))
+        fid = self._next_feature_id
+        self._next_feature_id += 1
+        feature = (fid, terrain_type, int(cx), int(cy), float(radius))
         self.terrain_features.append(feature)
         return feature
+
+    def remove_features_near(self, x, y, radius):
+        """Xóa các vùng địa hình (đá/nước) có tâm nằm trong bán kính chỉ
+        định quanh (x, y) - dùng cho công cụ 'Xóa'. Trả về danh sách các
+        feature đã xóa (để main.py hủy entity 3D tương ứng)."""
+        n = cfg.GRID_SIZE
+        remaining = []
+        removed = []
+        for feature in self.terrain_features:
+            fid, ftype, cx, cy, r = feature
+            if np.hypot(cx - x, cy - y) <= radius:
+                removed.append(feature)
+                rr = int(round(r))
+                x0, x1 = max(0, cx - rr), min(n, cx + rr + 1)
+                y0, y1 = max(0, cy - rr), min(n, cy + rr + 1)
+                xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
+                mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= rr ** 2
+                self.terrain[xs[mask], ys[mask]] = cfg.TERRAIN_EMPTY
+            else:
+                remaining.append(feature)
+        self.terrain_features = remaining
+        return removed
+
+    def clear_food_near(self, x, y, radius):
+        """Xóa sạch thức ăn trong bán kính chỉ định quanh (x, y) - dùng cho
+        công cụ 'Xóa'."""
+        n = cfg.GRID_SIZE
+        r = int(round(radius))
+        x0, x1 = max(0, int(x) - r), min(n, int(x) + r + 1)
+        y0, y1 = max(0, int(y) - r), min(n, int(y) + r + 1)
+        xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
+        mask = (xs - x) ** 2 + (ys - y) ** 2 <= r ** 2
+        self.food[xs[mask], ys[mask]] = 0
 
     def is_blocked(self, xi, yi):
         """Trả về mảng bool: ô nào đang là chướng ngại vật (đá/nước)."""
@@ -86,6 +123,7 @@ class SurfaceWorld:
 
     def decay_pheromone(self):
         self.pheromone *= cfg.PHEROMONE_DECAY
+        self.danger_pheromone *= cfg.DANGER_PHEROMONE_DECAY
 
     def deposit_pheromone(self, xi, yi):
         """xi, yi: mảng chỉ số nguyên (đã clip trong biên)."""
@@ -94,6 +132,22 @@ class SurfaceWorld:
 
     def sample_pheromone(self, xi, yi):
         return self.pheromone[xi, yi]
+
+    def deposit_danger(self, x, y):
+        """Phát ra mùi báo động nguy hiểm quanh vị trí (x, y) - dùng khi có
+        kẻ thù đang hoạt động trên mặt đất, lan tỏa trong bán kính nhỏ."""
+        n = cfg.GRID_SIZE
+        r = cfg.DANGER_DEPOSIT_RADIUS
+        cx, cy = int(round(x)), int(round(y))
+        x0, x1 = max(0, cx - r), min(n, cx + r + 1)
+        y0, y1 = max(0, cy - r), min(n, cy + r + 1)
+        xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
+        mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= r ** 2
+        self.danger_pheromone[xs[mask], ys[mask]] += cfg.DANGER_DEPOSIT_AMOUNT
+        np.clip(self.danger_pheromone, 0, cfg.DANGER_PHEROMONE_MAX, out=self.danger_pheromone)
+
+    def sample_danger(self, xi, yi):
+        return self.danger_pheromone[xi, yi]
 
     def take_food(self, xi, yi, amount=1.0):
         """Trừ thức ăn tại các ô, trả về (mảng bool nơi lấy được, mảng loại
@@ -155,12 +209,15 @@ class UndergroundWorld:
             dtype=np.float32,
         )
 
-        # Danh sách phòng để vẽ (tên, tâm, bán kính, màu gợi ý)
+        # Danh sách phòng để vẽ (id, tên, tâm, bán kính, màu gợi ý) - ID 0,1,2
+        # là 3 phòng GỐC (không thể xóa vì hành vi kiến phụ thuộc trực tiếp
+        # vào chúng); phòng do người chơi tự đào sẽ có ID >= 3.
         self.rooms = [
-            (f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70)),
-            (f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120)),
-            (f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140)),
+            (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70)),
+            (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120)),
+            (2, f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140)),
         ]
+        self._next_room_id = 3
         # Hành lang nối giếng <-> từng phòng, và kho <-> phòng chúa
         self.corridors = [
             (self.shaft, self.storage),
@@ -231,22 +288,62 @@ class UndergroundWorld:
 
     def dig_new_room(self, x, y):
         """Đào 1 phòng mới do người chơi chỉ định vị trí (x, y) trên mặt
-        đất - độ sâu tự động tăng dần theo số phòng đã đào, nối hành lang
-        tới phòng/giếng gần nhất. Trả về (name, center, radius, rgb) vừa
+        đất - độ sâu tự động tăng dần theo số phòng ĐÃ TỪNG đào (kể cả đã
+        xóa, để không bị trùng độ sâu/tên khi đào lại), nối hành lang tới
+        phòng/giếng gần nhất. Trả về (id, name, center, radius, rgb) vừa
         tạo để main.py vẽ thêm lên màn hình 3D."""
-        dug_count = len(self.rooms) - 3  # 3 phòng gốc: kho, ấu trùng, chúa
-        depth = -6.0 - dug_count * 3.0
+        room_id = self._next_room_id
+        dug_index = room_id - 3
+        self._next_room_id += 1
+
+        depth = -6.0 - dug_index * 3.0
         depth = max(depth, -cfg.WORLD_DEPTH + 2.0)  # không đào vượt đáy khối kính
         center = np.array([x, y, depth], dtype=np.float32)
 
         # Nối tới phòng/giếng gần nhất (theo khoảng cách ngang x,y)
-        candidates = [self.shaft] + [r[1] for r in self.rooms]
+        candidates = [self.shaft] + [r[2] for r in self.rooms]
         dists = [np.hypot(c[0] - x, c[1] - y) for c in candidates]
         nearest = candidates[int(np.argmin(dists))]
 
-        name = f"Phong dao #{dug_count + 1}"
+        name = f"Phong dao #{dug_index + 1}"
         rgb = (140, 150, 175)
         radius = cfg.ROOM_RADIUS * 0.8
-        self.rooms.append((name, center, radius, rgb))
+        room = (room_id, name, center, radius, rgb)
+        self.rooms.append(room)
         self.corridors.append((nearest, center))
-        return name, center, radius, rgb
+        return room
+
+    def find_dug_room_near(self, x, y, radius):
+        """Tìm 1 phòng do người chơi TỰ ĐÀO (ID >= 3, không bao giờ trả về
+        3 phòng gốc) có tâm nằm trong bán kính quanh (x, y). Trả về room
+        tuple hoặc None nếu không có."""
+        for room in self.rooms:
+            room_id, name, center, radius_room, rgb = room
+            if room_id < 3:
+                continue  # không bao giờ cho xóa 3 phòng gốc
+            if np.hypot(center[0] - x, center[1] - y) <= radius:
+                return room
+        return None
+
+    def remove_room(self, room_id):
+        """Xóa 1 phòng đã đào theo ID (không có tác dụng với ID < 3 - 3
+        phòng gốc luôn được bảo vệ). Cũng xóa luôn hành lang nối tới nó.
+        Trả về room tuple đã xóa (để main.py hủy entity 3D), hoặc None."""
+        if room_id < 3:
+            return None
+        target = None
+        remaining_rooms = []
+        for room in self.rooms:
+            if room[0] == room_id:
+                target = room
+            else:
+                remaining_rooms.append(room)
+        if target is None:
+            return None
+        self.rooms = remaining_rooms
+        target_center = target[2]
+        self.corridors = [
+            c for c in self.corridors
+            if not (c[0] is target_center or c[1] is target_center)
+        ]
+        return target

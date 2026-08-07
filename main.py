@@ -19,9 +19,13 @@ Can thiệp vào thế giới (thanh công cụ dưới màn hình):
   - "Dat da"      : chọn rồi click để đặt 1 cụm đá (chặn đường kiến)
   - "Dat nuoc"    : chọn rồi click để đặt 1 vũng nước (cũng chặn đường)
   - "Tam dung" / "Toc do xN": điều khiển thời gian mô phỏng
+  - "Tai sinh thuc an: BAT/TAT": bật/tắt việc thức ăn mới tự xuất hiện
+    ngẫu nhiên theo chu kỳ (tắt đi nếu bạn muốn tự kiểm soát hoàn toàn
+    nguồn thức ăn bằng công cụ "Dat thuc an")
 """
 from ursina import *
 import numpy as np
+from PIL import Image
 
 import config as cfg
 from world import SurfaceWorld, UndergroundWorld
@@ -98,6 +102,23 @@ if SHOW_GLASS_BOX:
 # ---------------------------------------------------------------------
 # Mặt đất - có thể bấm phím G để chuyển giữa đục/trong suốt
 # ---------------------------------------------------------------------
+def make_grid_texture(tile_px=48, border_px=2):
+    """Tạo 1 texture ô vuông TRONG SUỐT (alpha=0) trừ viền đen mảnh quanh
+    mép (alpha=255) - dùng cho 1 LỚP RIÊNG nằm trên mặt đất, để đường viền
+    lưới luôn hiển thị rõ ràng dù mặt đất có đang bật độ trong suốt (phím
+    G) hay không. Viền 2px/48px (~4.2%) = khoảng 1/3 độ dày so với bản
+    trước (4px/32px = 12.5%) - tile_px tăng lên 48 để giữ độ nét khi viền
+    mỏng hơn, tránh bị răng cưa quá thô."""
+    arr = np.zeros((tile_px, tile_px, 4), dtype=np.uint8)
+    arr[:border_px, :, 3] = 255
+    arr[-border_px:, :, 3] = 255
+    arr[:, :border_px, 3] = 255
+    arr[:, -border_px:, 3] = 255
+    return Image.fromarray(arr, mode="RGBA")
+
+
+GRID_TEXTURE = Texture(make_grid_texture(), filtering=None)
+
 ground = Entity(
     model="plane",
     scale=(cfg.GRID_SIZE, 1, cfg.GRID_SIZE),
@@ -105,6 +126,18 @@ ground = Entity(
     color=rgb255(205, 178, 132, 235),
     double_sided=True,
     collider="box",
+)
+# Lớp lưới ô vuông RIÊNG, nằm ngay trên mặt đất - LUÔN hiển thị đầy đủ độ
+# rõ nét (alpha 255) kể cả khi bạn bấm phím G làm mặt đất trong suốt, vì
+# đây là 1 entity độc lập, không dùng chung độ trong suốt với ground.
+ground_grid_lines = Entity(
+    model="plane",
+    scale=(cfg.GRID_SIZE, 1, cfg.GRID_SIZE),
+    position=(0, 0.01, 0),
+    color=color.black,
+    texture=GRID_TEXTURE,
+    texture_scale=(cfg.GRID_SIZE, cfg.GRID_SIZE),
+    double_sided=True,
 )
 GROUND_OPAQUE_ALPHA = 235
 GROUND_TRANSPARENT_ALPHA = 55
@@ -127,7 +160,8 @@ rival_nest_hole = Entity(
 # Các phòng dưới hầm - vẽ bằng hàm dùng lại được (cho cả lúc khởi tạo lẫn
 # lúc người chơi đào thêm phòng mới bằng công cụ)
 # ---------------------------------------------------------------------
-def create_room_entity(name, center, radius, rgb):
+def create_room_entity(room):
+    room_id, name, center, radius, rgb = room
     room_ent = Entity(
         model="sphere",
         scale=radius * 2,
@@ -139,7 +173,7 @@ def create_room_entity(name, center, radius, rgb):
     # khổng lồ che kín màn hình. Gắn thẳng vào 'scene' và tự tính vị trí.
     label_pos = sim_to_world(center[0], center[1], center[2])
     label_pos = (label_pos[0], label_pos[1] + radius + 1.2, label_pos[2])
-    Text(
+    label_ent = Text(
         parent=scene,
         text=name,
         position=label_pos,
@@ -148,7 +182,7 @@ def create_room_entity(name, center, radius, rgb):
         origin=(0, 0),
         color=color.white,
     )
-    return room_ent
+    return room_ent, label_ent
 
 
 def create_corridor_entity(a, b):
@@ -179,24 +213,43 @@ def create_queen_visual(underground, rgb):
     )
 
 
-for name, center, radius, rgb in underground_world.rooms:
-    create_room_entity(name, center, radius, rgb)
+room_entities = {}       # room_id -> (room_ent, label_ent)
+corridor_entities = {}   # id(center của đầu B) -> Entity hành lang
+
+
+def register_room(room):
+    room_ent, label_ent = create_room_entity(room)
+    room_entities[room[0]] = (room_ent, label_ent)
+
+
+def register_corridor(a, b):
+    ent = create_corridor_entity(a, b)
+    corridor_entities[id(b)] = ent
+
+
+for room in underground_world.rooms:
+    register_room(room)
 for a, b in underground_world.corridors:
-    create_corridor_entity(a, b)
+    register_corridor(a, b)
 create_queen_visual(underground_world, (150, 70, 160))
 
-for name, center, radius, rgb in rival_underground.rooms:
-    create_room_entity(name, center, radius, rgb)
+for room in rival_underground.rooms:
+    register_room(room)
 for a, b in rival_underground.corridors:
-    create_corridor_entity(a, b)
+    register_corridor(a, b)
 create_queen_visual(rival_underground, (170, 60, 60))
 
 # ---------------------------------------------------------------------
 # Địa hình: đá (chặn đường) và nước (chặn đường, màu xanh trong suốt) -
 # vẽ bằng hàm dùng lại được cho cả lúc khởi tạo lẫn khi người chơi tự đặt
-# thêm bằng công cụ
-# ---------------------------------------------------------------------
-def create_terrain_entity(terrain_type, cx, cy, radius):
+# thêm bằng công cụ. terrain_entities: {feature_id: [list Entity]} - để
+# công cụ "Xóa" có thể hủy đúng các entity 3D khi xóa 1 vùng địa hình.
+terrain_entities = {}
+
+
+def create_terrain_entity(feature):
+    fid, terrain_type, cx, cy, radius = feature
+    created = []
     if terrain_type == cfg.TERRAIN_ROCK:
         # vài khối đá nhỏ xếp lệch nhau cho tự nhiên, thay vì 1 khối tròn đều
         rng_local = np.random.default_rng(int(cx * 1000 + cy))
@@ -205,23 +258,25 @@ def create_terrain_entity(terrain_type, cx, cy, radius):
             ox = rng_local.uniform(-radius * 0.6, radius * 0.6)
             oy = rng_local.uniform(-radius * 0.6, radius * 0.6)
             s = rng_local.uniform(0.7, 1.5)
-            Entity(
+            created.append(Entity(
                 model="cube",
                 scale=(s, s * rng_local.uniform(0.6, 1.1), s),
                 position=sim_to_world(cx + ox, cy + oy, 0.0),
                 rotation=(0, rng_local.uniform(0, 360), 0),
                 color=rgb255(120, 118, 112, 255),
-            )
+            ))
     else:  # TERRAIN_WATER
-        Entity(
+        created.append(Entity(
             model=Cylinder(resolution=16, radius=radius, height=0.06),
             position=sim_to_world(cx, cy, 0.05),
             color=rgb255(70, 140, 200, 175),
-        )
+        ))
+    terrain_entities[fid] = created
+    return created
 
 
-for terrain_type, cx, cy, radius in surface_world.terrain_features:
-    create_terrain_entity(terrain_type, cx, cy, radius)
+for feature in surface_world.terrain_features:
+    create_terrain_entity(feature)
 
 # ---------------------------------------------------------------------
 # Thức ăn trên mặt đất (lấy mẫu thưa để không tạo quá nhiều entity)
@@ -246,6 +301,23 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
             food_entities[(gx, gy)] = ent
 
 
+def ensure_food_entity(gx, gy):
+    """Đảm bảo ô (gx, gy) có entity thức ăn hiển thị - tạo mới nếu chưa có,
+    hoặc bật lại + cập nhật màu nếu đã có sẵn. Dùng chung cho: thức ăn lúc
+    khởi tạo, thức ăn người chơi tự đặt, và thức ăn tái sinh ngẫu nhiên."""
+    if (gx, gy) not in food_entities:
+        food_entities[(gx, gy)] = Entity(
+            model="sphere",
+            scale=0.55,
+            position=sim_to_world(gx, gy, 0.2),
+            color=food_color_for(gx, gy),
+        )
+    else:
+        ent = food_entities[(gx, gy)]
+        ent.enabled = True
+        ent.color = food_color_for(gx, gy)
+
+
 def place_food_at(gx, gy, amount=8.0, food_type=None):
     """Đặt thức ăn tại 1 ô lưới cụ thể (dùng cho công cụ click chuột) -
     tạo entity hiển thị nếu ô đó chưa có sẵn. Nếu không chỉ định loại,
@@ -258,17 +330,19 @@ def place_food_at(gx, gy, amount=8.0, food_type=None):
         food_type = int(np.random.choice(types, p=weights))
     surface_world.food[gx, gy] += amount
     surface_world.food_type[gx, gy] = food_type
-    if (gx, gy) not in food_entities:
-        food_entities[(gx, gy)] = Entity(
-            model="sphere",
-            scale=0.55,
-            position=sim_to_world(gx, gy, 0.2),
-            color=food_color_for(gx, gy),
-        )
-    else:
-        ent = food_entities[(gx, gy)]
-        ent.enabled = True
-        ent.color = food_color_for(gx, gy)
+    ensure_food_entity(gx, gy)
+
+
+def do_random_food_respawn():
+    """Tái sinh 1 cụm thức ăn ngẫu nhiên MỚI trên bản đồ (khác với
+    place_food_at - đây là 1 cụm nhỏ lan ra vài ô xung quanh tâm, giống lúc
+    thế giới khởi tạo) và đảm bảo có entity hiển thị (trước đây bị thiếu
+    bước này nên thức ăn tái sinh không hiện ra được trên màn hình)."""
+    cx, cy = surface_world.respawn_random_cluster()
+    r = int(round(cfg.FOOD_CLUSTER_RADIUS))
+    for gx in range(max(0, cx - r), min(cfg.GRID_SIZE, cx + r + 1)):
+        for gy in range(max(0, cy - r), min(cfg.GRID_SIZE, cy + r + 1)):
+            ensure_food_entity(gx, gy)
 
 # ---------------------------------------------------------------------
 # Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu.
@@ -284,6 +358,7 @@ def make_ant_entities(colony_obj, base_color):
 
 
 ant_entities = make_ant_entities(colony, color.black)
+ant_render_state = np.full(colony.n, -2, dtype=np.int8)  # -2 = chưa gán lần nào
 
 COLOR_SEARCH = rgb255(25, 25, 25)
 COLOR_CARRY_SURFACE = rgb255(215, 120, 30)
@@ -292,6 +367,7 @@ COLOR_CARRY_UNDERGROUND = rgb255(235, 190, 70)
 
 # Tổ đối thủ - tông màu đỏ/nâu để phân biệt rõ với tổ chính (đen/cam)
 rival_ant_entities = make_ant_entities(rival_colony, rgb255(120, 30, 25))
+rival_ant_render_state = np.full(rival_colony.n, -2, dtype=np.int8)
 RIVAL_COLOR_SEARCH = rgb255(120, 30, 25)
 RIVAL_COLOR_CARRY_SURFACE = rgb255(230, 140, 40)
 RIVAL_COLOR_UNDERGROUND = rgb255(200, 160, 155)
@@ -314,6 +390,8 @@ enemy_entity = Entity(
 current_tool = None   # None | "food" | "enemy" | "dig"
 sim_paused = False
 sim_speed = 1          # 1, 2, hoặc 4 lần tốc độ mỗi khung hình
+food_respawn_enabled = True   # bật/tắt tái sinh thức ăn ngẫu nhiên theo "mùa"
+food_respawn_tick = 0
 
 TOOL_BUTTON_COLOR = rgb255(40, 40, 45, 235)
 TOOL_BUTTON_ACTIVE_COLOR = rgb255(70, 130, 180, 235)
@@ -332,7 +410,7 @@ def make_tool_button(label, tool_name, x):
     btn = Button(
         text=label,
         parent=camera.ui,
-        position=(x, -0.45),
+        position=(x, -0.42),
         scale=(0.135, 0.06),
         color=TOOL_BUTTON_COLOR,
         text_size=0.65,
@@ -347,11 +425,12 @@ make_tool_button("Tha ke thu", "enemy", -0.465)
 make_tool_button("Dao phong", "dig", -0.31)
 make_tool_button("Dat da", "rock", -0.155)
 make_tool_button("Dat nuoc", "water", 0.0)
+make_tool_button("Xoa", "erase", 0.155)
 
 pause_button = Button(
     text="Tam dung",
     parent=camera.ui,
-    position=(0.30, -0.45),
+    position=(0.32, -0.42),
     scale=(0.13, 0.06),
     color=TOOL_BUTTON_COLOR,
     text_size=0.7,
@@ -359,7 +438,7 @@ pause_button = Button(
 speed_button = Button(
     text="Toc do: x1",
     parent=camera.ui,
-    position=(0.46, -0.45),
+    position=(0.48, -0.42),
     scale=(0.15, 0.06),
     color=TOOL_BUTTON_COLOR,
     text_size=0.7,
@@ -382,10 +461,142 @@ def _cycle_speed():
 pause_button.on_click = _toggle_pause
 speed_button.on_click = _cycle_speed
 
+# Hàng nút thứ 2 (NGAY DƯỚI hàng 1, vẫn trong khung hình - trước đây đặt
+# quá thấp (-0.53) nên bị cắt mất khỏi vùng nhìn thấy của camera.ui)
+respawn_button = Button(
+    text="Tai sinh thuc an: BAT",
+    parent=camera.ui,
+    position=(-0.62, -0.485),
+    scale=(0.28, 0.055),
+    color=TOOL_BUTTON_ACTIVE_COLOR,
+    text_size=0.6,
+)
+
+
+def _toggle_food_respawn():
+    global food_respawn_enabled
+    food_respawn_enabled = not food_respawn_enabled
+    respawn_button.text = f"Tai sinh thuc an: {'BAT' if food_respawn_enabled else 'TAT'}"
+    respawn_button.color = TOOL_BUTTON_ACTIVE_COLOR if food_respawn_enabled else TOOL_BUTTON_COLOR
+
+
+respawn_button.on_click = _toggle_food_respawn
+
+grid_visible = True
+grid_button = Button(
+    text="Luoi o vuong: BAT",
+    parent=camera.ui,
+    position=(-0.30, -0.485),
+    scale=(0.24, 0.055),
+    color=TOOL_BUTTON_ACTIVE_COLOR,
+    text_size=0.6,
+)
+
+
+def _toggle_grid():
+    global grid_visible
+    grid_visible = not grid_visible
+    ground_grid_lines.enabled = grid_visible
+    grid_button.text = f"Luoi o vuong: {'BAT' if grid_visible else 'TAT'}"
+    grid_button.color = TOOL_BUTTON_ACTIVE_COLOR if grid_visible else TOOL_BUTTON_COLOR
+
+
+grid_button.on_click = _toggle_grid
+
+# ---------------------------------------------------------------------
+# Biểu đồ lịch sử dân số theo thời gian - panel nhỏ góc phải màn hình,
+# lấy mẫu định kỳ và vẽ lại bằng 2 đường line (tổ chính/tổ đối thủ)
+# ---------------------------------------------------------------------
+pop_history_main = []
+pop_history_rival = []
+history_tick = 0
+
+GRAPH_X, GRAPH_Y = 0.63, 0.10       # tâm panel (tọa độ UI)
+GRAPH_W, GRAPH_H = 0.30, 0.24        # kích thước panel
+
+graph_panel_bg = Entity(
+    parent=camera.ui,
+    model="quad",
+    color=rgb255(0, 0, 0, 130),
+    scale=(GRAPH_W, GRAPH_H),
+    position=(GRAPH_X, GRAPH_Y),
+)
+graph_title = Text(
+    parent=camera.ui,
+    text="Dan so theo thoi gian",
+    position=(GRAPH_X - GRAPH_W / 2 + 0.01, GRAPH_Y + GRAPH_H / 2 - 0.015),
+    scale=0.6,
+    color=color.white,
+)
+graph_line_main_entity = None
+graph_line_rival_entity = None
+graph_visible = True
+
+
+def _history_to_points(history, max_val):
+    n = len(history)
+    pts = []
+    x0 = GRAPH_X - GRAPH_W / 2 + 0.015
+    x1 = GRAPH_X + GRAPH_W / 2 - 0.015
+    y0 = GRAPH_Y - GRAPH_H / 2 + 0.015
+    y1 = GRAPH_Y + GRAPH_H / 2 - 0.05
+    for i, v in enumerate(history):
+        t = i / max(1, cfg.HISTORY_MAX_POINTS - 1)
+        x = x0 + t * (x1 - x0)
+        y = y0 + min(1.0, v / max_val) * (y1 - y0)
+        pts.append((x, y, 0))
+    return pts
+
+
+def redraw_graph():
+    global graph_line_main_entity, graph_line_rival_entity
+    if graph_line_main_entity is not None:
+        destroy(graph_line_main_entity)
+        graph_line_main_entity = None
+    if graph_line_rival_entity is not None:
+        destroy(graph_line_rival_entity)
+        graph_line_rival_entity = None
+    if not graph_visible or len(pop_history_main) < 2:
+        return
+    max_val = max(colony.n, rival_colony.n, 1)
+    graph_line_main_entity = Entity(
+        parent=camera.ui,
+        model=Mesh(vertices=_history_to_points(pop_history_main, max_val), mode="line", thickness=3),
+        color=color.black,
+    )
+    graph_line_rival_entity = Entity(
+        parent=camera.ui,
+        model=Mesh(vertices=_history_to_points(pop_history_rival, max_val), mode="line", thickness=3),
+        color=rgb255(150, 30, 25),
+    )
+
+
+graph_button = Button(
+    text="Bieu do: HIEN",
+    parent=camera.ui,
+    position=(0.02, -0.485),
+    scale=(0.20, 0.055),
+    color=TOOL_BUTTON_ACTIVE_COLOR,
+    text_size=0.6,
+)
+
+
+def _toggle_graph():
+    global graph_visible
+    graph_visible = not graph_visible
+    graph_panel_bg.enabled = graph_visible
+    graph_title.enabled = graph_visible
+    graph_button.text = f"Bieu do: {'HIEN' if graph_visible else 'AN'}"
+    graph_button.color = TOOL_BUTTON_ACTIVE_COLOR if graph_visible else TOOL_BUTTON_COLOR
+    redraw_graph()
+
+
+graph_button.on_click = _toggle_graph
+
 tool_hint = Text(
     parent=camera.ui,
-    text="Chon 1 cong cu roi CLICK CHUOT TRAI len mat dat de dung",
-    position=(-0.55, -0.38),
+    text="Chon cong cu, CLICK hoac GIU+KEO chuot trai len mat dat de dung",
+    position=(-0.55, -0.35),
     scale=0.7,
     color=color.yellow,
 )
@@ -418,36 +629,79 @@ STATS_EVERY_N_FRAMES = 15
 
 
 def render_colony(colony_obj, entities, color_search, color_carry_surface,
-                   color_underground, color_carry_underground):
+                   color_underground, color_carry_underground, last_state):
+    """last_state: mảng NumPy lưu "trạng thái màu" đã gán lần trước cho mỗi
+    con kiến (0=search,1=carry_surface,2=underground,3=carry_underground,
+    -1=đang ẩn) - CHỈ gán lại ent.color/ent.enabled khi trạng thái thực sự
+    đổi, tránh Panda3D phải cập nhật render-state thừa cho hàng trăm con
+    kiến không đổi màu ở mỗi khung hình (đa số các tick, phần lớn đàn kiến
+    giữ nguyên trạng thái từ tick trước)."""
     xs, ys, zs = colony_obj.x, colony_obj.y, colony_obj.z
     carrying = colony_obj.carrying
     layer = colony_obj.layer
     alive = colony_obj.alive
     for i, ent in enumerate(entities):
         if not alive[i]:
-            ent.enabled = False
+            if last_state[i] != -1:
+                ent.enabled = False
+                last_state[i] = -1
             continue
-        ent.enabled = True
-        ent.position = sim_to_world(xs[i], ys[i], zs[i])
+        ent.position = sim_to_world(xs[i], ys[i], zs[i])  # vị trí luôn đổi, phải cập nhật mỗi frame
+
         if layer[i] == cfg.LAYER_SURFACE:
-            ent.color = color_carry_surface if carrying[i] else color_search
+            new_state = 1 if carrying[i] else 0
         else:
-            ent.color = color_carry_underground if carrying[i] else color_underground
+            new_state = 3 if carrying[i] else 2
+
+        if last_state[i] != new_state:
+            if last_state[i] == -1:
+                ent.enabled = True
+            ent.color = (color_search, color_carry_surface,
+                         color_underground, color_carry_underground)[new_state]
+            last_state[i] = new_state
 
 
 def update():
-    global frame_counter
+    global frame_counter, food_respawn_tick, drag_cooldown, history_tick
+
+    # --- Kéo chuột để rải liên tục (thức ăn/đá/nước/xóa) ---
+    if current_tool in DRAG_TOOLS and held_keys["left mouse"]:
+        if drag_cooldown <= 0:
+            pos = get_ground_click_sim_xy()
+            if pos is not None:
+                perform_tool_action(current_tool, pos[0], pos[1])
+                drag_cooldown = DRAG_PLACE_INTERVAL_FRAMES
+        else:
+            drag_cooldown -= 1
+    else:
+        drag_cooldown = 0
+
     if not sim_paused:
         for _ in range(sim_speed):
             colony.update()
             rival_colony.update()
             enemy.update(ALL_COLONIES)
+            if enemy.active:
+                surface_world.deposit_danger(enemy.x, enemy.y)
+            if food_respawn_enabled:
+                food_respawn_tick += 1
+                if food_respawn_tick % cfg.FOOD_RESPAWN_INTERVAL == 0:
+                    do_random_food_respawn()
+
+            history_tick += 1
+            if history_tick % cfg.HISTORY_SAMPLE_INTERVAL == 0:
+                pop_history_main.append(int(colony.alive.sum()))
+                pop_history_rival.append(int(rival_colony.alive.sum()))
+                if len(pop_history_main) > cfg.HISTORY_MAX_POINTS:
+                    del pop_history_main[0]
+                    del pop_history_rival[0]
+                redraw_graph()
 
     render_colony(colony, ant_entities, COLOR_SEARCH, COLOR_CARRY_SURFACE,
-                  COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND)
+                  COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND, ant_render_state)
     render_colony(rival_colony, rival_ant_entities, RIVAL_COLOR_SEARCH,
                   RIVAL_COLOR_CARRY_SURFACE, RIVAL_COLOR_UNDERGROUND,
-                  RIVAL_COLOR_CARRY_UNDERGROUND)
+                  RIVAL_COLOR_CARRY_UNDERGROUND, rival_ant_render_state)
 
     enemy_entity.enabled = enemy.active
     if enemy.active:
@@ -476,6 +730,85 @@ def update():
         )
 
 
+def perform_tool_action(tool, sim_x, sim_y):
+    """Thực hiện hành động của 1 công cụ tại tọa độ lưới (sim_x, sim_y).
+    Dùng chung cho cả click chuột đơn lẻ (input()) và kéo chuột liên tục
+    (update() khi giữ chuột trái - xem DRAG_TOOLS bên dưới)."""
+    if tool == "food":
+        place_food_at(int(sim_x), int(sim_y))
+    elif tool == "enemy":
+        enemy.force_spawn_at(sim_x, sim_y)
+    elif tool == "dig":
+        room = underground_world.dig_new_room(sim_x, sim_y)
+        register_room(room)
+        new_center = room[2]
+        register_corridor(underground_world.corridors[-1][0], new_center)
+    elif tool == "rock":
+        feature = surface_world.add_obstacle(
+            int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS
+        )
+        create_terrain_entity(feature)
+    elif tool == "water":
+        feature = surface_world.add_obstacle(
+            int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS
+        )
+        create_terrain_entity(feature)
+    elif tool == "erase":
+        # Xóa thức ăn quanh điểm click
+        surface_world.clear_food_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+        for (fx, fy), ent in food_entities.items():
+            if (fx - sim_x) ** 2 + (fy - sim_y) ** 2 <= cfg.ERASE_RADIUS ** 2:
+                ent.enabled = False
+        # Xóa đá/nước có tâm nằm trong bán kính xóa
+        removed = surface_world.remove_features_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+        for feature in removed:
+            fid = feature[0]
+            for ent in terrain_entities.pop(fid, []):
+                destroy(ent)
+        # Xóa 1 phòng do người chơi tự đào (KHÔNG bao giờ xóa được
+        # 3 phòng gốc: kho/ấu trùng/chúa - kiến cần chúng để sống)
+        for uworld in (underground_world, rival_underground):
+            dug_room = uworld.find_dug_room_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+            if dug_room is not None:
+                removed_room = uworld.remove_room(dug_room[0])
+                if removed_room is not None:
+                    for ent in room_entities.pop(removed_room[0], ()):
+                        destroy(ent)
+                    corridor_ent = corridor_entities.pop(id(removed_room[2]), None)
+                    if corridor_ent is not None:
+                        destroy(corridor_ent)
+        # Xóa kiến (của bất kỳ tổ nào) trong bán kính xóa
+        for col in ALL_COLONIES:
+            on_surface = col.alive & (col.layer == cfg.LAYER_SURFACE)
+            if np.any(on_surface):
+                idx = np.where(on_surface)[0]
+                dist2 = (col.x[idx] - sim_x) ** 2 + (col.y[idx] - sim_y) ** 2
+                kill_idx = idx[dist2 <= cfg.ERASE_RADIUS ** 2]
+                if len(kill_idx) > 0:
+                    col.alive[kill_idx] = False
+                    col.underground.total_deaths += len(kill_idx)
+
+
+def get_ground_click_sim_xy():
+    """Trả về (sim_x, sim_y) nếu chuột đang trỏ vào mặt đất, ngược lại None."""
+    if mouse.hovered_entity == ground and mouse.world_point is not None:
+        sim_x, sim_y, _ = world_to_sim(*mouse.world_point)
+        sim_x = float(np.clip(sim_x, 1, cfg.GRID_SIZE - 2))
+        sim_y = float(np.clip(sim_y, 1, cfg.GRID_SIZE - 2))
+        return sim_x, sim_y
+    return None
+
+
+# Các công cụ cho phép "kéo chuột để rải liên tục" thay vì chỉ click từng
+# điểm - đặt thức ăn/đá/nước/xóa đều hợp lý khi rải dọc theo đường kéo.
+# "Tha ke thu" và "Dao phong" CHỦ Ý không cho kéo liên tục (thả nhiều kẻ
+# thù/đào nhiều phòng liền tù tì khi chỉ lỡ tay kéo chuột sẽ không hợp lý).
+DRAG_TOOLS = {"food", "rock", "water", "erase"}
+DRAG_PLACE_INTERVAL_FRAMES = 6  # cứ mỗi bấy nhiêu khung hình mới rải 1 lần
+                                # khi đang giữ chuột kéo (tránh rải quá dày)
+drag_cooldown = 0
+
+
 def input(key):
     global ground_transparent
     if key == "escape":
@@ -487,29 +820,9 @@ def input(key):
     elif key == "left mouse down" and current_tool is not None:
         # Chỉ xử lý khi thực sự đang trỏ vào MẶT ĐẤT (không phải bấm
         # nhầm vào nút toolbar - mouse.hovered_entity sẽ là ground lúc đó)
-        if mouse.hovered_entity == ground and mouse.world_point is not None:
-            sim_x, sim_y, _ = world_to_sim(*mouse.world_point)
-            sim_x = float(np.clip(sim_x, 1, cfg.GRID_SIZE - 2))
-            sim_y = float(np.clip(sim_y, 1, cfg.GRID_SIZE - 2))
-
-            if current_tool == "food":
-                place_food_at(int(sim_x), int(sim_y))
-            elif current_tool == "enemy":
-                enemy.force_spawn_at(sim_x, sim_y)
-            elif current_tool == "dig":
-                name, center, radius, rgb = underground_world.dig_new_room(sim_x, sim_y)
-                create_room_entity(name, center, radius, rgb)
-                create_corridor_entity(underground_world.corridors[-1][0], center)
-            elif current_tool == "rock":
-                feature = surface_world.add_obstacle(
-                    int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS
-                )
-                create_terrain_entity(*feature)
-            elif current_tool == "water":
-                feature = surface_world.add_obstacle(
-                    int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS
-                )
-                create_terrain_entity(*feature)
+        pos = get_ground_click_sim_xy()
+        if pos is not None:
+            perform_tool_action(current_tool, pos[0], pos[1])
 
 
 app.run()

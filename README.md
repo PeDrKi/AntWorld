@@ -8,6 +8,30 @@ các tầng bằng cách giữ **Ctrl + lăn chuột**.
 
 Dùng thư viện **Pygame** để dựng 2D (không còn Ursina/Panda3D).
 
+## Dân số & sinh sản
+
+- Mỗi đàn khởi tạo **20 con**, có thể **tự sinh sản lớn lên tới tối đa 1000
+  con** (`NUM_ANTS`, `MAX_ANTS_PER_COLONY` trong `config.py`) - không còn bị
+  giới hạn cứng ở đúng số khởi tạo như bản trước.
+- Chúa **đẻ trứng** định kỳ (tốn thức ăn + nước từ kho) thay vì "sinh" kiến
+  trực tiếp. Trứng lớn dần thành ấu trùng thật trong phòng ấu trùng, ăn
+  đúng thức ăn nurse mang tới - đủ lớn mới "nở" thành 1 kiến thợ mới, và
+  chỉ nở được nếu đàn CHƯA chạm trần 1000 con.
+
+## Các phòng ngầm - thực hiện đúng chức năng
+
+- **Kho thức ăn**: hiển thị TRỰC TIẾP lượng thức ăn đang tồn kho dưới dạng
+  1 đống các viên thức ăn màu sắc rải trong phòng (to/nhỏ theo số lượng
+  thật), không chỉ là con số ẩn.
+- **Phòng ấu trùng**: có các ấu trùng THẬT đang lớn dần bên trong (nhỏ/nhợt
+  lúc mới đẻ, to/vàng hơn khi sắp nở) - chúng tiêu thụ thức ăn nurse mang
+  tới để lớn lên, hết thức ăn thì lớn rất chậm.
+- **Phòng chúa**: có 1 con kiến chúa thật đứng giữa phòng (to hẳn so với
+  thợ thường, có bụng/gaster đặc trưng), hơi bồng bềnh nhẹ cho có sức sống.
+- Kiến khi đến phòng nào cũng **lượn lại trong phòng đó một lúc** (trạng
+  thái "dwell") trước khi rời đi, thay vì chỉ chạm tâm phòng rồi quay đầu -
+  để phòng ngầm luôn có "sự sống" thay vì chỉ thấy kiến đi trên đường nối.
+
 ## Cài đặt (Windows)
 
 ```powershell

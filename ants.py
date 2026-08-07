@@ -7,55 +7,65 @@ trong phạm vi tầng hiện tại; khi "xuống/lên" giữa các tầng (qua 
 trí lỗ tổ), depth đổi tức thời như đi thang máy, giống bản 3D cũ chỉ khác
 là không còn nội suy độ sâu liên tục giữa 2 tầng.
 
-Bản có vòng đời: mỗi con kiến có tuổi (age), có thể chết vì già hoặc vì
-đói (phòng ấu trùng rỗng kéo dài). Chúa chỉ sinh kiến mới khi kho đủ thức
-ăn (BIRTH_FOOD_COST) - tài nguyên có hạn thực sự ảnh hưởng tới quy mô đàn.
-Số lượng entity (mảng NumPy) luôn cố định = self.n; kiến "chết" chỉ được
-đánh dấu alive=False (ẩn khi vẽ) và có thể được "tái sử dụng" làm kiến mới
-sinh ra sau này, thay vì cấp phát thêm bộ nhớ."""
+Bản có vòng đời + sinh sản THẬT: đàn khởi tạo với n_start con, nhưng mảng
+NumPy được cấp phát sẵn cho TỐI ĐA max_ants con (self.n) - dùng dead_slots
+(bao gồm cả các "chỗ trống" chưa từng dùng tới) để đàn có thể LỚN LÊN dần
+qua sinh sản, tới khi chạm trần max_ants. Chúa không sinh kiến trực tiếp -
+chúa chỉ đẻ trứng (tốn thức ăn từ kho); trứng lớn dần thành ấu trùng THẬT
+SỰ trong phòng ấu trùng (ăn đúng thức ăn nurse mang tới), và chỉ "nở" thành
+1 kiến thợ mới khi đủ lớn (xem _update_larvae)."""
 import numpy as np
 import config as cfg
 
 
 class AntColony:
-    def __init__(self, n_ants, surface, underground, nest_pos=None):
-        self.n = n_ants
+    def __init__(self, n_start, max_ants, surface, underground, nest_pos=None):
+        self.n = max_ants   # tổng SỐ CHỖ cấp phát sẵn trong mảng = trần dân số
         self.surface = surface
         self.underground = underground
         self.nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         rng = np.random.default_rng()
 
         nest_x, nest_y = self.nest_pos
-        # Vị trí ban đầu: rải quanh cửa tổ trên mặt đất
-        self.x = nest_x + rng.normal(0, 2.0, n_ants).astype(np.float32)
-        self.y = nest_y + rng.normal(0, 2.0, n_ants).astype(np.float32)
+        # Vị trí ban đầu: rải quanh cửa tổ trên mặt đất (kể cả các "chỗ
+        # trống" chưa dùng tới - không quan trọng vì alive=False, sẽ được
+        # gán lại vị trí đúng lúc thật sự "nở" thành kiến ở phòng chúa)
+        self.x = nest_x + rng.normal(0, 2.0, self.n).astype(np.float32)
+        self.y = nest_y + rng.normal(0, 2.0, self.n).astype(np.float32)
         # depth: TẦNG hiện tại đang đứng (0 = mặt đất, 1=kho, 2=ấu trùng,
         # 3=chúa, 4+=phòng tự đào) - dùng để main.py biết vẽ con kiến này
         # lên đúng tầng nào đang xem.
-        self.depth = np.zeros(n_ants, dtype=np.int16)
+        self.depth = np.zeros(self.n, dtype=np.int16)
         np.clip(self.x, 0, cfg.GRID_SIZE - 1, out=self.x)
         np.clip(self.y, 0, cfg.GRID_SIZE - 1, out=self.y)
 
-        self.theta = rng.uniform(0, 2 * np.pi, n_ants).astype(np.float32)
-        self.layer = np.zeros(n_ants, dtype=np.int8)          # 0=mặt đất, 1=dưới hầm (nhị phân, dùng cho state machine)
-        self.state = np.zeros(n_ants, dtype=np.int8)          # STATE_SEARCHING
+        self.theta = rng.uniform(0, 2 * np.pi, self.n).astype(np.float32)
+        self.layer = np.zeros(self.n, dtype=np.int8)          # 0=mặt đất, 1=dưới hầm (nhị phân, dùng cho state machine)
+        self.state = np.zeros(self.n, dtype=np.int8)          # STATE_SEARCHING
         # Dùng cho STATE_DWELL (lượn trong phòng): dwell_ticks = số tick còn
         # lại trước khi tiếp tục hành trình; next_state = trạng thái sẽ
         # chuyển sang ngay khi hết giờ lượn (đã được quyết định từ lúc vừa
         # ĐẾN phòng, ví dụ có trở thành "nurse" hay không)
-        self.dwell_ticks = np.zeros(n_ants, dtype=np.int16)
-        self.next_state = np.zeros(n_ants, dtype=np.int8)
-        self.carrying = np.zeros(n_ants, dtype=bool)
-        self.carry_type = np.zeros(n_ants, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
-        self.carry_amount = np.zeros(n_ants, dtype=np.float32)
+        self.dwell_ticks = np.zeros(self.n, dtype=np.int16)
+        self.next_state = np.zeros(self.n, dtype=np.int8)
+        self.carrying = np.zeros(self.n, dtype=bool)
+        self.carry_type = np.zeros(self.n, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
+        self.carry_amount = np.zeros(self.n, dtype=np.float32)
 
         # --- Phân vai: đa số thợ nhỏ, 1 phần nhỏ là lính (thợ lớn) ---
-        self.role = (rng.uniform(0, 1, n_ants) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
+        self.role = (rng.uniform(0, 1, self.n) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
 
         # --- Vòng đời ---
-        self.alive = np.ones(n_ants, dtype=bool)
+        self.alive = np.zeros(self.n, dtype=bool)
+        self.alive[:n_start] = True     # chỉ n_start con đầu tiên sống ngay
+                                         # từ đầu - phần còn lại là "chỗ
+                                         # trống" dự phòng để đàn lớn lên
         # Tuổi ban đầu rải ngẫu nhiên để đàn không cùng già/chết 1 lượt
-        self.age = rng.uniform(0, cfg.MAX_AGE_TICKS * 0.6, n_ants).astype(np.float32)
+        self.age = rng.uniform(0, cfg.MAX_AGE_TICKS * 0.6, self.n).astype(np.float32)
+
+        # --- Trứng / ấu trùng (phòng ấu trùng NUÔI THẬT, xem _update_larvae) ---
+        self.larva_growth = np.zeros(cfg.LARVA_MAX_COUNT, dtype=np.float32)
+        self.larva_active = np.zeros(cfg.LARVA_MAX_COUNT, dtype=bool)
 
         # Thống kê tích lũy
         self.total_food_collected = 0
@@ -72,6 +82,7 @@ class AntColony:
         if self.surface.has_water_source():
             self.underground.deposit_water(cfg.WATER_BASE_INCOME_PER_TICK)
         self._update_lifecycle()
+        self._update_larvae()
         # LƯU Ý: việc tái sinh thức ăn ngẫu nhiên KHÔNG còn nằm ở đây nữa -
         # đã chuyển sang main.py để có thể bật/tắt bằng nút trên thanh công
         # cụ, và để tránh 2 tổ (chính + đối thủ) cùng kích hoạt trùng lặp
@@ -399,18 +410,52 @@ class AntColony:
             self.alive[died] = False
             self.underground.total_deaths += len(died)
 
-        # --- Sinh sản: chúa thử sinh lứa mới theo chu kỳ, cần đủ thức ăn ---
-        if self.tick_count % cfg.BIRTH_CHECK_INTERVAL == 0:
-            dead_slots = np.where(~self.alive)[0]
-            if len(dead_slots) > 0:
-                got_food = self.underground.try_consume_for_birth(
-                    cfg.BIRTH_FOOD_COST, cfg.BIRTH_WATER_COST
+        # --- Đẻ trứng: chúa thử đẻ 1 trứng mới theo chu kỳ, cần đủ thức ăn
+        # + nước TRONG KHO. Trứng KHÔNG lập tức thành kiến - nó được chuyển
+        # qua _update_larvae() để lớn lên thật sự trong phòng ấu trùng. ---
+        if self.tick_count % cfg.EGG_LAY_INTERVAL == 0:
+            free_larva_slots = np.where(~self.larva_active)[0]
+            has_ant_capacity = np.any(~self.alive)
+            if len(free_larva_slots) > 0 and has_ant_capacity:
+                got_food = self.underground.try_consume_for_egg(
+                    cfg.EGG_FOOD_COST, cfg.EGG_WATER_COST
                 )
                 if got_food:
-                    n_new = min(cfg.BIRTH_BATCH_SIZE, len(dead_slots))
-                    new_idx = dead_slots[:n_new]
-                    self._spawn_new_ants(new_idx)
-                    self.underground.total_births += n_new
+                    slot = free_larva_slots[0]
+                    self.larva_active[slot] = True
+                    self.larva_growth[slot] = 0.0
+
+    def _update_larvae(self):
+        """Ấu trùng ĐANG CÓ trong phòng ấu trùng lớn lên dần bằng cách ăn
+        thức ăn nurse mang tới (food_in_nursery) - hết thức ăn ở đó thì lớn
+        rất chậm thay vì dừng hẳn. Ấu trùng đủ lớn (growth >= 1.0) sẽ "nở"
+        thành 1 kiến thợ mới, NẾU còn chỗ trống trong đàn (chưa chạm trần
+        max_ants) - nếu chưa có chỗ, ấu trùng chờ (growth giữ ở mức tối đa)
+        tới khi có kiến khác chết đi, nhường chỗ."""
+        active = np.where(self.larva_active)[0]
+        if len(active) == 0:
+            return
+
+        has_food = self.underground.food_in_nursery > 0
+        growth_rate = cfg.LARVA_GROWTH_PER_TICK * (1.0 if has_food else cfg.LARVA_GROWTH_STARVED_FACTOR)
+        self.larva_growth[active] = np.clip(self.larva_growth[active] + growth_rate, 0.0, 1.0)
+        if has_food:
+            eaten = cfg.LARVA_FOOD_PER_TICK * len(active)
+            self.underground.food_in_nursery = max(0.0, self.underground.food_in_nursery - eaten)
+
+        mature = active[self.larva_growth[active] >= 1.0]
+        if len(mature) == 0:
+            return
+        dead_slots = np.where(~self.alive)[0]
+        n_hatch = min(len(mature), len(dead_slots))
+        if n_hatch == 0:
+            return  # đủ lớn nhưng đàn đã đầy chỗ - chờ tới khi có chỗ trống
+        hatch_larvae = mature[:n_hatch]
+        new_ants = dead_slots[:n_hatch]
+        self.larva_active[hatch_larvae] = False
+        self.larva_growth[hatch_larvae] = 0.0
+        self._spawn_new_ants(new_ants)
+        self.underground.total_births += n_hatch
 
     def _spawn_new_ants(self, idx):
         """Tái sử dụng các ô đã chết để tạo kiến mới, xuất hiện tại phòng
@@ -448,4 +493,5 @@ class AntColony:
             "total_deaths": self.underground.total_deaths,
             "is_starving": self.underground.is_starving(),
             "is_dehydrated": self.underground.is_dehydrated(),
+            "larva_count": int(np.sum(self.larva_active)),
         }

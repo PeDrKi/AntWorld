@@ -129,10 +129,10 @@ def main(max_frames=None):
     # -------------------------------------------------------------
     surface_world = SurfaceWorld(protected_nests=[cfg.NEST_POS, cfg.RIVAL_NEST_POS])
     underground_world = UndergroundWorld(cfg.NEST_POS, "")
-    colony = AntColony(cfg.NUM_ANTS, surface_world, underground_world, cfg.NEST_POS)
+    colony = AntColony(cfg.NUM_ANTS, cfg.MAX_ANTS_PER_COLONY, surface_world, underground_world, cfg.NEST_POS)
 
     rival_underground = UndergroundWorld(cfg.RIVAL_NEST_POS, "Doi thu - ")
-    rival_colony = AntColony(cfg.NUM_RIVAL_ANTS, surface_world, rival_underground, cfg.RIVAL_NEST_POS)
+    rival_colony = AntColony(cfg.NUM_RIVAL_ANTS, cfg.MAX_ANTS_PER_COLONY, surface_world, rival_underground, cfg.RIVAL_NEST_POS)
 
     enemy = EnemyManager()
     ALL_COLONIES = [colony, rival_colony]
@@ -405,7 +405,7 @@ def main(max_frames=None):
         draw_ants(surf, colony, (25, 25, 25), (215, 120, 30))
         draw_ants(surf, rival_colony, (120, 30, 25), (230, 140, 40))
 
-    def draw_room_floor(surf, cx, cy, r_px, room_rgb, room_id):
+    def draw_room_floor(surf, cx, cy, r_px, room_rgb, seed_key):
         """Vẽ 1 phòng ngầm như 1 KHU VỰC SÀN thật sự (không phải hình tròn
         trang trí) - có viền tường đất bo tròn + lớp sàn sáng hơn bên trong
         + vài chấm vân sàn để mắt nhận ra ngay đây là không gian kiến có
@@ -419,7 +419,7 @@ def main(max_frames=None):
 
         # vân sàn: vài chấm cố định (không đổi mỗi khung hình) để trông có
         # kết cấu, không phẳng lì
-        rng_local = np.random.RandomState(room_id * 97 + 13)
+        rng_local = np.random.RandomState(seed_key * 97 + 13)
         n_dots = int(np.clip(r_px * r_px / 90, 5, 26))
         ang = rng_local.uniform(0, 2 * np.pi, n_dots)
         rad = np.sqrt(rng_local.uniform(0, 1, n_dots)) * r_px * 0.82
@@ -432,13 +432,78 @@ def main(max_frames=None):
 
         pygame.draw.circle(surf, (0, 0, 0), (cx, cy), r_px + max(2, int(r_px * 0.12)), 2)
 
+    def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
+        """Kho thức ăn KHÔNG chỉ là 1 con số - vẽ luôn số thức ăn ĐANG LƯU
+        TRỮ THẬT SỰ dưới dạng 1 đống nhỏ các viên thức ăn rải trong phòng,
+        đống to/nhỏ tùy theo lượng tồn kho hiện tại. Màu CỐ Ý chọn sáng/rực
+        hơn hẳn màu sàn đất để không bị lẫn với vân sàn (dot texture)."""
+        n_icons = int(np.clip(amount / cfg.STORAGE_FOOD_PER_ICON, 0, cfg.STORAGE_MAX_ICONS))
+        if n_icons <= 0:
+            return
+        rng_local = np.random.RandomState(seed_key * 733 + 5)
+        ang = rng_local.uniform(0, 2 * np.pi, n_icons)
+        rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.72
+        colors = [(255, 210, 40), (235, 130, 35), (150, 210, 60), (230, 90, 70)]
+        for i in range(n_icons):
+            dx = int(math.cos(ang[i]) * rad[i])
+            dy = int(math.sin(ang[i]) * rad[i])
+            r = max(3, int(r_px * 0.14))
+            px, py = cx + dx, cy + dy
+            pygame.draw.circle(surf, (35, 25, 15), (px, py), r + 1)  # viền tối cho nổi khối
+            pygame.draw.circle(surf, colors[i % len(colors)], (px, py), r)
+            hi = max(1, int(r * 0.4))
+            pygame.draw.circle(surf, (255, 255, 230), (px - r // 3, py - r // 3), hi)  # điểm sáng
+
+    def draw_larvae(surf, cx, cy, r_px, colony_obj, seed_key):
+        """Phòng ấu trùng THẬT SỰ có ấu trùng bên trong - mỗi ấu trùng lớn
+        dần theo growth (0..1): bé + trắng nhợt lúc mới đẻ, to + ngả vàng
+        khi sắp nở thành kiến mới."""
+        active_idx = np.where(colony_obj.larva_active)[0]
+        if len(active_idx) == 0:
+            return
+        rng_local = np.random.RandomState(seed_key * 331 + 7)
+        ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)
+        rad = np.sqrt(rng_local.uniform(0, 1, cfg.LARVA_MAX_COUNT)) * r_px * 0.68
+        for i in active_idx:
+            growth = float(colony_obj.larva_growth[i])
+            dx = int(math.cos(ang[i]) * rad[i])
+            dy = int(math.sin(ang[i]) * rad[i])
+            size = max(3, int(r_px * (0.07 + 0.11 * growth)))
+            shade = int(248 - growth * 60)
+            color = (shade, shade, max(140, shade - 55))
+            pygame.draw.ellipse(surf, (60, 55, 25), (cx + dx - size - 1, cy + dy - size * 0.7 - 1, size * 2 + 2, size * 1.4 + 2))
+            pygame.draw.ellipse(surf, color, (cx + dx - size, cy + dy - size * 0.7, size * 2, size * 1.4))
+
+    def draw_queen(surf, cx, cy, r_px, room_rgb):
+        """Phòng chúa THẬT SỰ có 1 con kiến chúa - to hẳn so với thợ
+        thường, đứng yên giữa phòng (chỉ hơi bồng bềnh nhẹ cho có sức
+        sống), với bụng (gaster) to đặc trưng để đẻ trứng."""
+        bob = math.sin(frame_counter * 0.03) * r_px * 0.03
+        qy = cy + bob
+        body_color = tuple(max(0, c - 40) for c in room_rgb)
+        gaster_w, gaster_h = r_px * 0.95, r_px * 0.62
+        pygame.draw.ellipse(surf, body_color, (cx - gaster_w * 0.15, qy - gaster_h / 2, gaster_w, gaster_h))
+        thorax_r = max(3, int(r_px * 0.22))
+        pygame.draw.circle(surf, body_color, (int(cx - gaster_w * 0.35), int(qy)), thorax_r)
+        head_r = max(3, int(r_px * 0.16))
+        head_x, head_y = cx - gaster_w * 0.55, qy
+        pygame.draw.circle(surf, body_color, (int(head_x), int(head_y)), head_r)
+        # râu (antennae)
+        for sign in (-1, 1):
+            end = (head_x - head_r * 1.3, head_y + sign * head_r * 1.1)
+            pygame.draw.line(surf, (20, 20, 20), (head_x - head_r * 0.3, head_y), end, 2)
+        pygame.draw.ellipse(surf, (0, 0, 0), (cx - gaster_w * 0.15, qy - gaster_h / 2, gaster_w, gaster_h), 2)
+
     def draw_underground_layer(surf, depth):
         pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, cfg.SCREEN_W, CANVAS_H))
         cell = camera.cell_px()
         if grid_visible and cell >= 3:
             draw_grid_lines(surf)
 
-        for uworld, base_rgb in ((underground_world, (0, 200, 255)), (rival_underground, (255, 120, 90))):
+        for colony_idx, (uworld, colony_obj, base_rgb) in enumerate((
+            (underground_world, colony, (0, 200, 255)),
+            (rival_underground, rival_colony, (255, 120, 90)),
+        )):
             # giếng (thang máy) - chỉ hiện nếu tổ này CÓ phòng ở tầng này
             has_room_here = any(r[5] == depth for r in uworld.rooms)
             if has_room_here:
@@ -459,13 +524,17 @@ def main(max_frames=None):
                 pygame.draw.line(surf, (95, 85, 78), (int(sx), int(sy)), (int(cx), int(cy)), max(1, int(cell * 0.09)))
 
                 r_px = max(10, int(radius * cell))
-                draw_room_floor(surf, int(cx), int(cy), r_px, room_rgb, room_id)
+                seed_key = room_id * 10 + colony_idx
+                draw_room_floor(surf, int(cx), int(cy), r_px, room_rgb, seed_key)
 
-                if room_id == 2:  # phòng chúa - vẽ thêm biểu tượng chúa (bụng to)
-                    pygame.draw.ellipse(
-                        surf, tuple(max(0, c - 25) for c in room_rgb),
-                        (cx - r_px * 0.5, cy - r_px * 0.3, r_px * 1.0, r_px * 0.6)
-                    )
+                # --- mỗi phòng THỰC SỰ làm đúng chức năng của nó ---
+                if room_id == 0:  # Kho thức ăn: vẽ đống thức ăn tồn kho thật
+                    draw_storage_pile(surf, int(cx), int(cy), r_px, uworld.food_in_storage, seed_key)
+                elif room_id == 1:  # Phòng ấu trùng: vẽ các ấu trùng đang lớn thật
+                    draw_larvae(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+                elif room_id == 2:  # Phòng chúa: vẽ 1 con kiến chúa thật
+                    draw_queen(surf, int(cx), int(cy), r_px, room_rgb)
+
                 label = font_small.render(name, True, (235, 235, 235))
                 surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
 
@@ -507,7 +576,7 @@ def main(max_frames=None):
         title = font_small.render("Dan so theo thoi gian", True, (255, 255, 255))
         surf.blit(title, (panel_x + 8, panel_y + 6))
 
-        max_val = max(colony.n, rival_colony.n, 1)
+        max_val = max(max(pop_history_main, default=1), max(pop_history_rival, default=1), 5)
         pad = 10
         gx0, gx1 = panel_x + pad, panel_x + panel.w - pad
         gy0, gy1 = panel_y + panel.h - pad, panel_y + 26
@@ -537,12 +606,13 @@ def main(max_frames=None):
         khat = "  *** DAN KIEN DANG KHAT NUOC ***" if c["is_dehydrated"] else ""
         ke_thu = "  *** CO KE THU TREN MAT DAT ***" if enemy.active else ""
         lines = [
-            f"TO CHINH - Dan so: {c['population']}/{colony.n} (linh: {c['soldiers']})   "
+            f"TO CHINH - Dan so: {c['population']} (toi da {colony.n}, linh: {c['soldiers']})   "
             f"Sinh: {c['total_births']}  Chet: {c['total_deaths']}",
-            f"TO DOI THU - Dan so: {r['population']}/{rival_colony.n} (linh: {r['soldiers']})   "
+            f"TO DOI THU - Dan so: {r['population']} (toi da {rival_colony.n}, linh: {r['soldiers']})   "
             f"Sinh: {r['total_births']}  Chet: {r['total_deaths']}",
-            f"Kho: {c['food_in_storage']:.0f}  Au trung: {c['food_in_nursery']:.0f}  "
-            f"Nuoc: {c['water_in_storage']:.0f}  Ke thu da giet: {enemy.total_kills}"
+            f"Kho: {c['food_in_storage']:.0f}  Au trung: {c['larva_count']} con "
+            f"(thuc an: {c['food_in_nursery']:.0f})  Nuoc: {c['water_in_storage']:.0f}  "
+            f"Ke thu da giet: {enemy.total_kills}"
             f"{canh_bao}{khat}{ke_thu}",
             "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat",
         ]

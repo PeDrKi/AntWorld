@@ -22,7 +22,8 @@ DUG_ROOM_FIRST_DEPTH = 4    # phòng đầu tiên người chơi tự đào -> t
                             # thêm càng "xuống sâu" thêm 1 tầng mới)
 
 # ----- Kiến -----
-NUM_ANTS = 100              # bản 3D vẽ từng con bằng 1 mesh riêng nên đặt vừa
+NUM_ANTS = 20               # số kiến KHỞI TẠO (không còn là giới hạn tối đa -
+                            # đàn có thể lớn lên qua sinh sản, xem MAX_ANTS_PER_COLONY)
                             # phải để giữ khung hình mượt; có thể tăng dần và
                             # theo dõi FPS hiển thị góc màn hình
 ANT_SPEED = 0.14            # số ô di chuyển mỗi tick (mặt phẳng ngang)
@@ -117,7 +118,7 @@ WATER_STARVATION_GRACE_TICKS = 600     # số tick được phép hết nước 
 DEHYDRATION_DEATH_RATE = 0.0003        # xác suất chết PHỤ THÊM mỗi tick khi
                                         # thiếu nước kéo dài - CỐ Ý đặt THẤP:
                                         # hậu quả CHÍNH của thiếu nước là
-                                        # KHÔNG THỂ SINH SẢN (xem BIRTH_WATER_COST
+                                        # KHÔNG THỂ ĐẺ TRỨNG (xem EGG_WATER_COST
                                         # bên dưới), tránh vòng xoáy chết
                                         # chóc tự gia tăng khi ít kiến hơn
                                         # đồng nghĩa ít kiến đi lấy nước hơn
@@ -150,10 +151,12 @@ ENEMY_MAX_HEALTH = 9.0      # kẻ thù có máu - lính có thể đánh bại 
 RIVAL_NEST_POS = (14, 36)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
                             # để không bị bất lợi hình học (diện tích kiếm
                             # ăn khả dụng thấp hơn hẳn tổ chính ở giữa)
-NUM_RIVAL_ANTS = 100        # CÙNG quy mô với tổ chính - đã kiểm thử thấy
-                            # nếu ít quân hơn, tổ đối thủ gần như luôn thua
-                            # cuộc cạnh tranh thức ăn (đàn đông hơn có diện
-                            # bao phủ tìm kiếm lớn hơn, chiếm thức ăn trước)
+NUM_RIVAL_ANTS = 20         # CÙNG quy mô khởi tạo với tổ chính - đàn nào
+                            # sinh sản/kiếm ăn tốt hơn sẽ tự lớn nhanh hơn
+MAX_ANTS_PER_COLONY = 1000  # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ cấp phát
+                            # sẵn cho mảng NumPy) - đàn khởi tạo NUM_ANTS con,
+                            # rồi tự sinh sản lớn lên dần tới tối đa số này
+                            # nếu đủ thức ăn/nước/không gian ấu trùng
 ROOM_RADIUS = 3.4
 
 # Xác suất 1 con kiến sau khi giao thức ăn ở kho sẽ trở thành "nurse"
@@ -201,15 +204,27 @@ STARVATION_DEATH_RATE = 0.0015  # xác suất chết PHỤ THÊM mỗi tick cho 
 STARVATION_GRACE_TICKS = 400    # số tick phòng ấu trùng được phép "rỗng"
                                  # trước khi bắt đầu tính chết đói
 
-# ----- Sinh sản (chúa cần thức ăn để sinh kiến mới) -----
-BIRTH_CHECK_INTERVAL = 60   # cứ mỗi bấy nhiêu tick (~1 giây ở 60 FPS), chúa
-                            # thử sinh 1 lứa kiến mới
-BIRTH_FOOD_COST = 4          # số đơn vị thức ăn (lấy từ kho) cần cho 1 kiến mới
-BIRTH_WATER_COST = 2          # số đơn vị nước cần thêm cho 1 kiến mới - nếu
-                              # thiếu nước, chúa KHÔNG sinh được dù đủ thức ăn
-BIRTH_BATCH_SIZE = 2         # số kiến sinh ra mỗi lần (nếu đủ thức ăn) -
-                            # đặt đủ cao để bù được tốc độ chết già/chết đói
-                            # trong điều kiện bình thường (không có kẻ thù)
+# ----- Trứng & ấu trùng: PHÒNG ẤU TRÙNG THẬT SỰ NUÔI ẤU TRÙNG -----
+# Chúa không "sinh" kiến trực tiếp nữa - chúa chỉ ĐẺ TRỨNG (tốn thức ăn từ
+# kho); trứng/ấu trùng sau đó lớn lên DẦN trong phòng ấu trùng, ăn đúng chỗ
+# thức ăn mà các "nurse" mang tới (food_in_nursery) - hết thức ăn ở đó thì
+# lớn rất chậm. Ấu trùng lớn đủ (growth >= 1.0) mới thật sự "nở" thành 1
+# kiến thợ mới đi ra ngoài.
+EGG_LAY_INTERVAL = 70        # cứ mỗi bấy nhiêu tick, chúa thử đẻ 1 trứng mới
+EGG_FOOD_COST = 4            # thức ăn (lấy từ KHO) chúa cần để đẻ 1 trứng
+EGG_WATER_COST = 2           # nước cần thêm để đẻ 1 trứng - thiếu nước thì
+                             # KHÔNG đẻ được dù đủ thức ăn
+LARVA_MAX_COUNT = 40         # số ấu trùng tối đa cùng lúc trong 1 phòng ấu
+                             # trùng (giới hạn không gian + hiệu năng hiển thị)
+LARVA_GROWTH_PER_TICK = 0.0025      # tốc độ lớn lên mỗi tick khi ĐỦ thức ăn
+                             # trong phòng ấu trùng (growth đi từ 0 -> 1)
+LARVA_GROWTH_STARVED_FACTOR = 0.15  # lớn chậm hơn nhiều (không phải bằng 0,
+                             # để tránh bế tắc hoàn toàn) khi phòng ấu trùng
+                             # đang HẾT thức ăn dự trữ
+LARVA_FOOD_PER_TICK = 0.02   # MỖI ấu trùng đang lớn tiêu thụ bấy nhiêu thức
+                             # ăn trong phòng ấu trùng mỗi tick - đây chính là
+                             # nơi thức ăn nurse mang vào THỰC SỰ được dùng
+                             # đến, thay vì chỉ là số liệu suông
 
 # ----- Kẻ thù tự nhiên (đe dọa trên mặt đất) -----
 ENEMY_SPAWN_COOLDOWN_MIN = 500   # số tick tối thiểu giữa 2 lần kẻ thù xuất hiện
@@ -231,11 +246,9 @@ FOOD_RESPAWN_INTERVAL = 350  # cứ mỗi bấy nhiêu tick, có 1 cụm thức 
                              # tăng tần suất so với bản 1 tổ vì giờ có 2 tổ
                              # cùng cạnh tranh chung nguồn thức ăn này
 FOOD_RESPAWN_AMOUNT = 5.0    # lượng thức ăn của cụm mới mỗi lần tái sinh
-NURSERY_CONSUMPTION_PER_TICK = 0.10  # ấu trùng tiêu thụ dần thức ăn trong
-                             # phòng ấu trùng để lớn lên - QUAN TRỌNG: nếu
-                             # không có cơ chế này, thức ăn đưa vào phòng ấu
-                             # trùng sẽ tích lũy vĩnh viễn không dùng đến,
-                             # dần rút cạn toàn bộ tài nguyên khả dụng của tổ
+# LƯU Ý: thức ăn trong phòng ấu trùng (food_in_nursery) giờ được TIÊU THỤ
+# THẬT SỰ bởi từng ấu trùng đang lớn (xem LARVA_FOOD_PER_TICK ở trên), nên
+# không cần thêm 1 cơ chế "rút cạn" chung chung nữa.
 UPKEEP_FOOD_PER_ANT_PER_TICK = 0.0004  # mỗi kiến còn sống tiêu hao 1 lượng
                              # nhỏ thức ăn từ kho mỗi tick để duy trì sự sống
                              # (không chỉ dùng thức ăn để sinh sản) - nếu đàn
@@ -258,3 +271,11 @@ COLOR_SHAFT = (25, 18, 12)
 
 TOOLBAR_H = 88               # chiều cao thanh công cụ dưới màn hình (pixel)
 GRAPH_PANEL_W, GRAPH_PANEL_H = 300, 170
+
+# Kho thức ăn: hiển thị thức ăn ĐANG LƯU TRỮ THẬT SỰ dưới dạng 1 đống nhỏ
+# các "viên" thức ăn rải trong phòng, thay vì chỉ 1 con số vô hình
+STORAGE_FOOD_PER_ICON = 8        # bấy nhiêu đơn vị thức ăn = 1 icon hiển thị
+STORAGE_MAX_ICONS = 40           # trần số icon vẽ (tránh rợp hình khi kho đầy)
+
+# Kiến chúa: to hơn hẳn thợ thường, luôn đứng yên (bob nhẹ) giữa phòng chúa
+QUEEN_BODY_SCALE = 3.2

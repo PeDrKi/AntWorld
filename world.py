@@ -265,14 +265,13 @@ class UndergroundWorld:
     def consume_upkeep(self, population):
         """Mỗi kiến còn sống tiêu hao 1 lượng nhỏ thức ăn VÀ nước từ kho
         mỗi tick để duy trì sự sống - khiến tài nguyên thực sự có thể cạn
-        nếu đàn quá đông so với khả năng kiếm ăn/lấy nước."""
+        nếu đàn quá đông so với khả năng kiếm ăn/lấy nước. (Thức ăn trong
+        phòng ấu trùng được TIÊU THỤ RIÊNG bởi từng ấu trùng đang lớn - xem
+        AntColony._update_larvae() ở ants.py - nên không xử lý ở đây.)"""
         food_cost = population * cfg.UPKEEP_FOOD_PER_ANT_PER_TICK
         water_cost = population * cfg.WATER_UPKEEP_PER_ANT_PER_TICK
         self.food_in_storage = max(0.0, self.food_in_storage - food_cost)
         self.water_in_storage = max(0.0, self.water_in_storage - water_cost)
-        # Ấu trùng tiêu thụ dần thức ăn trong phòng để lớn lên - nếu không,
-        # thức ăn ở đây sẽ tích lũy vĩnh viễn, dần rút cạn tài nguyên tổ
-        self.food_in_nursery = max(0.0, self.food_in_nursery - cfg.NURSERY_CONSUMPTION_PER_TICK)
 
     def is_starving(self):
         return self.ticks_nursery_empty > cfg.STARVATION_GRACE_TICKS
@@ -280,10 +279,10 @@ class UndergroundWorld:
     def is_dehydrated(self):
         return self.ticks_water_empty > cfg.WATER_STARVATION_GRACE_TICKS
 
-    def try_consume_for_birth(self, food_cost, water_cost):
-        """Trừ thức ăn VÀ nước trong kho để sinh 1 lứa kiến mới. Trả về
-        True nếu đủ CẢ HAI (tài nguyên có hạn -> không phải lúc nào cũng
-        sinh được, thiếu nước cũng chặn sinh sản y như thiếu thức ăn)."""
+    def try_consume_for_egg(self, food_cost, water_cost):
+        """Trừ thức ăn VÀ nước trong kho để chúa đẻ 1 trứng mới. Trả về
+        True nếu đủ CẢ HAI (tài nguyên có hạn -> không phải lúc nào cũng đẻ
+        được, thiếu nước cũng chặn y như thiếu thức ăn)."""
         if self.food_in_storage >= food_cost and self.water_in_storage >= water_cost:
             self.food_in_storage -= food_cost
             self.water_in_storage -= water_cost

@@ -90,7 +90,7 @@ def draw_surface_layer(state, surf):
                 continue
             sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
             color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
-            r = max(1, int(cell * step * 0.7))
+            r = max(1, int(round(cell * step)))  # LẤP ĐẦY hẳn cả ô, không chừa viền
             pygame.draw.rect(surf, color, (sx - r / 2, sy - r / 2, r, r))
 
     # --- đường mùi (pheromone) - vẽ TRƯỚC thức ăn/kiến để nằm dưới, như
@@ -109,7 +109,7 @@ def draw_surface_layer(state, surf):
                 ftype = int(food_type[gx, gy])
                 fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
                 sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
-                size = max(3, int(cell * 0.6))
+                size = max(3, int(round(cell * fstep)))  # LẤP ĐẦY hẳn cả ô
                 pygame.draw.rect(surf, fc, (sx - size / 2, sy - size / 2, size, size))
 
     # --- lỗ tổ 2 bên ---

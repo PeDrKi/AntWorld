@@ -16,13 +16,14 @@ import config as cfg
 
 
 class AntColony:
-    def __init__(self, n_ants, surface, underground):
+    def __init__(self, n_ants, surface, underground, nest_pos=None):
         self.n = n_ants
         self.surface = surface
         self.underground = underground
+        self.nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         rng = np.random.default_rng()
 
-        nest_x, nest_y = cfg.NEST_POS
+        nest_x, nest_y = self.nest_pos
         # Vị trí ban đầu: rải quanh cửa tổ trên mặt đất
         self.x = nest_x + rng.normal(0, 2.0, n_ants).astype(np.float32)
         self.y = nest_y + rng.normal(0, 2.0, n_ants).astype(np.float32)
@@ -36,6 +37,9 @@ class AntColony:
         self.carrying = np.zeros(n_ants, dtype=bool)
         self.carry_type = np.zeros(n_ants, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
         self.carry_amount = np.zeros(n_ants, dtype=np.float32)
+
+        # --- Phân vai: đa số thợ nhỏ, 1 phần nhỏ là lính (thợ lớn) ---
+        self.role = (rng.uniform(0, 1, n_ants) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
 
         # --- Vòng đời ---
         self.alive = np.ones(n_ants, dtype=bool)
@@ -124,7 +128,7 @@ class AntColony:
             idx = np.where(returning)[0]
             x, y = self.x[idx], self.y[idx]
             prev_x, prev_y = x.copy(), y.copy()
-            nest_x, nest_y = cfg.NEST_POS
+            nest_x, nest_y = self.nest_pos
             to_nest_theta = np.arctan2(nest_y - y, nest_x - x)
             self.theta[idx] = 0.25 * self.theta[idx] + 0.75 * to_nest_theta
 
@@ -248,8 +252,8 @@ class AntColony:
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
                 self.layer[arrived] = cfg.LAYER_SURFACE
-                self.x[arrived] = cfg.NEST_POS[0]
-                self.y[arrived] = cfg.NEST_POS[1]
+                self.x[arrived] = self.nest_pos[0]
+                self.y[arrived] = self.nest_pos[1]
                 self.z[arrived] = cfg.SURFACE_Z
                 self.state[arrived] = cfg.STATE_SEARCHING
                 self.theta[arrived] = np.random.uniform(0, 2 * np.pi, len(arrived))
@@ -309,6 +313,7 @@ class AntColony:
         self.carrying[idx] = False
         self.carry_type[idx] = 0
         self.carry_amount[idx] = 0.0
+        self.role[idx] = (np.random.uniform(0, 1, len(idx)) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
         qx, qy, qz = self.underground.queen_room
         self.x[idx] = qx
         self.y[idx] = qy
@@ -321,6 +326,7 @@ class AntColony:
         alive = self.alive
         return {
             "population": int(np.sum(alive)),
+            "soldiers": int(np.sum(alive & (self.role == cfg.ROLE_MAJOR))),
             "searching": int(np.sum(alive & (self.layer == 0) & (self.state == cfg.STATE_SEARCHING))),
             "returning": int(np.sum(alive & (self.layer == 0) & (self.state == cfg.STATE_RETURNING))),
             "underground": int(np.sum(alive & (self.layer == 1))),

@@ -6,13 +6,14 @@ import config as cfg
 class SurfaceWorld:
     """Lưới mặt đất: thức ăn + pheromone dẫn đường về tổ."""
 
-    def __init__(self):
+    def __init__(self, protected_nests=None):
         n = cfg.GRID_SIZE
         self.food = np.zeros((n, n), dtype=np.float32)
         self.food_type = np.zeros((n, n), dtype=np.int8)  # loại thức ăn tại mỗi ô
         self.pheromone = np.zeros((n, n), dtype=np.float32)
         self.terrain = np.zeros((n, n), dtype=np.int8)  # 0=đất, 1=đá, 2=nước
         self.terrain_features = []  # [(loại, cx, cy, radius), ...] để vẽ 3D
+        self.protected_nests = protected_nests if protected_nests else [cfg.NEST_POS]
         self._spawn_food_clusters()
         self._spawn_terrain_obstacles()
 
@@ -36,22 +37,24 @@ class SurfaceWorld:
     def _spawn_terrain_obstacles(self):
         n = cfg.GRID_SIZE
         rng = np.random.default_rng()
-        nest_x, nest_y = cfg.NEST_POS
 
-        def random_far_from_nest():
+        def random_far_from_nests():
             for _ in range(30):  # thử tối đa 30 lần để tránh quá gần tổ
                 cx = rng.integers(3, n - 3)
                 cy = rng.integers(3, n - 3)
-                if np.hypot(cx - nest_x, cy - nest_y) > cfg.TERRAIN_SAFE_RADIUS_FROM_NEST:
+                if all(
+                    np.hypot(cx - nx, cy - ny) > cfg.TERRAIN_SAFE_RADIUS_FROM_NEST
+                    for nx, ny in self.protected_nests
+                ):
                     return int(cx), int(cy)
             return int(cx), int(cy)  # đành chấp nhận lần thử cuối nếu quá xui
 
         for _ in range(cfg.NUM_ROCK_CLUSTERS):
-            cx, cy = random_far_from_nest()
+            cx, cy = random_far_from_nests()
             self.add_obstacle(cx, cy, cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS)
 
         for _ in range(cfg.NUM_WATER_CLUSTERS):
-            cx, cy = random_far_from_nest()
+            cx, cy = random_far_from_nests()
             self.add_obstacle(cx, cy, cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS)
 
     def add_obstacle(self, cx, cy, terrain_type, radius):
@@ -134,18 +137,29 @@ class UndergroundWorld:
     Mọi tọa độ ở đây là (x, y, z) với z là độ sâu (0 = mặt đất, âm = sâu hơn).
     """
 
-    def __init__(self):
-        shaft_x, shaft_y = cfg.NEST_POS
-        self.shaft = np.array([shaft_x, shaft_y, cfg.SHAFT_TOP_Z], dtype=np.float32)
-        self.storage = np.array(cfg.ROOM_STORAGE, dtype=np.float32)
-        self.nursery = np.array(cfg.ROOM_NURSERY, dtype=np.float32)
-        self.queen_room = np.array(cfg.ROOM_QUEEN, dtype=np.float32)
+    def __init__(self, nest_pos=None, label_prefix=""):
+        nest_pos = nest_pos if nest_pos else cfg.NEST_POS
+        nest_x, nest_y = nest_pos
+        self.nest_pos = nest_pos
+        self.shaft = np.array([nest_x, nest_y, cfg.SHAFT_TOP_Z], dtype=np.float32)
+        self.storage = np.array(
+            [nest_x + cfg.STORAGE_OFFSET_XY[0], nest_y + cfg.STORAGE_OFFSET_XY[1], cfg.ROOM_Z_STORAGE],
+            dtype=np.float32,
+        )
+        self.nursery = np.array(
+            [nest_x + cfg.NURSERY_OFFSET_XY[0], nest_y + cfg.NURSERY_OFFSET_XY[1], cfg.ROOM_Z_NURSERY],
+            dtype=np.float32,
+        )
+        self.queen_room = np.array(
+            [nest_x + cfg.QUEEN_OFFSET_XY[0], nest_y + cfg.QUEEN_OFFSET_XY[1], cfg.ROOM_Z_QUEEN],
+            dtype=np.float32,
+        )
 
         # Danh sách phòng để vẽ (tên, tâm, bán kính, màu gợi ý)
         self.rooms = [
-            ("Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70)),
-            ("Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120)),
-            ("Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140)),
+            (f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70)),
+            (f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120)),
+            (f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140)),
         ]
         # Hành lang nối giếng <-> từng phòng, và kho <-> phòng chúa
         self.corridors = [

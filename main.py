@@ -47,10 +47,16 @@ AmbientLight(color=rgb255(200, 200, 210, 140))
 # ---------------------------------------------------------------------
 # Thế giới mô phỏng (logic không đổi so với bản trước, chỉ thêm trục Z)
 # ---------------------------------------------------------------------
-surface_world = SurfaceWorld()
-underground_world = UndergroundWorld()
-colony = AntColony(cfg.NUM_ANTS, surface_world, underground_world)
+surface_world = SurfaceWorld(protected_nests=[cfg.NEST_POS, cfg.RIVAL_NEST_POS])
+underground_world = UndergroundWorld(cfg.NEST_POS, "")
+colony = AntColony(cfg.NUM_ANTS, surface_world, underground_world, cfg.NEST_POS)
+
+# Tổ đối thủ - cùng bản đồ, cùng nguồn thức ăn/nước (cạnh tranh thật sự)
+rival_underground = UndergroundWorld(cfg.RIVAL_NEST_POS, "Doi thu - ")
+rival_colony = AntColony(cfg.NUM_RIVAL_ANTS, surface_world, rival_underground, cfg.RIVAL_NEST_POS)
+
 enemy = EnemyManager()
+ALL_COLONIES = [colony, rival_colony]
 
 CENTER = cfg.GRID_SIZE / 2.0
 
@@ -104,11 +110,17 @@ GROUND_OPAQUE_ALPHA = 235
 GROUND_TRANSPARENT_ALPHA = 55
 ground_transparent = False
 
-# Lỗ tổ trên mặt đất
+# Lỗ tổ trên mặt đất (tổ chính)
 nest_hole = Entity(
     model=Cylinder(resolution=12, radius=1.6, height=0.12),
     position=sim_to_world(cfg.NEST_POS[0], cfg.NEST_POS[1], 0.02),
     color=rgb255(30, 22, 14),
+)
+# Lỗ tổ đối thủ - viền hơi đỏ để phân biệt từ xa
+rival_nest_hole = Entity(
+    model=Cylinder(resolution=12, radius=1.6, height=0.12),
+    position=sim_to_world(cfg.RIVAL_NEST_POS[0], cfg.RIVAL_NEST_POS[1], 0.02),
+    color=rgb255(45, 20, 18),
 )
 
 # ---------------------------------------------------------------------
@@ -148,11 +160,36 @@ def create_corridor_entity(a, b):
     )
 
 
+def create_queen_visual(underground, rgb):
+    """Hình kiến chúa thật thay vì chỉ là 1 quả cầu trang trí - bụng to
+    đặc trưng (phần sinh sản) + đầu/ngực nhỏ hơn phía trước."""
+    qx, qy, qz = underground.queen_room
+    px, py, pz = sim_to_world(qx, qy, qz)
+    Entity(  # bụng to
+        model="sphere",
+        scale=(1.9, 1.4, 2.8),
+        position=(px, py + 0.2, pz + 1.3),
+        color=rgb255(rgb[0], rgb[1], rgb[2], 255),
+    )
+    Entity(  # đầu + ngực
+        model="sphere",
+        scale=(1.1, 1.0, 1.3),
+        position=(px, py + 0.2, pz - 1.2),
+        color=rgb255(rgb[0] - 20, rgb[1] - 10, rgb[2] - 20, 255),
+    )
+
+
 for name, center, radius, rgb in underground_world.rooms:
     create_room_entity(name, center, radius, rgb)
-
 for a, b in underground_world.corridors:
     create_corridor_entity(a, b)
+create_queen_visual(underground_world, (150, 70, 160))
+
+for name, center, radius, rgb in rival_underground.rooms:
+    create_room_entity(name, center, radius, rgb)
+for a, b in rival_underground.corridors:
+    create_corridor_entity(a, b)
+create_queen_visual(rival_underground, (170, 60, 60))
 
 # ---------------------------------------------------------------------
 # Địa hình: đá (chặn đường) và nước (chặn đường, màu xanh trong suốt) -
@@ -234,16 +271,31 @@ def place_food_at(gx, gy, amount=8.0, food_type=None):
         ent.color = food_color_for(gx, gy)
 
 # ---------------------------------------------------------------------
-# Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu
+# Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu.
+# Lính (thợ lớn) được vẽ to hơn thợ nhỏ ngay từ lúc khởi tạo entity.
 # ---------------------------------------------------------------------
-ant_entities = [
-    Entity(model="sphere", scale=0.3, color=color.black) for _ in range(colony.n)
-]
+def make_ant_entities(colony_obj, base_color):
+    entities = []
+    for i in range(colony_obj.n):
+        is_major = colony_obj.role[i] == cfg.ROLE_MAJOR
+        scale = 0.3 * (cfg.MAJOR_SIZE_SCALE if is_major else 1.0)
+        entities.append(Entity(model="sphere", scale=scale, color=base_color))
+    return entities
+
+
+ant_entities = make_ant_entities(colony, color.black)
 
 COLOR_SEARCH = rgb255(25, 25, 25)
 COLOR_CARRY_SURFACE = rgb255(215, 120, 30)
 COLOR_UNDERGROUND = rgb255(220, 220, 220)
 COLOR_CARRY_UNDERGROUND = rgb255(235, 190, 70)
+
+# Tổ đối thủ - tông màu đỏ/nâu để phân biệt rõ với tổ chính (đen/cam)
+rival_ant_entities = make_ant_entities(rival_colony, rgb255(120, 30, 25))
+RIVAL_COLOR_SEARCH = rgb255(120, 30, 25)
+RIVAL_COLOR_CARRY_SURFACE = rgb255(230, 140, 40)
+RIVAL_COLOR_UNDERGROUND = rgb255(200, 160, 155)
+RIVAL_COLOR_CARRY_UNDERGROUND = rgb255(240, 170, 60)
 
 # ---------------------------------------------------------------------
 # Kẻ thù tự nhiên - hình khác biệt (bát diện) + màu đỏ để dễ nhận ra ngay
@@ -365,28 +417,37 @@ frame_counter = 0
 STATS_EVERY_N_FRAMES = 15
 
 
-def update():
-    global frame_counter
-    if not sim_paused:
-        for _ in range(sim_speed):
-            colony.update()
-            enemy.update(colony)
-
-    xs, ys, zs = colony.x, colony.y, colony.z
-    carrying = colony.carrying
-    layer = colony.layer
-    alive = colony.alive
-
-    for i, ent in enumerate(ant_entities):
+def render_colony(colony_obj, entities, color_search, color_carry_surface,
+                   color_underground, color_carry_underground):
+    xs, ys, zs = colony_obj.x, colony_obj.y, colony_obj.z
+    carrying = colony_obj.carrying
+    layer = colony_obj.layer
+    alive = colony_obj.alive
+    for i, ent in enumerate(entities):
         if not alive[i]:
             ent.enabled = False
             continue
         ent.enabled = True
         ent.position = sim_to_world(xs[i], ys[i], zs[i])
         if layer[i] == cfg.LAYER_SURFACE:
-            ent.color = COLOR_CARRY_SURFACE if carrying[i] else COLOR_SEARCH
+            ent.color = color_carry_surface if carrying[i] else color_search
         else:
-            ent.color = COLOR_CARRY_UNDERGROUND if carrying[i] else COLOR_UNDERGROUND
+            ent.color = color_carry_underground if carrying[i] else color_underground
+
+
+def update():
+    global frame_counter
+    if not sim_paused:
+        for _ in range(sim_speed):
+            colony.update()
+            rival_colony.update()
+            enemy.update(ALL_COLONIES)
+
+    render_colony(colony, ant_entities, COLOR_SEARCH, COLOR_CARRY_SURFACE,
+                  COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND)
+    render_colony(rival_colony, rival_ant_entities, RIVAL_COLOR_SEARCH,
+                  RIVAL_COLOR_CARRY_SURFACE, RIVAL_COLOR_UNDERGROUND,
+                  RIVAL_COLOR_CARRY_UNDERGROUND)
 
     enemy_entity.enabled = enemy.active
     if enemy.active:
@@ -398,16 +459,18 @@ def update():
             ent.enabled = surface_world.food[gx, gy] > 0.05
 
         c = colony.counts()
+        r = rival_colony.counts()
         canh_bao = "  *** DAN KIEN DANG DOI ***" if c["is_starving"] else ""
         khat = "  *** DAN KIEN DANG KHAT NUOC ***" if c["is_dehydrated"] else ""
         ke_thu = "  *** CO KE THU TREN MAT DAT ***" if enemy.active else ""
         hud.text = (
-            f"Dan so: {c['population']}/{colony.n}   Sinh: {c['total_births']}   "
-            f"Chet: {c['total_deaths']}   Ke thu da giet: {enemy.total_kills}\n"
-            f"Tim an: {c['searching']}   Dang tha ve: {c['returning']}   "
-            f"Duoi ham: {c['underground']}\n"
-            f"Kho: {c['food_in_storage']:.0f}   Phong au trung: {c['food_in_nursery']:.0f}   "
-            f"Nuoc: {c['water_in_storage']:.0f}"
+            f"TO CHINH - Dan so: {c['population']}/{colony.n} (linh: {c['soldiers']})   "
+            f"Sinh: {c['total_births']}   Chet: {c['total_deaths']}\n"
+            f"TO DOI THU - Dan so: {r['population']}/{rival_colony.n} (linh: {r['soldiers']})   "
+            f"Sinh: {r['total_births']}   Chet: {r['total_deaths']}\n"
+            f"Kho: {c['food_in_storage']:.0f}   Au trung: {c['food_in_nursery']:.0f}   "
+            f"Nuoc: {c['water_in_storage']:.0f}   "
+            f"Ke thu da giet: {enemy.total_kills} (bi linh danh bai: {enemy.total_defeated})"
             f"{canh_bao}{khat}{ke_thu}\n"
             f"Chuot phai+keo: xoay | Lan chuot: zoom | G: xuyen mat dat | Esc: thoat"
         )

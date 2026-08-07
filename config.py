@@ -18,7 +18,7 @@ ROOM_Z_QUEEN = -17.0        # tầng sâu nhất - chúa được bảo vệ k�
 WORLD_DEPTH = 20.0          # độ sâu tối đa của khối hộp hiển thị (để vẽ khung kính)
 
 # ----- Kiến -----
-NUM_ANTS = 600              # bản 3D vẽ từng con bằng 1 mesh riêng nên đặt vừa
+NUM_ANTS = 100              # bản 3D vẽ từng con bằng 1 mesh riêng nên đặt vừa
                             # phải để giữ khung hình mượt; có thể tăng dần và
                             # theo dõi FPS hiển thị góc màn hình
 ANT_SPEED = 0.14            # số ô di chuyển mỗi tick (mặt phẳng ngang)
@@ -34,7 +34,8 @@ PHEROMONE_DEPOSIT = 1.0     # lượng mùi để lại mỗi tick khi đang tha
 PHEROMONE_MAX = 8.0
 
 # ----- Thức ăn trên mặt đất (đa dạng loại) -----
-FOOD_CLUSTERS = 18
+FOOD_CLUSTERS = 26           # tăng so với bản 1 tổ vì giờ có thêm tổ đối
+                             # thủ cùng cạnh tranh nguồn thức ăn này
 FOOD_CLUSTER_RADIUS = 2
 
 # 3 loại thức ăn khác nhau về màu sắc và giá trị dinh dưỡng mỗi lần nhặt
@@ -93,16 +94,38 @@ DEHYDRATION_DEATH_RATE = 0.0003        # xác suất chết PHỤ THÊM mỗi ti
                                         # chóc tự gia tăng khi ít kiến hơn
                                         # đồng nghĩa ít kiến đi lấy nước hơn
 
-# ----- Tổ kiến -----
+# ----- Tổ kiến (chính - của người chơi) -----
 NEST_POS = (GRID_SIZE // 2, GRID_SIZE // 2)   # vị trí lỗ tổ trên mặt đất & giếng hầm
 NEST_RADIUS = 1.2
 
-# Vị trí các phòng dưới hầm: (x, y, z) - x,y cùng hệ tọa độ lưới với mặt đất,
-# z là độ sâu (âm = xuống sâu), để khi nhìn 3D các phòng thật sự nằm dưới
-# lỗ tổ ở các tầng sâu khác nhau như tổ kiến thật.
-ROOM_STORAGE = (NEST_POS[0] - 7, NEST_POS[1] + 5, ROOM_Z_STORAGE)
-ROOM_NURSERY = (NEST_POS[0] + 7, NEST_POS[1] + 5, ROOM_Z_NURSERY)
-ROOM_QUEEN   = (NEST_POS[0], NEST_POS[1] + 9, ROOM_Z_QUEEN)
+# Vị trí các phòng dưới hầm tính THEO OFFSET so với lỗ tổ (không phải tọa độ
+# tuyệt đối) - để có thể dùng chung công thức này cho cả tổ đối thủ đặt ở
+# nơi khác trên bản đồ. z là độ sâu tuyệt đối (không đổi theo vị trí ngang).
+STORAGE_OFFSET_XY = (-7, 5)
+NURSERY_OFFSET_XY = (7, 5)
+QUEEN_OFFSET_XY = (0, 9)
+
+# ----- Phân vai kiến (caste) -----
+ROLE_MINOR = 0    # thợ nhỏ - đa số, lo tìm ăn/chăm ấu trùng
+ROLE_MAJOR = 1    # thợ lớn/lính - ít hơn nhưng khỏe hơn, chuyên bảo vệ tổ
+MAJOR_WORKER_RATIO = 0.15   # tỉ lệ lính trong đàn
+MAJOR_SIZE_SCALE = 1.7      # lính to hơn thợ thường bao nhiêu lần khi vẽ
+MAJOR_DEFENSE_FACTOR = 0.3  # xác suất lính bị kẻ thù giết = bấy nhiêu lần
+                            # so với thợ thường (lính "trâu" hơn nhiều)
+SOLDIER_DAMAGE_PROB = 0.05  # xác suất 1 lính gây sát thương lên kẻ thù/tick
+                            # khi ở trong tầm giao chiến
+SOLDIER_DAMAGE_PER_HIT = 1.0
+ENEMY_MAX_HEALTH = 9.0      # kẻ thù có máu - lính có thể đánh bại nó thay vì
+                            # chỉ chờ nó tự rời đi
+
+# ----- Tổ kiến đối thủ (cạnh tranh tài nguyên trên cùng bản đồ) -----
+RIVAL_NEST_POS = (14, 36)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
+                            # để không bị bất lợi hình học (diện tích kiếm
+                            # ăn khả dụng thấp hơn hẳn tổ chính ở giữa)
+NUM_RIVAL_ANTS = 100        # CÙNG quy mô với tổ chính - đã kiểm thử thấy
+                            # nếu ít quân hơn, tổ đối thủ gần như luôn thua
+                            # cuộc cạnh tranh thức ăn (đàn đông hơn có diện
+                            # bao phủ tìm kiếm lớn hơn, chiếm thức ăn trước)
 ROOM_RADIUS = 2.6
 
 # Xác suất 1 con kiến sau khi giao thức ăn ở kho sẽ trở thành "nurse"
@@ -162,8 +185,10 @@ ENEMY_MAX_KILLS_PER_VISIT = 5    # kẻ thù "no" và tự rời đi sau khi gi�
 ENEMY_TURN_NOISE = 0.5
 
 # ----- Cạnh tranh tài nguyên: thức ăn có hạn, tái sinh chậm theo "mùa" -----
-FOOD_RESPAWN_INTERVAL = 600  # cứ mỗi bấy nhiêu tick, có 1 cụm thức ăn mới
-                             # xuất hiện ngẫu nhiên (mô phỏng thức ăn theo mùa)
+FOOD_RESPAWN_INTERVAL = 350  # cứ mỗi bấy nhiêu tick, có 1 cụm thức ăn mới
+                             # xuất hiện ngẫu nhiên (mô phỏng thức ăn theo mùa) -
+                             # tăng tần suất so với bản 1 tổ vì giờ có 2 tổ
+                             # cùng cạnh tranh chung nguồn thức ăn này
 FOOD_RESPAWN_AMOUNT = 5.0    # lượng thức ăn của cụm mới mỗi lần tái sinh
 NURSERY_CONSUMPTION_PER_TICK = 0.10  # ấu trùng tiêu thụ dần thức ăn trong
                              # phòng ấu trùng để lớn lên - QUAN TRỌNG: nếu

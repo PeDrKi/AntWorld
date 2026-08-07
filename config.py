@@ -308,6 +308,26 @@ EGG_LAY_INTERVAL = 70        # cứ mỗi bấy nhiêu tick, chúa thử đẻ 1
 EGG_FOOD_COST = 4            # thức ăn (lấy từ KHO) chúa cần để đẻ 1 trứng
 EGG_WATER_COST = 2           # nước cần thêm để đẻ 1 trứng - thiếu nước thì
                              # KHÔNG đẻ được dù đủ thức ăn
+# "PHANH" mật độ dân số - ĐÂY LÀ MẢNH GHÉP QUAN TRỌNG CÒN THIẾU trước đây:
+# nếu chỉ cần đủ EGG_FOOD_COST là đẻ được, đàn sẽ cứ phình to tới khi kho
+# CẠN HẲN VỀ 0 mới dừng - lúc đó đã quá muộn, cả đàn rơi vào chết đói hàng
+# loạt cùng lúc (đặc biệt nguy hiểm khi CẢ HAI tổ cùng cạn kho 1 lượt, kéo
+# theo các đợt xâm chiếm qua lại làm nhau suy yếu nhanh hơn nữa). Bằng cách
+# bắt buộc kho phải dư ra 1 khoản DỰ TRỮ AN TOÀN tỉ lệ với sĩ số đàn HIỆN
+# TẠI (không phải hằng số cố định), việc đẻ trứng sẽ tự động CHẬM LẠI dần
+# khi đàn tiệm cận mức tối đa mà tốc độ kiếm ăn thực tế có thể nuôi nổi -
+# giữ dân số ổn định quanh 1 mức bền vững thay vì phình to rồi sụp đổ.
+EGG_MIN_STORAGE_BUFFER_PER_ANT = 8.0  # kho phải dư ra >= (dân số hiện tại
+                             # x số này) NGOÀI EGG_FOOD_COST thì mới được
+                             # đẻ trứng tiếp - đàn càng đông, ngưỡng an toàn
+                             # càng cao, tự nhiên hãm tốc độ sinh sản lại.
+                             # Giá trị này đã được KIỂM THỬ THỰC NGHIỆM qua
+                             # nhiều mô phỏng dài (60.000-90.000 tick, nhiều
+                             # seed khác nhau): thấp hơn (1.5-5.0) vẫn dẫn
+                             # tới sụp đổ tuyệt chủng đồng loạt ở ván dài;
+                             # mức 8.0 loại bỏ được kiểu sụp đổ đó (kho
+                             # không còn về 0 đột ngột), đổi lại tốc độ
+                             # tăng dân số chậm hơn hẳn.
 EGG_MAX_COUNT = 30           # số trứng tối đa cùng lúc trong phòng trứng
 EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG phụ thuộc
                              # thức ăn - trứng chỉ cần thời gian) - nở

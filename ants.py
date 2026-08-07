@@ -682,12 +682,20 @@ class AntColony:
             self.underground.add_corpse(len(died))
 
         # --- Đẻ trứng: chúa thử đẻ 1 trứng mới theo chu kỳ, cần đủ thức ăn
-        # + nước TRONG KHO. Trứng được ủ trong PHÒNG TRỨNG (_update_eggs)
-        # rồi mới "chuyển" qua phòng ấu trùng để lớn lên thật sự. ---
+        # + nước TRONG KHO, VÀ kho phải dư ra 1 khoản dự trữ an toàn tỉ lệ
+        # với sĩ số đàn hiện tại (EGG_MIN_STORAGE_BUFFER_PER_ANT) - đây là
+        # "phanh" mật độ dân số: đàn càng đông, ngưỡng an toàn để đẻ tiếp
+        # càng cao, tự nhiên hãm sinh sản lại TRƯỚC KHI kho cạn hẳn, thay vì
+        # cứ đẻ tới khi kho về 0 rồi cả đàn chết đói hàng loạt cùng lúc.
+        # Trứng được ủ trong PHÒNG TRỨNG (_update_eggs) rồi mới "chuyển" qua
+        # phòng ấu trùng để lớn lên thật sự. ---
         if self.tick_count % cfg.EGG_LAY_INTERVAL == 0:
             free_egg_slots = np.where(~self.egg_active)[0]
             has_ant_capacity = np.any(~self.alive)
-            if len(free_egg_slots) > 0 and has_ant_capacity:
+            population = len(alive_idx)
+            safety_reserve = population * cfg.EGG_MIN_STORAGE_BUFFER_PER_ANT
+            enough_reserve = self.underground.food_in_storage >= cfg.EGG_FOOD_COST + safety_reserve
+            if len(free_egg_slots) > 0 and has_ant_capacity and enough_reserve:
                 got_food = self.underground.try_consume_for_egg(
                     cfg.EGG_FOOD_COST, cfg.EGG_WATER_COST
                 )

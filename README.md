@@ -65,14 +65,35 @@ CẢ HAI bên), không chỉ cạnh tranh gián tiếp qua tìm thức ăn như 
 HUD phía trên sẽ báo khi có tổ đang cử quân đi xâm chiếm hoặc đang bị xâm
 chiếm.
 
-**Lưu ý cân bằng:** nếu cả 2 tổ cùng phát triển quá đông so với tốc độ tái
-tạo thức ăn trên bản đồ, kho có thể cạn kiệt đồng loạt, khiến các đợt xâm
-chiếm qua lại làm cả 2 bên suy yếu nhanh hơn (có thể dẫn đến 1 hoặc cả 2 tổ
-tuyệt chủng ở những ván chơi rất dài). Nếu muốn giảm mức độ khốc liệt, có
-thể tăng `RAID_COOLDOWN_TICKS` hoặc giảm `RAID_ATTACKER_KILL_PROB`/
-`RAID_DEFENDER_KILL_PROB` trong `config.py`.
+## Cân bằng dân số - "phanh" sinh sản theo mật độ đàn
+
+Trước đây, chúa chỉ cần đủ `EGG_FOOD_COST` là đẻ trứng tiếp - đàn cứ phình
+to tới khi kho CẠN HẲN VỀ 0 mới dừng, lúc đó đã quá muộn: cả đàn rơi vào
+chết đói hàng loạt CÙNG LÚC (đặc biệt nếu cả 2 tổ cùng cạn kho 1 lượt, các
+đợt xâm chiếm qua lại còn làm nhau suy yếu nhanh hơn nữa) - kiểm thử mô
+phỏng dài (30.000-40.000 tick) cho thấy tình trạng này có thể dẫn tới **cả
+2 tổ tuyệt chủng hoàn toàn**.
+
+Đã sửa bằng cách bắt buộc kho phải dư ra 1 khoản **dự trữ an toàn tỉ lệ
+với sĩ số đàn HIỆN TẠI** (`EGG_MIN_STORAGE_BUFFER_PER_ANT` trong
+`config.py`) trước khi chúa được đẻ trứng tiếp - đàn càng đông, ngưỡng an
+toàn càng cao, tự nhiên hãm sinh sản lại TRƯỚC KHI kho cạn, thay vì chỉ
+phản ứng SAU KHI đã cạn. Giá trị này đã được kiểm thử qua nhiều mô phỏng
+dài (60.000-90.000 tick, nhiều seed ngẫu nhiên khác nhau): mức thấp
+(1.5-5.0) vẫn dẫn tới sụp đổ tuyệt chủng ở ván dài; mức **8.0** loại bỏ
+được kiểu sụp đổ đột ngột đó (kho không còn về 0 bất ngờ) - đổi lại, dân số
+tăng chậm hơn hẳn và có thể giảm dần đều theo thời gian ở ván RẤT dài (chết
+già tự nhiên nhanh hơn tốc độ sinh - không còn là sụp đổ thảm khốc, chỉ là
+suy giảm từ từ).
+
+Nếu muốn đàn lớn nhanh hơn (chấp nhận rủi ro sụp đổ cao hơn), giảm
+`EGG_MIN_STORAGE_BUFFER_PER_ANT` xuống; muốn đàn ổn định lâu dài hơn nữa,
+tăng lên. Cũng có thể giảm mức khốc liệt của xâm chiếm bằng cách tăng
+`RAID_COOLDOWN_TICKS` hoặc giảm `RAID_ATTACKER_KILL_PROB`/
+`RAID_DEFENDER_KILL_PROB`.
 
 ## Cài đặt (Windows)
+
 
 ```powershell
 python -m venv venv

@@ -11,29 +11,32 @@ import sys
 import numpy as np
 import pygame
 
-import config as cfg
-import fonts
-from world import SurfaceWorld, UndergroundWorld
-from ants import AntColony
-from enemy import EnemyManager
-from camera import Camera2D
-from sprite_manager import SpriteManager
+from . import config as cfg
+from . import fonts
+from .world import SurfaceWorld, UndergroundWorld
+from .ants import AntColony
+from .enemy import EnemyManager
+from .camera import Camera2D
+from .sprite_manager import SpriteManager
 
-# Khi chạy bình thường: assets/ nằm cạnh file .py này. Khi được đóng gói
+# Khi chạy bình thường từ source (src/antworld/game_state.py): assets/
+# nằm ở THƯ MỤC GỐC dự án (2 cấp trên src/antworld/). Khi được đóng gói
 # thành .exe bằng PyInstaller (chế độ --onefile), file được giải nén tạm
 # vào thư mục sys._MEIPASS lúc chạy - phải trỏ theo đó thay vì theo vị trí
 # file .py (không còn tồn tại trong bản .exe).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     ASSETS_DIR = os.path.join(sys._MEIPASS, "assets")
 else:
-    ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+    ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
 
 # File lưu ván chơi PHẢI nằm cạnh file .exe thật (không phải thư mục tạm
 # _MEIPASS - thư mục đó bị xóa ngay khi tắt app, lưu vào đó thì mất ngay).
+# Khi chạy từ source thì lưu ở thư mục gốc dự án (cạnh assets/, main.py).
 if getattr(sys, "frozen", False):
     SAVE_DIR = os.path.dirname(sys.executable)
 else:
-    SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
+    SAVE_DIR = _PROJECT_ROOT
 SAVE_PATH = os.path.join(SAVE_DIR, cfg.SAVE_FILE_NAME)
 
 # Thư mục sprite TÙY CHỈNH do người chơi tự thêm vào (ảnh pixel art tự vẽ)

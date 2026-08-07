@@ -15,7 +15,7 @@ chúa chỉ đẻ trứng (tốn thức ăn từ kho); trứng lớn dần thàn
 SỰ trong phòng ấu trùng (ăn đúng thức ăn nurse mang tới), và chỉ "nở" thành
 1 kiến thợ mới khi đủ lớn (xem _update_larvae)."""
 import numpy as np
-import config as cfg
+from . import config as cfg
 
 
 class AntColony:

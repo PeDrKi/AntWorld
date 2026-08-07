@@ -18,7 +18,17 @@ nhin bang mat, dat bien moi truong ANTWORLD_TEST_REAL_DISPLAY=1 truoc khi
 chay (vi du de debug 1 test render cu the).
 """
 import os
+import sys
 
 if os.environ.get("ANTWORLD_TEST_REAL_DISPLAY") != "1":
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
+# Du an dung "src layout": package antworld nam trong src/, cong cu doc
+# lap (pixel_editor.py) nam trong tools/ - can them ca hai vao sys.path de
+# "python -m unittest discover -s tests" chay duoc ngay ca khi goi truc
+# tiep (khong qua run_tests.py, noi cung lam dieu tuong tu cho chac).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (os.path.join(_PROJECT_ROOT, "src"), os.path.join(_PROJECT_ROOT, "tools")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)

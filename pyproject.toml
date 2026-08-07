@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antworld2d"
+version = "0.5.1"
+description = "Ant World 2D - mo phong to kien 2D theo tang, viet bang pygame"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pygame>=2.5",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+antworld2d = "antworld.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

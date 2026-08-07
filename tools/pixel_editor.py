@@ -7,8 +7,8 @@ mot ung dung Python doc lap, dung chung engine (pygame) voi game AntWorld
 de khong phai them thu vien nao moi va xuat PNG tuong thich 100% voi
 sprite_manager.py cua game (nen trong suot, dung ten file theo quy uoc).
 
-CACH CHAY:
-    python pixel_editor.py
+CACH CHAY (tu thu muc goc du an):
+    python tools/pixel_editor.py
 
 PNG xuat ra se duoc luu vao:  assets/sprites/<ten_sprite>.png
 (dung thu muc va dung quy uoc ten file ma sprite_manager.py dang doc)
@@ -23,14 +23,23 @@ import sys
 import copy
 import pygame
 
-import fonts
-from sprite_data import PALETTE_GROUPS, PRESET_SPRITES, DEFAULT_PIXELS
+# Cong cu nay nam trong tools/, tach rieng khoi package game (src/antworld/)
+# nhung dung chung fonts.py + sprite_data.py voi game de xuat PNG tuong
+# thich 100%. Them src/ vao sys.path de import duoc antworld.* du chay
+# truc tiep bang "python tools/pixel_editor.py" (khong can cai dat package).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SRC_DIR = os.path.join(_PROJECT_ROOT, "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+
+from antworld import fonts
+from antworld.sprite_data import PALETTE_GROUPS, PRESET_SPRITES, DEFAULT_PIXELS
 
 # ------------------------------------------------------------------
-# Duong dan xuat file - dung dung thu muc assets/sprites/ ma
-# sprite_manager.py cua game AntWorld doc.
+# Duong dan xuat file - dung dung thu muc assets/sprites/ o goc du an
+# ma sprite_manager.py cua game AntWorld doc.
 # ------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = _PROJECT_ROOT
 SPRITES_DIR = os.path.join(BASE_DIR, "assets", "sprites")
 
 # ------------------------------------------------------------------

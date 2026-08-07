@@ -4,7 +4,7 @@ nhieu vao viec ve UI tung frame, vi phan do chu can chay-khong-crash la
 du, da kiem bang tay/bang mat khi phat trien)."""
 import unittest
 
-import pixel_editor as pe
+import pixel_editor as pe  # tools/pixel_editor.py (them vao sys.path boi conftest.py / run_tests.py)
 
 
 def fresh_state():

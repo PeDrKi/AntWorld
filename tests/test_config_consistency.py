@@ -14,7 +14,7 @@ import os
 import re
 import unittest
 
-import config as cfg
+from antworld import config as cfg
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 README_PATH = os.path.join(PROJECT_ROOT, "README.md")

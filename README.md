@@ -116,13 +116,15 @@ Không cần mở PowerShell/gõ lệnh mỗi lần muốn chơi - có thể đ�
 giãn/resize tự do), không hiện cửa sổ console đen, và **không cần cài
 Python** trên máy chạy sau khi đã đóng gói xong.
 
-**Bước 1 - Trên máy có Python (chỉ cần làm 1 lần):**
+**Bước 1 - Trên máy có Python (chỉ cần làm 1 lần), chạy TỪ THƯ MỤC GỐC dự án:**
 ```powershell
 pip install -r requirements.txt
 pip install -r requirements-build.txt
-pyinstaller AntWorld2D.spec --noconfirm
+pyinstaller packaging\AntWorld2D.spec --noconfirm
 ```
-(hoặc chạy trực tiếp file `build_exe.bat` đi kèm - tự làm hết các bước trên)
+(hoặc double-click trực tiếp file `packaging\build_exe.bat` đi kèm - tự
+chuyển về thư mục gốc dự án và làm hết các bước trên, có thể chạy từ bất
+kỳ đâu)
 
 **Bước 2:** file kết quả nằm ở `dist\AntWorld2D\AntWorld2D.exe`. Có thể
 copy CẢ THƯ MỤC `dist\AntWorld2D\` sang bất kỳ máy Windows nào khác để
@@ -184,54 +186,96 @@ vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 t�
 - **"Luoi o vuong"**: bật/tắt lưới ô vuông tham chiếu.
 - **"Bieu do"**: bật/tắt biểu đồ dân số theo thời gian (góc trên phải).
 
-## Cấu trúc file
+## Cấu trúc dự án
 
-Đã tách nhỏ từ 1 file `main.py` gộp hết (từng phình to tới ~900 dòng) thành
-các module riêng theo đúng vai trò, dễ đọc/bảo trì hơn:
+Dự án dùng **"src layout"** tiêu chuẩn của Python: code game nằm gọn
+trong 1 package (`src/antworld/`), tách biệt với công cụ độc lập
+(`tools/`), asset (`assets/`), test (`tests/`) và cấu hình đóng gói
+(`packaging/`) - mỗi thứ 1 thư mục riêng thay vì gộp chung ~25 file ở
+thư mục gốc như bản trước:
 
 ```
---- Logic mô phỏng (không đụng tới pygame) ---
-config.py             - hằng số cấu hình toàn bộ game (tầng, tốc độ, chi
-                        phí sinh sản, xác suất chiến đấu...)
-world.py              - SurfaceWorld (mặt đất) + UndergroundWorld (hầm
-                        ngầm - mỗi phòng gắn với 1 tầng rời rạc)
-ants.py               - AntColony: đàn kiến dạng mảng NumPy (di chuyển,
-                        vòng đời, trứng/ấu trùng, lính gác, xâm chiếm...)
-enemy.py              - kẻ thù tự nhiên trên mặt đất
-
---- Lớp hiển thị/điều khiển (pygame) ---
-camera.py             - Camera2D: pan/zoom màn hình <-> tọa độ lưới
-ui_widgets.py         - Button: nút bấm UI đơn giản
-game_state.py         - GameState: gom TOÀN BỘ dữ liệu + logic điều khiển
-                        (world, colony, camera, tool, toggle...) vào 1 chỗ
-render_surface.py     - vẽ tầng mặt đất + draw_ants() (dùng chung mọi tầng)
-render_underground.py - vẽ các tầng ngầm (từng phòng chức năng riêng biệt)
-hud.py                - biểu đồ dân số, bảng thống kê, thanh công cụ
-main.py               - CHỈ còn ~160 dòng: khởi tạo pygame, dựng
-                        GameState, vòng lặp sự kiện gọi vào các module trên
-fonts.py              - nạp font TrueType riêng (assets/fonts/*.ttf) thay
-                        vì SysFont, đảm bảo chữ tiếng Việt hiển thị đúng
-                        trên mọi máy kể cả bản .exe đã đóng gói
-pixel_editor.py        - công cụ vẽ pixel art cho sprite (Pygame), độc
-                        lập với game, dùng chung fonts.py. Có bút/tẩy
-                        (3 cỡ), đổ màu, hút màu, đường thẳng, hình chữ
-                        nhật (viền/đặc), đối xứng ngang+dọc, thanh trượt
-                        R/G/B, màu vừa dùng, xem hoạt ảnh (tự ghép cặp
-                        sprite thợ mang đồ, vd ant_worker_main <->
-                        ant_worker_main_carry)
-sprite_data.py         - dữ liệu bảng màu + sprite mẫu cho pixel_editor.py
-
---- Đóng gói thành app Windows (.exe) ---
-assets/icon.png, icon.ico - icon app/taskbar
-AntWorld2D.spec       - cấu hình PyInstaller (icon, ẩn console, gói assets)
-build_exe.bat         - script tự động chạy PyInstaller trên Windows
-requirements-build.txt - thư viện CHỈ cần khi đóng gói (PyInstaller)
+AntWorld2D/
+├── main.py                 - launcher mỏng ở gốc: "python main.py" vẫn
+│                             chạy game như cũ, chỉ trỏ vào src/antworld/
+├── pyproject.toml          - khai báo package (cho phép "pip install -e ."
+│                             nếu muốn import antworld từ nơi khác)
+├── requirements.txt / requirements-build.txt
+├── run_tests.py            - chạy toàn bộ test bằng 1 lệnh
+├── conftest.py             - giúp pytest tìm thấy src/ và tools/
+│
+├── src/antworld/           - PACKAGE CHÍNH của game (mọi import nội bộ
+│   │                         dùng import tương đối, vd "from . import config")
+│   ├── __init__.py
+│   ├── __main__.py         - khởi tạo pygame, dựng GameState, vòng lặp
+│   │                         sự kiện gọi vào các module dưới (từng là
+│   │                         main.py ở bản cũ)
+│   │
+│   │   --- Logic mô phỏng (không đụng tới pygame) ---
+│   ├── config.py            - hằng số cấu hình toàn bộ game (tầng, tốc
+│   │                         độ, chi phí sinh sản, xác suất chiến đấu...)
+│   ├── world.py              - SurfaceWorld (mặt đất) + UndergroundWorld
+│   │                         (hầm ngầm - mỗi phòng gắn 1 tầng rời rạc)
+│   ├── ants.py                - AntColony: đàn kiến dạng mảng NumPy (di
+│   │                         chuyển, vòng đời, trứng/ấu trùng, lính gác...)
+│   ├── enemy.py                - kẻ thù tự nhiên trên mặt đất
+│   │
+│   │   --- Lớp hiển thị/điều khiển (pygame) ---
+│   ├── camera.py                - Camera2D: pan/zoom màn hình <-> lưới
+│   ├── ui_widgets.py             - Button: nút bấm UI đơn giản
+│   ├── game_state.py              - GameState: gom TOÀN BỘ dữ liệu + logic
+│   │                         điều khiển (world, colony, camera, tool...)
+│   ├── render_surface.py           - vẽ tầng mặt đất + draw_ants() (dùng
+│   │                         chung mọi tầng)
+│   ├── render_underground.py        - vẽ các tầng ngầm (từng phòng riêng)
+│   ├── hud.py                        - biểu đồ dân số, bảng thống kê,
+│   │                         thanh công cụ
+│   ├── fonts.py                      - nạp font TrueType riêng (từ
+│   │                         assets/fonts/*.ttf ở gốc dự án) thay vì
+│   │                         SysFont, đảm bảo chữ tiếng Việt hiển thị
+│   │                         đúng kể cả bản .exe đã đóng gói
+│   ├── sprite_manager.py              - nạp sprite PNG người chơi tự thêm
+│   └── sprite_data.py                  - dữ liệu bảng màu + sprite mẫu,
+│                             dùng chung với tools/pixel_editor.py
+│
+├── tools/                  - công cụ ĐỘC LẬP với game, không nằm trong
+│   │                         package antworld (nhưng dùng chung fonts.py
+│   │                         + sprite_data.py của package đó)
+│   ├── pixel_editor.py      - công cụ vẽ pixel art cho sprite (Pygame):
+│   │                         bút/tẩy (3 cỡ), đổ màu, hút màu, đường
+│   │                         thẳng, hình chữ nhật (viền/đặc), đối xứng
+│   │                         ngang+dọc, thanh trượt R/G/B, màu vừa dùng,
+│   │                         xem hoạt ảnh (tự ghép cặp sprite mang đồ)
+│   └── pixel_studio_web/
+│       └── antworld_pixel_studio.html  - bản web (HTML/JS thuần, không
+│                             cần Python) của cùng công cụ trên
+│
+├── assets/                 - dùng chung cho game + 2 công cụ trên
+│   ├── fonts/               - font TrueType đóng gói sẵn (SIL OFL 1.1)
+│   ├── sprites/              - PNG sprite (nền trong suốt)
+│   ├── icon.ico / icon.png    - icon app/taskbar
+│
+├── tests/                  - test tự động (unittest), xem mục riêng bên
+│   │                         dưới
+│   └── test_*.py
+│
+└── packaging/               - mọi thứ liên quan đóng gói .exe, tách khỏi
+    │                         code nguồn cho gọn
+    ├── AntWorld2D.spec        - cấu hình PyInstaller (icon, ẩn console,
+    │                         gói assets/ - đường dẫn tự quy về thư mục
+    │                         gốc dự án dù spec nằm trong packaging/)
+    └── build_exe.bat            - script chạy PyInstaller trên Windows,
+                                tự cd về thư mục gốc trước khi build
 ```
 
-Nguyên tắc tách: các module render/hud nhận `state` (đối tượng GameState)
-làm tham số đầu tiên để đọc dữ liệu cần vẽ, thay vì dùng closures như bản
-main.py cũ - nhờ vậy mỗi hàm có thể đọc/test độc lập mà không cần dựng cả
-vòng lặp game.
+Nguyên tắc tách module: các hàm render/hud nhận `state` (đối tượng
+GameState) làm tham số đầu tiên để đọc dữ liệu cần vẽ, thay vì dùng
+closures như bản gộp cũ - nhờ vậy mỗi hàm có thể đọc/test độc lập mà
+không cần dựng cả vòng lặp game. Việc chuyển sang src layout ở trên chỉ
+đổi VỊ TRÍ file và cách import nội bộ (`import config as cfg` ->
+`from . import config as cfg`); không đổi hành vi hay tên biến/hàm nào -
+`python main.py`, `python run_tests.py`, và cách vẽ sprite trong
+`tools/pixel_editor.py` vẫn hệt như trước.
 
 ## Hướng mở rộng tiếp theo (gợi ý)
 
@@ -250,8 +294,12 @@ Python, không cần cài thêm gì). Chạy toàn bộ bằng 1 trong 2 cách:
 
 ```
 python run_tests.py
-# hoặc:
-python -m unittest discover -s tests -v
+# hoặc (pytest, nếu đã cài):
+python -m pytest tests -v
+# hoặc (unittest thuần, cần thêm -t . để nhận đúng package tests/ nằm
+# trong project dùng src layout - thiếu -t . sẽ báo lỗi "No module named
+# antworld" vì khi đó tests/ bị coi là top-level thay vì gói con):
+python -m unittest discover -s tests -t . -v
 ```
 
 Nội dung bao trùm:

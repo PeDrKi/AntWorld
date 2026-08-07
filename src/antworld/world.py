@@ -1,6 +1,6 @@
 """Định nghĩa lớp mặt đất (surface) và lớp hầm ngầm (underground)."""
 import numpy as np
-import config as cfg
+from . import config as cfg
 
 
 class SurfaceWorld:

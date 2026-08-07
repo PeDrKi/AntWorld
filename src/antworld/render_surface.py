@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pygame
 
-import config as cfg
+from . import config as cfg
 
 
 def draw_grid_lines(state, surf):

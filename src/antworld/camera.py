@@ -5,7 +5,7 @@ world/colony/pygame event) - có thể tái sử dụng hoặc test độc lập
 """
 import numpy as np
 
-import config as cfg
+from . import config as cfg
 
 
 class Camera2D:

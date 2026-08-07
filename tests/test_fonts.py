@@ -7,7 +7,7 @@ import unittest
 
 import pygame
 
-import fonts
+from antworld import fonts
 
 
 class TestFontFiles(unittest.TestCase):

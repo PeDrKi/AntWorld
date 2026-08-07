@@ -4,7 +4,7 @@ chuyển về phía những nơi có nhiều kiến (của BẤT KỲ tổ nào 
 gần mỗi tick. Lính (thợ lớn) có thể gây sát thương lên kẻ thù và bị giết
 khó hơn thợ thường. Sau 1 khoảng thời gian hoặc bị đánh bại sẽ rời đi."""
 import numpy as np
-import config as cfg
+from . import config as cfg
 
 
 class EnemyManager:

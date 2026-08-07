@@ -11,7 +11,7 @@ import unittest
 
 import pygame
 
-import game_state
+from antworld import game_state
 
 
 class TestGameStateSmoke(unittest.TestCase):

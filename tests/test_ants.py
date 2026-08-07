@@ -18,9 +18,9 @@ import unittest
 
 import numpy as np
 
-import config as cfg
-from ants import AntColony
-from world import SurfaceWorld, UndergroundWorld
+from antworld import config as cfg
+from antworld.ants import AntColony
+from antworld.world import SurfaceWorld, UndergroundWorld
 
 
 def make_colony(n_start=None, max_ants=None):

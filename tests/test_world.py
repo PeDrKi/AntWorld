@@ -11,8 +11,8 @@ import unittest
 
 import numpy as np
 
-import config as cfg
-from world import SurfaceWorld, UndergroundWorld
+from antworld import config as cfg
+from antworld.world import SurfaceWorld, UndergroundWorld
 
 
 class TestSurfaceWorld(unittest.TestCase):

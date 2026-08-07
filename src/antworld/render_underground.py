@@ -6,8 +6,8 @@ import math
 import numpy as np
 import pygame
 
-import config as cfg
-from render_surface import draw_ants
+from . import config as cfg
+from .render_surface import draw_ants
 
 
 def layer_name(depth):

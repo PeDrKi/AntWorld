@@ -32,12 +32,16 @@ import sys
 import pygame
 
 # Cung 1 kieu xu ly duong dan nhu ASSETS_DIR trong game_state.py: khi
-# chay binh thuong thi assets/ nam canh file .py nay; khi da dong goi
-# thanh .exe (--onefile) thi file duoc giai nen tam vao sys._MEIPASS.
+# chay binh thuong tu source (src/antworld/fonts.py), assets/ nam o THU
+# MUC GOC du an (2 cap tren src/antworld/); khi da dong goi thanh .exe
+# (--onefile) thi file duoc giai nen tam vao sys._MEIPASS (khong doi, vi
+# PyInstaller gop 'assets' vao thang goc cua ban dong goi bat ke source
+# layout - xem packaging/AntWorld2D.spec).
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     _FONTS_DIR = os.path.join(sys._MEIPASS, "assets", "fonts")
 else:
-    _FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _FONTS_DIR = os.path.join(_PROJECT_ROOT, "assets", "fonts")
 
 _REGULAR_PATH = os.path.join(_FONTS_DIR, "BeVietnamPro-Regular.ttf")
 _BOLD_PATH = os.path.join(_FONTS_DIR, "BeVietnamPro-Bold.ttf")

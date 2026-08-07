@@ -14,9 +14,9 @@ nguyên/tổn thất còn tổ đối thủ chỉ có mỗi dòng dân số."""
 import numpy as np
 import pygame
 
-import config as cfg
-from ui_widgets import Button, Panel
-from render_underground import layer_name
+from . import config as cfg
+from .ui_widgets import Button, Panel
+from .render_underground import layer_name
 
 # --- Bảng màu dùng chung cho bảng thống kê (nhãn mờ, giá trị sáng, mỗi
 # chủ đề 1 màu để mắt bắt được ngay không cần đọc kỹ từng chữ) ---

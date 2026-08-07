@@ -226,7 +226,13 @@ class GameState:
         elif tool == "enemy":
             self.enemy.force_spawn_at(sim_x, sim_y)
         elif tool == "rock":
-            self.surface_world.add_obstacle(int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS)
+            # Đặt ĐÚNG 1 ô đá (add_rock_cell), KHÔNG dùng add_obstacle với
+            # bán kính 1.4 như trước - bán kính đó tô hẳn 1 khối tròn 5 ô
+            # (hình dấu cộng) chỉ trong 1 lần bấm, trái với kỳ vọng "1 lần
+            # đặt = 1 ô". Vì đây là DRAG_TOOLS (rê chuột đặt liên tục), rê
+            # qua nhiều ô sẽ tự nối thành 1 bức tường dài - đúng tinh thần
+            # "đá = từng ô một, ghép thành tường" như lúc sinh thế giới.
+            self.surface_world.add_rock_cell(int(sim_x), int(sim_y))
         elif tool == "water":
             self.surface_world.add_obstacle(int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS)
         elif tool == "erase":

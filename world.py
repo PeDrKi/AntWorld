@@ -52,12 +52,61 @@ class SurfaceWorld:
             return int(cx), int(cy)  # đành chấp nhận lần thử cuối nếu quá xui
 
         for _ in range(cfg.NUM_ROCK_CLUSTERS):
-            cx, cy = random_far_from_nests()
-            self.add_obstacle(cx, cy, cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS)
+            self._spawn_one_rock_wall(random_far_from_nests)
 
         for _ in range(cfg.NUM_WATER_CLUSTERS):
             cx, cy = random_far_from_nests()
             self.add_obstacle(cx, cy, cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS)
+
+    def _spawn_one_rock_wall(self, random_far_from_nests):
+        """Sinh 1 BỨC TƯỜNG đá = 1 chuỗi ô đá nối liền nhau, đặt TỪNG Ô
+        MỘT bằng add_rock_cell() (không phải tô nguyên 1 khối tròn 1 lần
+        như add_obstacle) - đi theo 1 hướng chính, thỉnh thoảng rẽ góc để
+        không quá thẳng tắp, trông tự nhiên như 1 vách đá. Mỗi ô là 1
+        feature RIÊNG trong terrain_features, nên có thể đập lẻ từng viên
+        bằng công cụ xóa thay vì phải xóa nguyên cả cụm."""
+        n = cfg.GRID_SIZE
+        rng = np.random.default_rng()
+        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+
+        x, y = random_far_from_nests()
+        length = int(rng.integers(cfg.ROCK_WALL_MIN_LEN, cfg.ROCK_WALL_MAX_LEN + 1))
+        dx, dy = directions[rng.integers(0, len(directions))]
+
+        for _step in range(length):
+            self.add_rock_cell(x, y)
+
+            # Thỉnh thoảng đổi hướng - giữ tường không thẳng tắp cứng nhắc
+            # nhưng vẫn đủ thẳng để trông giống 1 bức tường liền mạch.
+            if rng.random() < cfg.ROCK_WALL_TURN_CHANCE:
+                dx, dy = directions[rng.integers(0, len(directions))]
+
+            nx, ny = x + dx, y + dy
+            if not (0 <= nx < n and 0 <= ny < n):
+                break  # chạm biên bản đồ - dừng bức tường này sớm
+            if any(np.hypot(nx - px, ny - py) <= cfg.TERRAIN_SAFE_RADIUS_FROM_NEST
+                   for px, py in self.protected_nests):
+                break  # đi lấn vào quá gần tổ giữa chừng - dừng lại
+            x, y = nx, ny
+
+    def add_rock_cell(self, x, y):
+        """Đặt ĐÚNG 1 Ô đá (khác add_obstacle() vốn tô cả 1 vùng tròn cùng
+        lúc) - dùng làm từng "viên gạch" khi ghép chuỗi thành 1 bức tường
+        trong _spawn_one_rock_wall(). Mỗi ô đá là 1 feature RIÊNG (bán
+        kính 0.5 = đúng 1 ô), khác với add_obstacle() coi cả cụm là 1
+        feature duy nhất. Tuân theo đúng thứ tự ưu tiên lớp như
+        add_obstacle(): đá đè lên thức ăn (xóa thức ăn tại ô đó)."""
+        n = cfg.GRID_SIZE
+        x, y = int(x), int(y)
+        if not (0 <= x < n and 0 <= y < n):
+            return None
+        self.terrain[x, y] = cfg.TERRAIN_ROCK
+        self.food[x, y] = 0
+        fid = self._next_feature_id
+        self._next_feature_id += 1
+        feature = (fid, cfg.TERRAIN_ROCK, x, y, 0.5)
+        self.terrain_features.append(feature)
+        return feature
 
     def add_obstacle(self, cx, cy, terrain_type, radius):
         """Đánh dấu 1 vùng địa hình (đá/nước) trên lưới - dùng cả lúc khởi

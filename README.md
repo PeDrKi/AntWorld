@@ -10,13 +10,13 @@ Dùng thư viện **Pygame** để dựng 2D (không còn Ursina/Panda3D).
 
 ## Dân số & sinh sản
 
-- Mỗi đàn khởi tạo **20 con**, có thể **tự sinh sản lớn lên tới tối đa 1000
+- Mỗi đàn khởi tạo **10 con**, có thể **tự sinh sản lớn lên tới tối đa 200
   con** (`NUM_ANTS`, `MAX_ANTS_PER_COLONY` trong `config.py`) - không còn bị
   giới hạn cứng ở đúng số khởi tạo như bản trước.
 - Chúa **đẻ trứng** định kỳ (tốn thức ăn + nước từ kho) thay vì "sinh" kiến
   trực tiếp. Trứng lớn dần thành ấu trùng thật trong phòng ấu trùng, ăn
   đúng thức ăn nurse mang tới - đủ lớn mới "nở" thành 1 kiến thợ mới, và
-  chỉ nở được nếu đàn CHƯA chạm trần 1000 con.
+  chỉ nở được nếu đàn CHƯA chạm trần 200 con.
 
 ## Các phòng ngầm - thực hiện đúng chức năng
 
@@ -209,6 +209,12 @@ render_underground.py - vẽ các tầng ngầm (từng phòng chức năng riê
 hud.py                - biểu đồ dân số, bảng thống kê, thanh công cụ
 main.py               - CHỈ còn ~160 dòng: khởi tạo pygame, dựng
                         GameState, vòng lặp sự kiện gọi vào các module trên
+fonts.py              - nạp font TrueType riêng (assets/fonts/*.ttf) thay
+                        vì SysFont, đảm bảo chữ tiếng Việt hiển thị đúng
+                        trên mọi máy kể cả bản .exe đã đóng gói
+pixel_editor.py        - công cụ vẽ pixel art cho sprite (Pygame), độc
+                        lập với game, dùng chung fonts.py
+sprite_data.py         - dữ liệu bảng màu + sprite mẫu cho pixel_editor.py
 
 --- Đóng gói thành app Windows (.exe) ---
 assets/icon.png, icon.ico - icon app/taskbar
@@ -231,3 +237,40 @@ vòng lặp game.
 - Cho phép đào nhiều phòng trên CÙNG 1 tầng (hiện tại mỗi phòng tự đào
   chiếm hẳn 1 tầng riêng để đơn giản hóa).
 - Lưu/tải trạng thái thế giới bằng SQLite.
+
+## Test tự động
+
+Thư mục `tests/` chứa bộ test tự động (dùng `unittest` có sẵn trong
+Python, không cần cài thêm gì). Chạy toàn bộ bằng 1 trong 2 cách:
+
+```
+python run_tests.py
+# hoặc:
+python -m unittest discover -s tests -v
+```
+
+Nội dung bao trùm:
+
+- `test_config_consistency.py` - kiểm tra `config.py` tự nhất quán, và
+  **README này không lệch số liệu thật trong config.py** (đúng loại lỗi
+  đã từng xảy ra: README ghi 20/1000 con trong khi code là 10/200 con) -
+  nếu sau này đổi `NUM_ANTS`/`MAX_ANTS_PER_COLONY` mà quên lướt lại
+  README, test này sẽ báo đỏ ngay.
+- `test_world.py` - `SurfaceWorld`/`UndergroundWorld` sinh ra hợp lệ,
+  không NaN/giá trị âm phi lý.
+- `test_ants.py` - chạy mô phỏng đàn kiến ~1500 tick, kiểm tra không
+  NaN/inf trong vị trí, dân số không bao giờ vượt trần
+  `MAX_ANTS_PER_COLONY`. Đây là loại lỗi khó bắt bằng mắt vì thường chỉ
+  lộ ra sau rất nhiều tick.
+- `test_fonts.py` - file font `.ttf` tồn tại và load được, chữ tiếng
+  Việt có dấu render không lỗi (phòng lỗi font tái diễn).
+- `test_pixel_editor.py` - logic vẽ/đối xứng ngang-dọc/đổ màu/undo-redo
+  trong `pixel_editor.py`.
+- `test_game_state.py` - smoke test tích hợp: dựng `GameState` thật
+  (tải sprite/font/world/2 đàn) rồi chạy vài trăm tick, đảm bảo các
+  module ghép lại với nhau không crash.
+
+Bộ test tự set `SDL_VIDEODRIVER=dummy` (qua `tests/__init__.py`) nên
+chạy được cả trên máy không có màn hình (SSH, CI...), không cần mở cửa
+sổ game thật.
+

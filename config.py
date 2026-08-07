@@ -129,9 +129,19 @@ TERRAIN_EMPTY = 0
 TERRAIN_ROCK = 1
 TERRAIN_WATER = 2
 
-NUM_ROCK_CLUSTERS = 4        # số cụm đá rải ngẫu nhiên lúc khởi tạo - vừa
-                             # phải để không cản trở quá mức việc tìm ăn
-ROCK_CLUSTER_RADIUS = 1.4
+NUM_ROCK_CLUSTERS = 4        # số BỨC TƯỜNG đá rải ngẫu nhiên lúc khởi tạo -
+                             # vừa phải để không cản trở quá mức việc tìm ăn
+                             # (mỗi bức tường = 1 chuỗi ô đá nối liền nhau,
+                             # xem _spawn_one_rock_wall() trong world.py -
+                             # KHÔNG còn là khối tròn đặc như trước; công cụ
+                             # đặt đá thủ công trong game cũng đặt từng ô 1
+                             # qua add_rock_cell(), xem game_state.py)
+ROCK_WALL_MIN_LEN = 4        # độ dài NGẮN NHẤT 1 bức tường đá (số ô)
+ROCK_WALL_MAX_LEN = 10       # độ dài DÀI NHẤT 1 bức tường đá (số ô)
+ROCK_WALL_TURN_CHANCE = 0.25  # xác suất đổi hướng đi mỗi ô - thấp để tường
+                             # đi khá thẳng (giống vách đá thật), không quá
+                             # 0 để tránh mọi bức tường đều là 1 đường thẳng
+                             # tắp nhàm chán
 NUM_WATER_CLUSTERS = 4       # số vũng nước rải ngẫu nhiên lúc khởi tạo
 WATER_CLUSTER_RADIUS = 2.4
 TERRAIN_SAFE_RADIUS_FROM_NEST = 6  # không đặt địa hình quá gần lỗ tổ

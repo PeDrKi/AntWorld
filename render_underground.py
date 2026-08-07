@@ -30,25 +30,81 @@ def layer_name(depth):
     return f"Phong dao (tang {depth})"
 
 
+def _blob_points(cx, cy, base_r, seed_key, n_points=28, irregularity=0.22):
+    """Tạo đường viền HÌNH DẠNG TỰ NHIÊN như 1 khoang hang động thật (lồi
+    lõm mềm mại), KHÔNG PHẢI hình tròn hoàn hảo - dùng vài họa ba sin biên
+    độ/pha ngẫu nhiên nhưng CỐ ĐỊNH theo seed_key (mỗi phòng 1 hình dạng
+    riêng, KHÔNG đổi giữa các khung hình, vì seed_key giống nhau mỗi lần
+    gọi lại cho đúng phòng đó). Trộn vài tần số khác nhau (2-5) để đường
+    viền mượt, không bị gai nhọn như nhiễu ngẫu nhiên thuần túy."""
+    rng_local = np.random.RandomState(seed_key * 911 + 41)
+    n_harmonics = 4
+    amps = rng_local.uniform(0.3, 1.0, n_harmonics)
+    amps = amps / amps.sum() * irregularity
+    freqs = np.arange(2, 2 + n_harmonics)
+    phases = rng_local.uniform(0, 2 * np.pi, n_harmonics)
+    angles = np.linspace(0, 2 * np.pi, n_points, endpoint=False)
+    radius_mult = np.ones(n_points)
+    for a, f, p in zip(amps, freqs, phases):
+        radius_mult = radius_mult + a * np.sin(angles * f + p)
+    return [
+        (cx + math.cos(a) * base_r * rm, cy + math.sin(a) * base_r * rm)
+        for a, rm in zip(angles, radius_mult)
+    ]
+
+
 def draw_room_floor(surf, cx, cy, r_px, room_rgb, seed_key):
     """Vẽ 1 phòng ngầm như 1 KHU VỰC SÀN thật sự (không phải hình tròn
     trang trí) - có viền tường đất bo tròn + lớp sàn sáng hơn bên trong,
     để mắt nhận ra ngay đây là không gian kiến có thể đi lại/hoạt động
-    bên trong, khác hẳn đường hành lang mảnh. (Không còn vẽ thêm các chấm
-    "vân sàn" ngẫu nhiên như bản trước - dễ bị nhầm với thức ăn/ấu trùng/
-    xác kiến khi nhìn nhanh.)"""
+    bên trong, khác hẳn đường hành lang mảnh. HÌNH DẠNG là 1 khoang hang
+    động TỰ NHIÊN (lồi lõm nhẹ, xem _blob_points) - KHÔNG phải hình tròn
+    hoàn hảo, mỗi phòng 1 dáng riêng (nhưng cố định, không "nhũn" theo
+    thời gian) để trông sống động và tự nhiên hơn hẳn."""
     wall_color = tuple(max(0, c - 60) for c in room_rgb)
     floor_color = tuple(min(255, c + 45) for c in room_rgb)
-    pygame.draw.circle(surf, wall_color, (cx, cy), r_px + max(2, int(r_px * 0.12)))
-    pygame.draw.circle(surf, floor_color, (cx, cy), r_px)
-    pygame.draw.circle(surf, room_rgb, (cx, cy), max(1, int(r_px * 0.78)))
-    pygame.draw.circle(surf, (0, 0, 0), (cx, cy), r_px + max(2, int(r_px * 0.12)), 2)
+    wall_pts = _blob_points(cx, cy, r_px + max(2, int(r_px * 0.12)), seed_key)
+    floor_pts = _blob_points(cx, cy, r_px, seed_key)
+    inner_pts = _blob_points(cx, cy, max(1, int(r_px * 0.78)), seed_key)
+    pygame.draw.polygon(surf, wall_color, wall_pts)
+    pygame.draw.polygon(surf, floor_color, floor_pts)
+    pygame.draw.polygon(surf, room_rgb, inner_pts)
+    pygame.draw.polygon(surf, (0, 0, 0), wall_pts, 2)
+
+
+def _grid_positions(n, cx, cy, r_px, icon_r, group_size=5):
+    """Sắp xếp n icon thành LƯỚI GỌN GÀNG (hàng-cột đều đặn) quanh tâm
+    (cx, cy), THAY VÌ rải ngẫu nhiên như trước - để có thể ĐẾM BẰNG MẮT
+    THƯỜNG dễ dàng. Cứ mỗi `group_size` icon liên tiếp trong 1 hàng thì
+    cách thêm 1 khoảng nhỏ (giống cách đếm "5 que 1 bó") để nhìn phát biết
+    ngay số lượng gần đúng mà không cần đếm từng cái một. Tự động giới hạn
+    số icon/hàng theo đường kính phòng khả dụng để khối lưới luôn nằm gọn
+    trong phòng dù zoom xa/gần."""
+    if n <= 0:
+        return []
+    spacing = icon_r * 2.3
+    group_gap = icon_r * 1.15
+    usable_w = r_px * 1.3
+    per_row = max(group_size, int(usable_w / spacing))
+    positions = []
+    for i in range(n):
+        row = i // per_row
+        col = i % per_row
+        x = col * spacing + (col // group_size) * group_gap
+        y = row * spacing
+        positions.append((x, y))
+    xs = [p[0] for p in positions]
+    ys = [p[1] for p in positions]
+    off_x = cx - (min(xs) + max(xs)) / 2
+    off_y = cy - (min(ys) + max(ys)) / 2
+    return [(x + off_x, y + off_y) for x, y in positions]
 
 
 def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
     """Kho thức ăn KHÔNG chỉ là 1 con số - vẽ luôn số thức ăn ĐANG LƯU
-    TRỮ THẬT SỰ dưới dạng 1 đống nhỏ các viên thức ăn rải trong phòng,
-    đống to/nhỏ tùy theo lượng tồn kho hiện tại (1 icon = ĐÚNG 1 đơn vị
+    TRỮ THẬT SỰ dưới dạng các viên thức ăn xếp THÀNH LƯỚI GỌN GÀNG (không
+    rải ngẫu nhiên - xem _grid_positions) để đếm bằng mắt thường dễ dàng,
+    số hàng/cột tăng theo lượng tồn kho hiện tại (1 icon = ĐÚNG 1 đơn vị
     thức ăn - xem STORAGE_FOOD_PER_ICON). Tất cả viên đều dùng chung 1 MÀU
     THỨC ĂN DUY NHẤT (khớp với FOOD_TYPE_COLOR - chỉ còn 1 loại thức ăn),
     chỉ ngả sáng/tối nhẹ ngẫu nhiên giữa các viên để đống trông có khối
@@ -57,16 +113,12 @@ def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
     n_icons = int(np.clip(amount / cfg.STORAGE_FOOD_PER_ICON, 0, cfg.STORAGE_MAX_ICONS))
     if n_icons <= 0:
         return
+    r = max(2, int(r_px * 0.085))
     rng_local = np.random.RandomState(seed_key * 733 + 5)
-    ang = rng_local.uniform(0, 2 * np.pi, n_icons)
-    rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.72
     shade_jitter = rng_local.uniform(-22, 22, n_icons)
     base = cfg.FOOD_TYPE_COLOR[cfg.FOOD_TYPE_SEED]
-    for i in range(n_icons):
-        dx = int(math.cos(ang[i]) * rad[i])
-        dy = int(math.sin(ang[i]) * rad[i])
-        r = max(2, int(r_px * 0.085))
-        px, py = cx + dx, cy + dy
+    for i, (px, py) in enumerate(_grid_positions(n_icons, cx, cy, r_px, r)):
+        px, py = int(px), int(py)
         j = shade_jitter[i]
         color = tuple(int(np.clip(c + j, 20, 255)) for c in base)
         pygame.draw.circle(surf, (35, 25, 15), (px, py), r + 1)  # viền tối cho nổi khối
@@ -118,19 +170,15 @@ def draw_queen(surf, cx, cy, r_px, room_rgb, frame_counter):
 
 def draw_water_drops(surf, cx, cy, r_px, amount, seed_key):
     """Bể trữ nước KHÔNG chỉ là 1 con số - vẽ luôn lượng nước ĐANG TRỮ
-    THẬT SỰ dưới dạng các giọt nước xanh lấp lánh rải trong bể, to/nhỏ
-    theo lượng nước tồn hiện tại."""
+    THẬT SỰ dưới dạng các giọt nước xanh lấp lánh xếp THÀNH LƯỚI GỌN GÀNG
+    (không rải ngẫu nhiên - xem _grid_positions) để đếm bằng mắt thường dễ
+    dàng, to/nhỏ theo lượng nước tồn hiện tại."""
     n_icons = int(np.clip(amount / cfg.WATER_PER_ICON, 0, cfg.WATER_MAX_ICONS))
     if n_icons <= 0:
         return
-    rng_local = np.random.RandomState(seed_key * 611 + 17)
-    ang = rng_local.uniform(0, 2 * np.pi, n_icons)
-    rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.72
-    for i in range(n_icons):
-        dx = int(math.cos(ang[i]) * rad[i])
-        dy = int(math.sin(ang[i]) * rad[i])
-        r = max(3, int(r_px * 0.13))
-        px, py = cx + dx, cy + dy
+    r = max(3, int(r_px * 0.09))
+    for px, py in _grid_positions(n_icons, cx, cy, r_px, r):
+        px, py = int(px), int(py)
         pygame.draw.circle(surf, (20, 60, 100), (px, py), r + 1)
         pygame.draw.circle(surf, (60, 150, 230), (px, py), r)
         hi = max(1, int(r * 0.45))

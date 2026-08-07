@@ -103,18 +103,17 @@ if SHOW_GLASS_BOX:
 # Mặt đất - có thể bấm phím G để chuyển giữa đục/trong suốt
 # ---------------------------------------------------------------------
 def make_grid_texture(tile_px=32, border_px=4):
-    """Tạo 1 texture ô vuông nhỏ (nền trắng + viền đen mảnh quanh mép) rồi
-    lặp lại (tile) theo đúng số ô của lưới mô phỏng - khi nhân với màu nền
-    đất sẽ cho hiệu ứng đường viền đen mảnh giữa các ô như bạn muốn.
-    LƯU Ý: với lưới lớn (50x50), viền quá mảnh (ví dụ 2px/32px) sẽ bị mờ
-    gần như biến mất khi nhìn từ xa do texture bị thu nhỏ nhiều lần - viền
-    4px/32px (12.5%) đủ dày để vẫn rõ ràng ở mọi khoảng cách camera."""
-    arr = np.full((tile_px, tile_px, 3), 255, dtype=np.uint8)
-    arr[:border_px, :, :] = 0
-    arr[-border_px:, :, :] = 0
-    arr[:, :border_px, :] = 0
-    arr[:, -border_px:, :] = 0
-    return Image.fromarray(arr, mode="RGB")
+    """Tạo 1 texture ô vuông TRONG SUỐT (alpha=0) trừ viền đen mảnh quanh
+    mép (alpha=255) - dùng cho 1 LỚP RIÊNG nằm trên mặt đất, để đường viền
+    lưới luôn hiển thị rõ ràng dù mặt đất có đang bật độ trong suốt (phím
+    G) hay không. LƯU Ý: viền 4px/32px (12.5%) đủ dày để không bị mờ biến
+    mất khi nhìn từ xa trên lưới lớn (50x50)."""
+    arr = np.zeros((tile_px, tile_px, 4), dtype=np.uint8)
+    arr[:border_px, :, 3] = 255
+    arr[-border_px:, :, 3] = 255
+    arr[:, :border_px, 3] = 255
+    arr[:, -border_px:, 3] = 255
+    return Image.fromarray(arr, mode="RGBA")
 
 
 GRID_TEXTURE = Texture(make_grid_texture(), filtering=None)
@@ -124,10 +123,20 @@ ground = Entity(
     scale=(cfg.GRID_SIZE, 1, cfg.GRID_SIZE),
     position=(0, 0, 0),
     color=rgb255(205, 178, 132, 235),
+    double_sided=True,
+    collider="box",
+)
+# Lớp lưới ô vuông RIÊNG, nằm ngay trên mặt đất - LUÔN hiển thị đầy đủ độ
+# rõ nét (alpha 255) kể cả khi bạn bấm phím G làm mặt đất trong suốt, vì
+# đây là 1 entity độc lập, không dùng chung độ trong suốt với ground.
+ground_grid_lines = Entity(
+    model="plane",
+    scale=(cfg.GRID_SIZE, 1, cfg.GRID_SIZE),
+    position=(0, 0.01, 0),
+    color=color.black,
     texture=GRID_TEXTURE,
     texture_scale=(cfg.GRID_SIZE, cfg.GRID_SIZE),
     double_sided=True,
-    collider="box",
 )
 GROUND_OPAQUE_ALPHA = 235
 GROUND_TRANSPARENT_ALPHA = 55
@@ -326,6 +335,7 @@ def make_ant_entities(colony_obj, base_color):
 
 
 ant_entities = make_ant_entities(colony, color.black)
+ant_render_state = np.full(colony.n, -2, dtype=np.int8)  # -2 = chưa gán lần nào
 
 COLOR_SEARCH = rgb255(25, 25, 25)
 COLOR_CARRY_SURFACE = rgb255(215, 120, 30)
@@ -334,6 +344,7 @@ COLOR_CARRY_UNDERGROUND = rgb255(235, 190, 70)
 
 # Tổ đối thủ - tông màu đỏ/nâu để phân biệt rõ với tổ chính (đen/cam)
 rival_ant_entities = make_ant_entities(rival_colony, rgb255(120, 30, 25))
+rival_ant_render_state = np.full(rival_colony.n, -2, dtype=np.int8)
 RIVAL_COLOR_SEARCH = rgb255(120, 30, 25)
 RIVAL_COLOR_CARRY_SURFACE = rgb255(230, 140, 40)
 RIVAL_COLOR_UNDERGROUND = rgb255(200, 160, 155)
@@ -376,7 +387,7 @@ def make_tool_button(label, tool_name, x):
     btn = Button(
         text=label,
         parent=camera.ui,
-        position=(x, -0.45),
+        position=(x, -0.42),
         scale=(0.135, 0.06),
         color=TOOL_BUTTON_COLOR,
         text_size=0.65,
@@ -395,7 +406,7 @@ make_tool_button("Dat nuoc", "water", 0.0)
 pause_button = Button(
     text="Tam dung",
     parent=camera.ui,
-    position=(0.30, -0.45),
+    position=(0.30, -0.42),
     scale=(0.13, 0.06),
     color=TOOL_BUTTON_COLOR,
     text_size=0.7,
@@ -403,7 +414,7 @@ pause_button = Button(
 speed_button = Button(
     text="Toc do: x1",
     parent=camera.ui,
-    position=(0.46, -0.45),
+    position=(0.46, -0.42),
     scale=(0.15, 0.06),
     color=TOOL_BUTTON_COLOR,
     text_size=0.7,
@@ -426,14 +437,15 @@ def _cycle_speed():
 pause_button.on_click = _toggle_pause
 speed_button.on_click = _cycle_speed
 
-# Hàng nút thứ 2: bật/tắt tái sinh thức ăn ngẫu nhiên
+# Hàng nút thứ 2 (NGAY DƯỚI hàng 1, vẫn trong khung hình - trước đây đặt
+# quá thấp (-0.53) nên bị cắt mất khỏi vùng nhìn thấy của camera.ui)
 respawn_button = Button(
     text="Tai sinh thuc an: BAT",
     parent=camera.ui,
-    position=(-0.62, -0.53),
-    scale=(0.28, 0.06),
+    position=(-0.62, -0.485),
+    scale=(0.28, 0.055),
     color=TOOL_BUTTON_ACTIVE_COLOR,
-    text_size=0.65,
+    text_size=0.6,
 )
 
 
@@ -449,7 +461,7 @@ respawn_button.on_click = _toggle_food_respawn
 tool_hint = Text(
     parent=camera.ui,
     text="Chon 1 cong cu roi CLICK CHUOT TRAI len mat dat de dung",
-    position=(-0.55, -0.38),
+    position=(-0.55, -0.35),
     scale=0.7,
     color=color.yellow,
 )
@@ -482,21 +494,36 @@ STATS_EVERY_N_FRAMES = 15
 
 
 def render_colony(colony_obj, entities, color_search, color_carry_surface,
-                   color_underground, color_carry_underground):
+                   color_underground, color_carry_underground, last_state):
+    """last_state: mảng NumPy lưu "trạng thái màu" đã gán lần trước cho mỗi
+    con kiến (0=search,1=carry_surface,2=underground,3=carry_underground,
+    -1=đang ẩn) - CHỈ gán lại ent.color/ent.enabled khi trạng thái thực sự
+    đổi, tránh Panda3D phải cập nhật render-state thừa cho hàng trăm con
+    kiến không đổi màu ở mỗi khung hình (đa số các tick, phần lớn đàn kiến
+    giữ nguyên trạng thái từ tick trước)."""
     xs, ys, zs = colony_obj.x, colony_obj.y, colony_obj.z
     carrying = colony_obj.carrying
     layer = colony_obj.layer
     alive = colony_obj.alive
     for i, ent in enumerate(entities):
         if not alive[i]:
-            ent.enabled = False
+            if last_state[i] != -1:
+                ent.enabled = False
+                last_state[i] = -1
             continue
-        ent.enabled = True
-        ent.position = sim_to_world(xs[i], ys[i], zs[i])
+        ent.position = sim_to_world(xs[i], ys[i], zs[i])  # vị trí luôn đổi, phải cập nhật mỗi frame
+
         if layer[i] == cfg.LAYER_SURFACE:
-            ent.color = color_carry_surface if carrying[i] else color_search
+            new_state = 1 if carrying[i] else 0
         else:
-            ent.color = color_carry_underground if carrying[i] else color_underground
+            new_state = 3 if carrying[i] else 2
+
+        if last_state[i] != new_state:
+            if last_state[i] == -1:
+                ent.enabled = True
+            ent.color = (color_search, color_carry_surface,
+                         color_underground, color_carry_underground)[new_state]
+            last_state[i] = new_state
 
 
 def update():
@@ -512,10 +539,10 @@ def update():
                     do_random_food_respawn()
 
     render_colony(colony, ant_entities, COLOR_SEARCH, COLOR_CARRY_SURFACE,
-                  COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND)
+                  COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND, ant_render_state)
     render_colony(rival_colony, rival_ant_entities, RIVAL_COLOR_SEARCH,
                   RIVAL_COLOR_CARRY_SURFACE, RIVAL_COLOR_UNDERGROUND,
-                  RIVAL_COLOR_CARRY_UNDERGROUND)
+                  RIVAL_COLOR_CARRY_UNDERGROUND, rival_ant_render_state)
 
     enemy_entity.enabled = enemy.active
     if enemy.active:

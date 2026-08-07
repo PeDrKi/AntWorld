@@ -92,6 +92,13 @@ class AntColony:
                 yi = self._wrap_indices(sy)
                 return self.surface.sample_pheromone(xi, yi)
 
+            def sense_danger(offset):
+                sx = x + np.cos(theta + offset) * cfg.SENSE_DIST
+                sy = y + np.sin(theta + offset) * cfg.SENSE_DIST
+                xi = self._wrap_indices(sx)
+                yi = self._wrap_indices(sy)
+                return self.surface.sample_danger(xi, yi)
+
             left = sense(-cfg.SENSE_ANGLE)
             center = sense(0.0)
             right = sense(cfg.SENSE_ANGLE)
@@ -99,6 +106,17 @@ class AntColony:
             bias = np.zeros_like(theta)
             bias = np.where(left > center, bias - cfg.SENSE_ANGLE, bias)
             bias = np.where(right > np.maximum(left, center), bias + cfg.SENSE_ANGLE, bias)
+
+            # --- Né tránh mùi báo động nguy hiểm (kẻ thù) - hướng NGƯỢC
+            # lại phía có mùi báo động đậm hơn, độc lập với việc tìm ăn ---
+            d_left = sense_danger(-cfg.SENSE_ANGLE)
+            d_center = sense_danger(0.0)
+            d_right = sense_danger(cfg.SENSE_ANGLE)
+            danger_bias = np.zeros_like(theta)
+            danger_bias = np.where(d_left > d_center, danger_bias + cfg.SENSE_ANGLE, danger_bias)
+            danger_bias = np.where(d_right > np.maximum(d_left, d_center), danger_bias - cfg.SENSE_ANGLE, danger_bias)
+            danger_present = np.maximum(d_left, np.maximum(d_center, d_right)) > cfg.DANGER_PRESENCE_THRESHOLD
+            bias = bias + np.where(danger_present, danger_bias * cfg.DANGER_AVOID_WEIGHT, 0.0)
 
             noise = np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(idx)).astype(np.float32)
             self.theta[idx] = theta + bias * 0.5 + noise

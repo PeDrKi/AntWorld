@@ -33,6 +33,23 @@ PHEROMONE_DECAY = 0.985     # mỗi tick pheromone giảm còn 98.5%
 PHEROMONE_DEPOSIT = 1.0     # lượng mùi để lại mỗi tick khi đang tha đồ
 PHEROMONE_MAX = 8.0
 
+# ----- Pheromone báo động (khi có kẻ thù trên mặt đất) -----
+DANGER_PHEROMONE_DECAY = 0.85   # giảm RẤT nhanh - chỉ còn tác dụng ngay
+                                # sát nơi kẻ thù vừa xuất hiện, tan trong
+                                # vài chục tick chứ không lan rộng/tồn lâu
+DANGER_DEPOSIT_AMOUNT = 3.0     # lượng mùi báo động kẻ thù để lại mỗi tick
+DANGER_DEPOSIT_RADIUS = 2        # bán kính lan tỏa quanh vị trí kẻ thù -
+                                # hẹp, không phủ kín cả khu vực quanh tổ
+DANGER_PHEROMONE_MAX = 10.0
+DANGER_PRESENCE_THRESHOLD = 1.5  # chỉ né khi mùi đủ đậm (gần kẻ thù thật
+                                # sự), tránh phản ứng thái quá với dấu vết
+                                # mờ nhạt còn sót lại
+DANGER_AVOID_WEIGHT = 0.4        # trọng số né tránh - NHẸ, chỉ là 1 xu
+                                # hướng lệch thêm, không lấn át hẳn hành vi
+                                # tìm ăn bình thường (đã kiểm thử: đặt cao
+                                # hơn nhiều sẽ làm tê liệt việc tìm ăn khi
+                                # kẻ thù ở gần tổ, gây sụp đổ dân số)
+
 # ----- Thức ăn trên mặt đất (đa dạng loại) -----
 FOOD_CLUSTERS = 26           # tăng so với bản 1 tổ vì giờ có thêm tổ đối
                              # thủ cùng cạnh tranh nguồn thức ăn này
@@ -79,6 +96,11 @@ TERRAIN_SAFE_RADIUS_FROM_NEST = 6  # không đặt địa hình quá gần lỗ 
 WATER_COLLECT_RADIUS = 2.0     # khoảng cách tới mép nước để có thể "uống"
 ERASE_RADIUS = 3.0             # bán kính xóa vật thể (thức ăn/đá/nước)
                                # quanh điểm click của công cụ "Xóa"
+
+# ----- Biểu đồ lịch sử dân số theo thời gian -----
+HISTORY_SAMPLE_INTERVAL = 200   # cứ mỗi bấy nhiêu tick lấy mẫu 1 lần
+HISTORY_MAX_POINTS = 150        # giữ tối đa bấy nhiêu điểm gần nhất (cũ hơn
+                                # sẽ bị loại bỏ dần - tránh phình bộ nhớ)
 WATER_BASE_INCOME_PER_TICK = 0.45  # tổ tự động thu được bấy nhiêu nước mỗi
                                # tick MIỄN LÀ còn ít nhất 1 vũng nước trên
                                # bản đồ (đại diện cho việc kiến đi lấy nước

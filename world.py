@@ -11,6 +11,7 @@ class SurfaceWorld:
         self.food = np.zeros((n, n), dtype=np.float32)
         self.food_type = np.zeros((n, n), dtype=np.int8)  # loại thức ăn tại mỗi ô
         self.pheromone = np.zeros((n, n), dtype=np.float32)
+        self.danger_pheromone = np.zeros((n, n), dtype=np.float32)
         self.terrain = np.zeros((n, n), dtype=np.int8)  # 0=đất, 1=đá, 2=nước
         self.terrain_features = []  # [(id, loại, cx, cy, radius), ...] để vẽ 3D
         self._next_feature_id = 0
@@ -122,6 +123,7 @@ class SurfaceWorld:
 
     def decay_pheromone(self):
         self.pheromone *= cfg.PHEROMONE_DECAY
+        self.danger_pheromone *= cfg.DANGER_PHEROMONE_DECAY
 
     def deposit_pheromone(self, xi, yi):
         """xi, yi: mảng chỉ số nguyên (đã clip trong biên)."""
@@ -130,6 +132,22 @@ class SurfaceWorld:
 
     def sample_pheromone(self, xi, yi):
         return self.pheromone[xi, yi]
+
+    def deposit_danger(self, x, y):
+        """Phát ra mùi báo động nguy hiểm quanh vị trí (x, y) - dùng khi có
+        kẻ thù đang hoạt động trên mặt đất, lan tỏa trong bán kính nhỏ."""
+        n = cfg.GRID_SIZE
+        r = cfg.DANGER_DEPOSIT_RADIUS
+        cx, cy = int(round(x)), int(round(y))
+        x0, x1 = max(0, cx - r), min(n, cx + r + 1)
+        y0, y1 = max(0, cy - r), min(n, cy + r + 1)
+        xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
+        mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= r ** 2
+        self.danger_pheromone[xs[mask], ys[mask]] += cfg.DANGER_DEPOSIT_AMOUNT
+        np.clip(self.danger_pheromone, 0, cfg.DANGER_PHEROMONE_MAX, out=self.danger_pheromone)
+
+    def sample_danger(self, xi, yi):
+        return self.danger_pheromone[xi, yi]
 
     def take_food(self, xi, yi, amount=1.0):
         """Trừ thức ăn tại các ô, trả về (mảng bool nơi lấy được, mảng loại

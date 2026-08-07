@@ -503,9 +503,99 @@ def _toggle_grid():
 
 grid_button.on_click = _toggle_grid
 
+# ---------------------------------------------------------------------
+# Biểu đồ lịch sử dân số theo thời gian - panel nhỏ góc phải màn hình,
+# lấy mẫu định kỳ và vẽ lại bằng 2 đường line (tổ chính/tổ đối thủ)
+# ---------------------------------------------------------------------
+pop_history_main = []
+pop_history_rival = []
+history_tick = 0
+
+GRAPH_X, GRAPH_Y = 0.63, 0.10       # tâm panel (tọa độ UI)
+GRAPH_W, GRAPH_H = 0.30, 0.24        # kích thước panel
+
+graph_panel_bg = Entity(
+    parent=camera.ui,
+    model="quad",
+    color=rgb255(0, 0, 0, 130),
+    scale=(GRAPH_W, GRAPH_H),
+    position=(GRAPH_X, GRAPH_Y),
+)
+graph_title = Text(
+    parent=camera.ui,
+    text="Dan so theo thoi gian",
+    position=(GRAPH_X - GRAPH_W / 2 + 0.01, GRAPH_Y + GRAPH_H / 2 - 0.015),
+    scale=0.6,
+    color=color.white,
+)
+graph_line_main_entity = None
+graph_line_rival_entity = None
+graph_visible = True
+
+
+def _history_to_points(history, max_val):
+    n = len(history)
+    pts = []
+    x0 = GRAPH_X - GRAPH_W / 2 + 0.015
+    x1 = GRAPH_X + GRAPH_W / 2 - 0.015
+    y0 = GRAPH_Y - GRAPH_H / 2 + 0.015
+    y1 = GRAPH_Y + GRAPH_H / 2 - 0.05
+    for i, v in enumerate(history):
+        t = i / max(1, cfg.HISTORY_MAX_POINTS - 1)
+        x = x0 + t * (x1 - x0)
+        y = y0 + min(1.0, v / max_val) * (y1 - y0)
+        pts.append((x, y, 0))
+    return pts
+
+
+def redraw_graph():
+    global graph_line_main_entity, graph_line_rival_entity
+    if graph_line_main_entity is not None:
+        destroy(graph_line_main_entity)
+        graph_line_main_entity = None
+    if graph_line_rival_entity is not None:
+        destroy(graph_line_rival_entity)
+        graph_line_rival_entity = None
+    if not graph_visible or len(pop_history_main) < 2:
+        return
+    max_val = max(colony.n, rival_colony.n, 1)
+    graph_line_main_entity = Entity(
+        parent=camera.ui,
+        model=Mesh(vertices=_history_to_points(pop_history_main, max_val), mode="line", thickness=3),
+        color=color.black,
+    )
+    graph_line_rival_entity = Entity(
+        parent=camera.ui,
+        model=Mesh(vertices=_history_to_points(pop_history_rival, max_val), mode="line", thickness=3),
+        color=rgb255(150, 30, 25),
+    )
+
+
+graph_button = Button(
+    text="Bieu do: HIEN",
+    parent=camera.ui,
+    position=(0.02, -0.485),
+    scale=(0.20, 0.055),
+    color=TOOL_BUTTON_ACTIVE_COLOR,
+    text_size=0.6,
+)
+
+
+def _toggle_graph():
+    global graph_visible
+    graph_visible = not graph_visible
+    graph_panel_bg.enabled = graph_visible
+    graph_title.enabled = graph_visible
+    graph_button.text = f"Bieu do: {'HIEN' if graph_visible else 'AN'}"
+    graph_button.color = TOOL_BUTTON_ACTIVE_COLOR if graph_visible else TOOL_BUTTON_COLOR
+    redraw_graph()
+
+
+graph_button.on_click = _toggle_graph
+
 tool_hint = Text(
     parent=camera.ui,
-    text="Chon 1 cong cu roi CLICK CHUOT TRAI len mat dat de dung",
+    text="Chon cong cu, CLICK hoac GIU+KEO chuot trai len mat dat de dung",
     position=(-0.55, -0.35),
     scale=0.7,
     color=color.yellow,
@@ -572,16 +662,40 @@ def render_colony(colony_obj, entities, color_search, color_carry_surface,
 
 
 def update():
-    global frame_counter, food_respawn_tick
+    global frame_counter, food_respawn_tick, drag_cooldown, history_tick
+
+    # --- Kéo chuột để rải liên tục (thức ăn/đá/nước/xóa) ---
+    if current_tool in DRAG_TOOLS and held_keys["left mouse"]:
+        if drag_cooldown <= 0:
+            pos = get_ground_click_sim_xy()
+            if pos is not None:
+                perform_tool_action(current_tool, pos[0], pos[1])
+                drag_cooldown = DRAG_PLACE_INTERVAL_FRAMES
+        else:
+            drag_cooldown -= 1
+    else:
+        drag_cooldown = 0
+
     if not sim_paused:
         for _ in range(sim_speed):
             colony.update()
             rival_colony.update()
             enemy.update(ALL_COLONIES)
+            if enemy.active:
+                surface_world.deposit_danger(enemy.x, enemy.y)
             if food_respawn_enabled:
                 food_respawn_tick += 1
                 if food_respawn_tick % cfg.FOOD_RESPAWN_INTERVAL == 0:
                     do_random_food_respawn()
+
+            history_tick += 1
+            if history_tick % cfg.HISTORY_SAMPLE_INTERVAL == 0:
+                pop_history_main.append(int(colony.alive.sum()))
+                pop_history_rival.append(int(rival_colony.alive.sum()))
+                if len(pop_history_main) > cfg.HISTORY_MAX_POINTS:
+                    del pop_history_main[0]
+                    del pop_history_rival[0]
+                redraw_graph()
 
     render_colony(colony, ant_entities, COLOR_SEARCH, COLOR_CARRY_SURFACE,
                   COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND, ant_render_state)
@@ -616,6 +730,85 @@ def update():
         )
 
 
+def perform_tool_action(tool, sim_x, sim_y):
+    """Thực hiện hành động của 1 công cụ tại tọa độ lưới (sim_x, sim_y).
+    Dùng chung cho cả click chuột đơn lẻ (input()) và kéo chuột liên tục
+    (update() khi giữ chuột trái - xem DRAG_TOOLS bên dưới)."""
+    if tool == "food":
+        place_food_at(int(sim_x), int(sim_y))
+    elif tool == "enemy":
+        enemy.force_spawn_at(sim_x, sim_y)
+    elif tool == "dig":
+        room = underground_world.dig_new_room(sim_x, sim_y)
+        register_room(room)
+        new_center = room[2]
+        register_corridor(underground_world.corridors[-1][0], new_center)
+    elif tool == "rock":
+        feature = surface_world.add_obstacle(
+            int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS
+        )
+        create_terrain_entity(feature)
+    elif tool == "water":
+        feature = surface_world.add_obstacle(
+            int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS
+        )
+        create_terrain_entity(feature)
+    elif tool == "erase":
+        # Xóa thức ăn quanh điểm click
+        surface_world.clear_food_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+        for (fx, fy), ent in food_entities.items():
+            if (fx - sim_x) ** 2 + (fy - sim_y) ** 2 <= cfg.ERASE_RADIUS ** 2:
+                ent.enabled = False
+        # Xóa đá/nước có tâm nằm trong bán kính xóa
+        removed = surface_world.remove_features_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+        for feature in removed:
+            fid = feature[0]
+            for ent in terrain_entities.pop(fid, []):
+                destroy(ent)
+        # Xóa 1 phòng do người chơi tự đào (KHÔNG bao giờ xóa được
+        # 3 phòng gốc: kho/ấu trùng/chúa - kiến cần chúng để sống)
+        for uworld in (underground_world, rival_underground):
+            dug_room = uworld.find_dug_room_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+            if dug_room is not None:
+                removed_room = uworld.remove_room(dug_room[0])
+                if removed_room is not None:
+                    for ent in room_entities.pop(removed_room[0], ()):
+                        destroy(ent)
+                    corridor_ent = corridor_entities.pop(id(removed_room[2]), None)
+                    if corridor_ent is not None:
+                        destroy(corridor_ent)
+        # Xóa kiến (của bất kỳ tổ nào) trong bán kính xóa
+        for col in ALL_COLONIES:
+            on_surface = col.alive & (col.layer == cfg.LAYER_SURFACE)
+            if np.any(on_surface):
+                idx = np.where(on_surface)[0]
+                dist2 = (col.x[idx] - sim_x) ** 2 + (col.y[idx] - sim_y) ** 2
+                kill_idx = idx[dist2 <= cfg.ERASE_RADIUS ** 2]
+                if len(kill_idx) > 0:
+                    col.alive[kill_idx] = False
+                    col.underground.total_deaths += len(kill_idx)
+
+
+def get_ground_click_sim_xy():
+    """Trả về (sim_x, sim_y) nếu chuột đang trỏ vào mặt đất, ngược lại None."""
+    if mouse.hovered_entity == ground and mouse.world_point is not None:
+        sim_x, sim_y, _ = world_to_sim(*mouse.world_point)
+        sim_x = float(np.clip(sim_x, 1, cfg.GRID_SIZE - 2))
+        sim_y = float(np.clip(sim_y, 1, cfg.GRID_SIZE - 2))
+        return sim_x, sim_y
+    return None
+
+
+# Các công cụ cho phép "kéo chuột để rải liên tục" thay vì chỉ click từng
+# điểm - đặt thức ăn/đá/nước/xóa đều hợp lý khi rải dọc theo đường kéo.
+# "Tha ke thu" và "Dao phong" CHỦ Ý không cho kéo liên tục (thả nhiều kẻ
+# thù/đào nhiều phòng liền tù tì khi chỉ lỡ tay kéo chuột sẽ không hợp lý).
+DRAG_TOOLS = {"food", "rock", "water", "erase"}
+DRAG_PLACE_INTERVAL_FRAMES = 6  # cứ mỗi bấy nhiêu khung hình mới rải 1 lần
+                                # khi đang giữ chuột kéo (tránh rải quá dày)
+drag_cooldown = 0
+
+
 def input(key):
     global ground_transparent
     if key == "escape":
@@ -627,65 +820,9 @@ def input(key):
     elif key == "left mouse down" and current_tool is not None:
         # Chỉ xử lý khi thực sự đang trỏ vào MẶT ĐẤT (không phải bấm
         # nhầm vào nút toolbar - mouse.hovered_entity sẽ là ground lúc đó)
-        if mouse.hovered_entity == ground and mouse.world_point is not None:
-            sim_x, sim_y, _ = world_to_sim(*mouse.world_point)
-            sim_x = float(np.clip(sim_x, 1, cfg.GRID_SIZE - 2))
-            sim_y = float(np.clip(sim_y, 1, cfg.GRID_SIZE - 2))
-
-            if current_tool == "food":
-                place_food_at(int(sim_x), int(sim_y))
-            elif current_tool == "enemy":
-                enemy.force_spawn_at(sim_x, sim_y)
-            elif current_tool == "dig":
-                room = underground_world.dig_new_room(sim_x, sim_y)
-                register_room(room)
-                new_center = room[2]
-                register_corridor(underground_world.corridors[-1][0], new_center)
-            elif current_tool == "rock":
-                feature = surface_world.add_obstacle(
-                    int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS
-                )
-                create_terrain_entity(feature)
-            elif current_tool == "water":
-                feature = surface_world.add_obstacle(
-                    int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS
-                )
-                create_terrain_entity(feature)
-            elif current_tool == "erase":
-                # Xóa thức ăn quanh điểm click
-                surface_world.clear_food_near(sim_x, sim_y, cfg.ERASE_RADIUS)
-                for (fx, fy), ent in food_entities.items():
-                    if (fx - sim_x) ** 2 + (fy - sim_y) ** 2 <= cfg.ERASE_RADIUS ** 2:
-                        ent.enabled = False
-                # Xóa đá/nước có tâm nằm trong bán kính xóa
-                removed = surface_world.remove_features_near(sim_x, sim_y, cfg.ERASE_RADIUS)
-                for feature in removed:
-                    fid = feature[0]
-                    for ent in terrain_entities.pop(fid, []):
-                        destroy(ent)
-                # Xóa 1 phòng do người chơi tự đào (KHÔNG bao giờ xóa được
-                # 3 phòng gốc: kho/ấu trùng/chúa - kiến cần chúng để sống)
-                for uworld in (underground_world, rival_underground):
-                    dug_room = uworld.find_dug_room_near(sim_x, sim_y, cfg.ERASE_RADIUS)
-                    if dug_room is not None:
-                        removed_room = uworld.remove_room(dug_room[0])
-                        if removed_room is not None:
-                            for ent in room_entities.pop(removed_room[0], ()):
-                                destroy(ent)
-                            corridor_ent = corridor_entities.pop(id(removed_room[2]), None)
-                            if corridor_ent is not None:
-                                destroy(corridor_ent)
-                # Xóa kiến (của bất kỳ tổ nào) trong bán kính xóa
-                for col in ALL_COLONIES:
-                    on_surface = col.alive & (col.layer == cfg.LAYER_SURFACE)
-                    if np.any(on_surface):
-                        idx = np.where(on_surface)[0]
-                        dist2 = (col.x[idx] - sim_x) ** 2 + (col.y[idx] - sim_y) ** 2
-                        kill_idx = idx[dist2 <= cfg.ERASE_RADIUS ** 2]
-                        if len(kill_idx) > 0:
-                            col.alive[kill_idx] = False
-                            col.underground.total_deaths += len(kill_idx)
-
+        pos = get_ground_click_sim_xy()
+        if pos is not None:
+            perform_tool_action(current_tool, pos[0], pos[1])
 
 
 app.run()

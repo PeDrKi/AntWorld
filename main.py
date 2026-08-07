@@ -91,15 +91,19 @@ for name, center, radius, rgb in underground_world.rooms:
         position=sim_to_world(*center),
         color=color.rgba(rgb[0], rgb[1], rgb[2], 215),
     )
+    # QUAN TRỌNG: không gắn Text làm con của room_ent, vì tỉ lệ (scale) của
+    # room_ent sẽ nhân dồn vào tỉ lệ chữ và có thể tạo ra 1 mặt phẳng chữ
+    # khổng lồ che kín màn hình. Gắn thẳng vào 'scene' và tự tính vị trí.
+    label_pos = sim_to_world(center[0], center[1], center[2])
+    label_pos = (label_pos[0], label_pos[1] + radius + 1.2, label_pos[2])
     Text(
-        parent=room_ent,
+        parent=scene,
         text=name,
-        y=1.4,
-        scale=8,
+        position=label_pos,
+        scale=3,
         billboard=True,
         origin=(0, 0),
         color=color.white,
-        background=True,
     )
 
 # Hành lang nối giếng <-> các phòng (vẽ dạng đường/ống mỏng)
@@ -142,9 +146,16 @@ COLOR_CARRY_UNDERGROUND = color.rgb(235, 190, 70)
 # ---------------------------------------------------------------------
 # Camera xoay quỹ đạo tự do quanh khối thế giới
 # ---------------------------------------------------------------------
-camera.position = (0, 0, -70)  # khoảng cách zoom ban đầu (đọc bởi EditorCamera)
-editor_cam = EditorCamera(position=(0, -4, 0), rotation_smoothing=2)
-editor_cam.rotation_x = 25
+# Tạo camera trước với rotation_smoothing=0 (xoay tức thì, không có độ trễ
+# lerp) để tránh tình trạng vài khung hình đầu camera "kẹt" ở vị trí mặc
+# định (0,0,0) - bên TRONG khối kính - trước khi kịp lùi ra xa.
+editor_cam = EditorCamera(rotation_smoothing=0)
+editor_cam.position = (0, -6, 0)      # điểm xoay quanh (gần giữa thế giới)
+editor_cam.rotation_x = 30            # nhìn hơi chếch xuống
+CAMERA_START_DISTANCE = -75
+camera.z = CAMERA_START_DISTANCE      # gán TRỰC TIẾP, không chờ lerp
+editor_cam.target_z = CAMERA_START_DISTANCE  # để lerp zoom sau này (lăn chuột)
+                                              # không kéo camera giật ngược lại
 
 # ---------------------------------------------------------------------
 # Bảng thống kê (HUD góc trên trái)

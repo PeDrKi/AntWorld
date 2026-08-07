@@ -13,7 +13,10 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets', 'assets')],   # gói kèm icon.png/icon.ico vào bản build
+    # Gói kèm icon.png/icon.ico + toàn bộ assets/fonts/*.ttf vào bản build
+    # (bắt buộc phải có fonts/ ở đây, không thì chữ tiếng Việt sẽ mất dấu
+    # trong bản .exe - xem giải thích trong fonts.py).
+    datas=[('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

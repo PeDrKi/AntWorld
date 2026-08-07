@@ -12,6 +12,7 @@ import numpy as np
 import pygame
 
 import config as cfg
+import fonts
 from world import SurfaceWorld, UndergroundWorld
 from ants import AntColony
 from enemy import EnemyManager
@@ -56,10 +57,14 @@ class GameState:
         self._set_window_icon()
         self.clock = pygame.time.Clock()
 
-        self.font = pygame.font.SysFont("arial", 16)
-        self.font_small = pygame.font.SysFont("arial", 13)
-        self.font_big = pygame.font.SysFont("arial", 22, bold=True)
-        self.font_hud = pygame.font.SysFont("consolas", 15)
+        # Dung font TrueType rieng dong goi san (fonts.py) thay vi SysFont
+        # - dam bao chu tieng Viet co dau hien thi dung tren MOI may, ke
+        # ca sau khi dong goi thanh .exe bang PyInstaller (xem fonts.py
+        # de biet ly do chi tiet).
+        self.font = fonts.get_font(16)
+        self.font_small = fonts.get_font(13)
+        self.font_big = fonts.get_font(22, bold=True)
+        self.font_hud = fonts.get_mono_font(15)
 
         # Canvas mô phỏng giờ chiếm TOÀN BỘ cửa sổ (thanh công cụ/bảng
         # thống kê/biểu đồ không còn là dải cố định chiếm chỗ nữa - chúng

@@ -23,6 +23,7 @@ import sys
 import copy
 import pygame
 
+import fonts
 from sprite_data import PALETTE_GROUPS, PRESET_SPRITES, DEFAULT_PIXELS
 
 # ------------------------------------------------------------------
@@ -48,8 +49,6 @@ COL_DANGER = (192, 87, 74)
 COL_GOOD = (127, 174, 94)
 COL_CANVAS_BG = (32, 25, 15)
 
-FONT_NAME = None  # dung font mac dinh he thong (co ho tro Unicode co ban)
-
 pygame.init()
 pygame.display.set_caption("AntWorld Pixel Studio (Python)")
 
@@ -57,11 +56,14 @@ WIN_W, WIN_H = 1360, 860
 screen = pygame.display.set_mode((WIN_W, WIN_H), pygame.RESIZABLE)
 clock = pygame.time.Clock()
 
-font_small = pygame.font.SysFont(FONT_NAME, 13)
-font_normal = pygame.font.SysFont(FONT_NAME, 15)
-font_bold = pygame.font.SysFont(FONT_NAME, 15, bold=True)
-font_title = pygame.font.SysFont(FONT_NAME, 20, bold=True)
-font_mono = pygame.font.SysFont("consolas,couriernew,monospace", 12)
+# Dung chung module fonts.py voi game (assets/fonts/*.ttf) thay vi
+# SysFont - dam bao tool nay cung hien thi dung tieng Viet tren moi may,
+# giong ly do da sua trong game_state.py.
+font_small = fonts.get_font(13)
+font_normal = fonts.get_font(15)
+font_bold = fonts.get_font(15, bold=True)
+font_title = fonts.get_font(20, bold=True)
+font_mono = fonts.get_mono_font(12)
 
 
 def draw_text(surf, text, pos, font, color=COL_TEXT, max_w=None):
@@ -205,7 +207,7 @@ class AppState:
                     self.color = c
                     self.toast(f"Da hut mau: {c}")
                 else:
-                    self.toast("O nay dang trong (trong suot)")
+                    self.toast("Ô này đang trống (trong suốt)")
 
 
 state = AppState()
@@ -348,7 +350,7 @@ class App:
 
     def set_transparent(self):
         state.color = None
-        state.toast('Dang ve = xoa (trong suot) - nhu tay')
+        state.toast('Đang vẽ = xóa (trong suốt) - như tẩy')
 
     def select_sprite(self, name):
         state.current = name
@@ -358,18 +360,18 @@ class App:
         state.push_history()
         sp = state.sp()
         sp.pixels = [None] * (sp.size * sp.size)
-        state.toast("Da xoa toan bo canvas")
+        state.toast("Đã xóa toàn bộ canvas")
 
     def dup_sprite(self):
         sp = state.sp()
         name = state.new_sprite(state.current + "_copy", sp.size, sp.label + " (2)")
         state.sprites[name].pixels = sp.pixels[:]
         self.select_sprite(name)
-        state.toast("Da nhan ban sprite")
+        state.toast("Đã nhân bản sprite")
 
     def del_sprite(self):
         if len(state.order) <= 1:
-            state.toast("Phai con it nhat 1 sprite")
+            state.toast("Phải còn ít nhất 1 sprite")
             return
         idx = state.order.index(state.current)
         del state.sprites[state.current]
@@ -382,7 +384,7 @@ class App:
         if not label:
             return
         state.sp().label = label
-        state.toast(f'Da doi ten hien thi (ten file xuat van la "{state.current}.png")')
+        state.toast(f'Đã đổi tên hiển thị (tên file xuất vẫn là "{state.current}.png")')
 
     def apply_hex_color(self):
         txt = self.hexinput_box.text.strip()
@@ -392,11 +394,11 @@ class App:
             try:
                 hex_to_rgb(txt)
                 self.set_color(txt)
-                state.toast(f"Da chon mau {txt}")
+                state.toast(f"Đã chọn màu {txt}")
             except Exception:
-                state.toast("Ma mau khong hop le (dung dang #rrggbb)")
+                state.toast("Mã màu không hợp lệ (dùng dạng #rrggbb)")
         else:
-            state.toast("Ma mau khong hop le (dung dang #rrggbb)")
+            state.toast("Mã màu không hợp lệ (dùng dạng #rrggbb)")
 
     def resize_canvas(self, new_size):
         sp = state.sp()
@@ -405,7 +407,7 @@ class App:
         sp.size = new_size
         sp.pixels = [None] * (new_size * new_size)
         state.history[state.current] = {"undo": [], "redo": []}
-        state.toast(f"Da doi kich thuoc canvas sang {new_size}x{new_size} (canvas duoc lam trong)")
+        state.toast(f"Đã đổi kích thước canvas sang {new_size}x{new_size} (canvas được làm trống)")
 
     def change_zoom(self, delta):
         state.zoom = max(6, min(40, state.zoom + delta))
@@ -439,7 +441,7 @@ class App:
         surf = self.sprite_to_surface(sp)
         path = os.path.join(SPRITES_DIR, f"{state.current}.png")
         pygame.image.save(surf, path)
-        state.toast(f"Da luu: assets/sprites/{state.current}.png")
+        state.toast(f"Đã lưu: assets/sprites/{state.current}.png")
 
     def export_big(self):
         self.ensure_dir()
@@ -448,7 +450,7 @@ class App:
         big = pygame.transform.scale(surf, (sp.size * 8, sp.size * 8))
         path = os.path.join(SPRITES_DIR, f"{state.current}@8x.png")
         pygame.image.save(big, path)
-        state.toast(f"Da luu ban phong to 8x: assets/sprites/{state.current}@8x.png")
+        state.toast(f"Đã lưu bản phóng to 8x: assets/sprites/{state.current}@8x.png")
 
     def export_all(self):
         self.ensure_dir()
@@ -473,7 +475,7 @@ class App:
             img = font_mono.render(name, True, COL_TEXT)
             sheet.blit(img, (ox, oy + cell + 2))
         pygame.image.save(sheet, os.path.join(SPRITES_DIR, "antworld_sprite_sheet.png"))
-        state.toast(f"Da luu TOAN BO {len(state.order)} sprite + 1 sprite sheet vao assets/sprites/")
+        state.toast(f"Đã lưu TOÀN BỘ {len(state.order)} sprite + 1 sprite sheet vào assets/sprites/")
 
     # ---------- canvas interaction ----------
     def cell_from_pos(self, pos):
@@ -508,13 +510,11 @@ class App:
             return y
 
         y = y0
-        draw_text(screen, "CONG CU", (x0, y), font_small, COL_TEXT_DIM)
+        draw_text(screen, "CÔNG CỤ", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
         tool_w = (w - 6) // 2
-        tools = [("pencil", "Bg But (B)"), ("eraser", "Tay (E)"),
-                 ("fill", "Do mau (G)"), ("eyedropper", "Hut mau (I)")]
-        tools = [("pencil", "But (B)"), ("eraser", "Tay (E)"),
-                 ("fill", "Do mau (G)"), ("eyedropper", "Hut mau (I)")]
+        tools = [("pencil", "Bút (B)"), ("eraser", "Tẩy (E)"),
+                 ("fill", "Đổ màu (G)"), ("eyedropper", "Hút màu (I)")]
         for i, (key, label) in enumerate(tools):
             col, row = i % 2, i // 2
             rect = (x0 + col * (tool_w + 6), y + row * 34, tool_w, 30)
@@ -522,36 +522,36 @@ class App:
                                         active=(state.tool == key), font=font_small))
         y += 34 * 2 + 16
 
-        draw_text(screen, "CHINH SUA", (x0, y), font_small, COL_TEXT_DIM)
+        draw_text(screen, "CHỈNH SỬA", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
-        self.buttons.append(Button((x0, y, w, 30), "Hoan tac (Ctrl+Z)", state.undo, font=font_small))
+        self.buttons.append(Button((x0, y, w, 30), "Hoàn tác (Ctrl+Z)", state.undo, font=font_small))
         y += 34
-        self.buttons.append(Button((x0, y, w, 30), "Lam lai (Ctrl+Y)", state.redo, font=font_small))
+        self.buttons.append(Button((x0, y, w, 30), "Làm lại (Ctrl+Y)", state.redo, font=font_small))
         y += 34
         self.buttons.append(Button((x0, y, w, 30),
-                                    f"Doi xung ngang: {'BAT' if state.symmetry_h else 'TAT'}",
+                                    f"Đối xứng ngang: {'BẬT' if state.symmetry_h else 'TẮT'}",
                                     self.toggle_symmetry_h, active=state.symmetry_h, font=font_small))
         y += 34
         self.buttons.append(Button((x0, y, w, 30),
-                                    f"Doi xung doc: {'BAT' if state.symmetry_v else 'TAT'}",
+                                    f"Đối xứng dọc: {'BẬT' if state.symmetry_v else 'TẮT'}",
                                     self.toggle_symmetry_v, active=state.symmetry_v, font=font_small))
         y += 34
-        self.buttons.append(Button((x0, y, w, 30), "Xoa toan bo canvas", self.clear_canvas,
+        self.buttons.append(Button((x0, y, w, 30), "Xóa toàn bộ canvas", self.clear_canvas,
                                     danger=True, font=font_small))
         y += 44
 
-        draw_text(screen, "HIEN THI", (x0, y), font_small, COL_TEXT_DIM)
+        draw_text(screen, "HIỂN THỊ", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
-        draw_text(screen, f"Thu phong: {state.zoom}px", (x0, y), font_small, COL_TEXT)
+        draw_text(screen, f"Thu phóng: {state.zoom}px", (x0, y), font_small, COL_TEXT)
         y += 20
         self.buttons.append(Button((x0, y, 34, 26), "-", lambda: self.change_zoom(-2), font=font_normal))
         self.buttons.append(Button((x0 + w - 34, y, 34, 26), "+", lambda: self.change_zoom(2), font=font_normal))
         y += 34
-        self.buttons.append(Button((x0, y, w, 30), f"Luoi: {'BAT' if state.show_grid else 'TAT'}",
+        self.buttons.append(Button((x0, y, w, 30), f"Lưới: {'BẬT' if state.show_grid else 'TẮT'}",
                                     self.toggle_grid, active=state.show_grid, font=font_small))
         y += 44
 
-        draw_text(screen, "KICH THUOC CANVAS", (x0, y), font_small, COL_TEXT_DIM)
+        draw_text(screen, "KÍCH THƯỚC CANVAS", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
         sizes = [8, 12, 16, 24, 32, 48]
         sz_w = (w - 2 * 6) // 3
@@ -563,7 +563,7 @@ class App:
             self.buttons.append(Button(rect, f"{s}", (lambda ss=s: self.resize_canvas(ss)),
                                         active=active, font=font_small))
         y += 32 * 2 + 10
-        hint = "Doi kich thuoc se lam trong canvas cua sprite dang chon."
+        hint = "Đổi kích thước sẽ làm trống canvas của sprite đang chọn."
         self._wrap_text(hint, (x0, y), w, font_small, COL_TEXT_DIM)
 
     def _wrap_text(self, text, pos, max_w, font, color):
@@ -591,7 +591,7 @@ class App:
         w = self.right_w - 24
 
         top = y
-        draw_text(screen, "MAU DANG CHON", (rx, y), font_small, COL_TEXT_DIM)
+        draw_text(screen, "MÀU ĐANG CHỌN", (rx, y), font_small, COL_TEXT_DIM)
         y += 22
         swatch_rect = pygame.Rect(rx, y, 34, 34)
         if state.color:
@@ -603,13 +603,13 @@ class App:
         self.hexinput_box.rect = pygame.Rect(rx + 42, y + 3, w - 42, 28)
         self.hexinput_box.draw(screen)
         y += 40
-        self.buttons.append(Button((rx, y, w, 26), "Ap dung ma mau (Enter)", self.apply_hex_color, font=font_small))
+        self.buttons.append(Button((rx, y, w, 26), "Áp dụng mã màu (Enter)", self.apply_hex_color, font=font_small))
         y += 32
-        self.buttons.append(Button((rx, y, w, 28), 'Chon "trong suot" (tay)', self.set_transparent,
+        self.buttons.append(Button((rx, y, w, 28), 'Chọn "trong suốt" (tẩy)', self.set_transparent,
                                     active=(state.color is None), font=font_small))
         y += 40
 
-        draw_text(screen, "BANG MAU GAME (bam de chon)", (rx, y), font_small, COL_TEXT_DIM)
+        draw_text(screen, "BẢNG MÀU GAME (bấm để chọn)", (rx, y), font_small, COL_TEXT_DIM)
         y += 20
         for group in PALETTE_GROUPS:
             img = font_bold.render(group["label"], True, COL_ACCENT2)
@@ -649,11 +649,11 @@ class App:
         y = self.tabbar_bottom + 8
         self.rename_box.rect = pygame.Rect(x0, y, 220, 28)
         self.rename_box.draw(screen)
-        self.buttons.append(Button((x0 + 228, y, 100, 28), "Doi ten", self.apply_rename, font=font_small))
-        self.buttons.append(Button((x0 + 334, y, 100, 28), "Nhan ban", self.dup_sprite, font=font_small))
-        self.buttons.append(Button((x0 + 440, y, 110, 28), "Xoa sprite", self.del_sprite,
+        self.buttons.append(Button((x0 + 228, y, 100, 28), "Đổi tên", self.apply_rename, font=font_small))
+        self.buttons.append(Button((x0 + 334, y, 100, 28), "Nhân bản", self.dup_sprite, font=font_small))
+        self.buttons.append(Button((x0 + 440, y, 110, 28), "Xóa sprite", self.del_sprite,
                                     danger=True, font=font_small))
-        hint = f'se xuat ra: {state.current}.png'
+        hint = f'sẽ xuất ra: {state.current}.png'
         draw_text(screen, hint, (x0 + 560, y + 6), font_small, COL_TEXT_DIM)
         self.toolbar_bottom = y + 28
 
@@ -668,9 +668,9 @@ class App:
 
         # preview column
         pcx = x0 + avail_w + 10
-        draw_text(screen, "XEM THAT (nhu trong game)", (pcx, y0), font_small, COL_TEXT_DIM)
+        draw_text(screen, "XEM THẬT (như trong game)", (pcx, y0), font_small, COL_TEXT_DIM)
         self.preview_game_rect = pygame.Rect(pcx, y0 + 18, sp.size * 4, sp.size * 4)
-        draw_text(screen, "XEM 8x", (pcx, self.preview_game_rect.bottom + 10), font_small, COL_TEXT_DIM)
+        draw_text(screen, "XEM 8×", (pcx, self.preview_game_rect.bottom + 10), font_small, COL_TEXT_DIM)
         self.preview_big_rect = pygame.Rect(pcx, self.preview_game_rect.bottom + 28, sp.size * 8, sp.size * 8)
 
     def draw_canvas(self):
@@ -712,16 +712,16 @@ class App:
 
     def build_footer(self):
         y = self.H - self.footer_h + 8
-        self.buttons.append(Button((16, y, 230, 30), "Luu PNG (kich thuoc goc)", self.export_native, font=font_small))
-        self.buttons.append(Button((256, y, 230, 30), "Luu PNG (phong to 8x)", self.export_big, font=font_small))
-        self.buttons.append(Button((496, y, 260, 30), "Luu TOAN BO + sprite sheet", self.export_all, font=font_small))
+        self.buttons.append(Button((16, y, 230, 30), "Lưu PNG (kích thước gốc)", self.export_native, font=font_small))
+        self.buttons.append(Button((256, y, 230, 30), "Lưu PNG (phóng to 8x)", self.export_big, font=font_small))
+        self.buttons.append(Button((496, y, 260, 30), "Lưu TOÀN BỘ + sprite sheet", self.export_all, font=font_small))
 
     def draw_header(self):
         pygame.draw.rect(screen, (28, 22, 15), (0, 0, self.W, self.header_h))
         pygame.draw.line(screen, COL_BORDER, (0, self.header_h), (self.W, self.header_h), 2)
         draw_text(screen, "ANTWORLD PIXEL STUDIO", (18, 16), font_title, COL_ACCENT2)
-        draw_text(screen, "Ve asset pixel art cho game dan kien", (330, 20), font_small, COL_TEXT_DIM)
-        hint = "B but * E tay * G do mau * I hut mau * Ctrl+Z hoan tac"
+        draw_text(screen, "Vẽ asset pixel art cho game đàn kiến", (330, 20), font_small, COL_TEXT_DIM)
+        hint = "B bút · E tẩy · G đổ màu · I hút màu · Ctrl+Z hoàn tác"
         hint_w = font_small.size(hint)[0]
         draw_text(screen, hint, (self.W - hint_w - 18, 20), font_small, COL_TEXT_DIM)
 
@@ -729,8 +729,7 @@ class App:
         y = self.H - self.footer_h
         pygame.draw.rect(screen, (28, 22, 15), (0, y, self.W, self.footer_h))
         pygame.draw.line(screen, COL_BORDER, (0, y), (self.W, y), 2)
-        msg = "assets/sprites/"
-        draw_text(screen, f"Xuat file vao: {SPRITES_DIR}", (770, y + 15), font_small, COL_TEXT_DIM,
+        draw_text(screen, f"Xuất file vào: {SPRITES_DIR}", (770, y + 15), font_small, COL_TEXT_DIM,
                   max_w=self.W - 790)
 
     def draw_toast(self):

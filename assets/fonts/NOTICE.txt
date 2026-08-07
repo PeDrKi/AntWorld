@@ -1,0 +1,16 @@
+Font di kem trong thu muc nay - tat ca deu la font mo, mien phi ca cho
+muc dich thuong mai, theo giay phep SIL Open Font License 1.1 (OFL-1.1).
+
+1) Be Vietnam Pro (Regular, Bold)
+   Nguon: https://github.com/google/fonts/tree/main/ofl/bevietnampro
+   Copyright 2021 The Be Vietnam Pro Project Authors
+   Dung cho: hau het text trong game va trong pixel_editor.py
+
+2) JetBrains Mono
+   Nguon: https://github.com/google/fonts/tree/main/ofl/jetbrainsmono
+   Copyright 2020 The JetBrains Mono Project Authors
+   Dung cho: chu deu (monospace) trong HUD, thay cho "consolas" truoc day
+
+Giay phep OFL-1.1 day du: https://openfontlicense.org
+(Cho phep dung, sua doi, dong goi kem phan mem/game mien phi lan thuong
+mai, chi khong duoc BAN RIENG file font do ra ngoai duoi ten goc.)

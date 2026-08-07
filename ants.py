@@ -42,6 +42,12 @@ class AntColony:
         self.theta = rng.uniform(0, 2 * np.pi, self.n).astype(np.float32)
         self.layer = np.zeros(self.n, dtype=np.int8)          # 0=mặt đất, 1=dưới hầm (nhị phân, dùng cho state machine)
         self.state = np.zeros(self.n, dtype=np.int8)          # STATE_SEARCHING
+        # Né vật cản kiểu "bám tường": avoid_cooldown = số tick còn lại đang
+        # trong pha né (được làm mới mỗi lần vẫn còn chạm vật cản); avoid_side
+        # = hướng né đã khóa (-1/+1, giữ nguyên trong suốt pha né, không đổi
+        # ngẫu nhiên mỗi tick) - xem _avoid_obstacles()
+        self.avoid_cooldown = np.zeros(self.n, dtype=np.int16)
+        self.avoid_side = np.ones(self.n, dtype=np.float32)
         # Dùng cho STATE_DWELL (lượn trong phòng): dwell_ticks = số tick còn
         # lại trước khi tiếp tục hành trình; next_state = trạng thái sẽ
         # chuyển sang ngay khi hết giờ lượn (đã được quyết định từ lúc vừa
@@ -77,6 +83,7 @@ class AntColony:
     # ------------------------------------------------------------------
     def update(self):
         self.tick_count += 1
+        self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
         self._update_surface_ants()
         self._update_underground_ants()
         self.surface.decay_pheromone()
@@ -144,7 +151,11 @@ class AntColony:
             bias = bias + np.where(danger_present, danger_bias * cfg.DANGER_AVOID_WEIGHT, 0.0)
 
             noise = np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(idx)).astype(np.float32)
-            self.theta[idx] = theta + bias * 0.5 + noise
+            # Đang né vật cản -> giảm hẳn lực kéo theo mùi, để có thời gian
+            # thật sự trượt ra khỏi rìa vật cản thay vì bị kéo lại ngay
+            avoiding = self.avoid_cooldown[idx] > 0
+            bias_scale = np.where(avoiding, cfg.SEARCH_BIAS_SUPPRESS_FACTOR, 1.0).astype(np.float32)
+            self.theta[idx] = theta + bias * 0.5 * bias_scale + noise
 
             self.x[idx] += np.cos(self.theta[idx]) * cfg.ANT_SPEED
             self.y[idx] += np.sin(self.theta[idx]) * cfg.ANT_SPEED
@@ -175,16 +186,27 @@ class AntColony:
             prev_x, prev_y = x.copy(), y.copy()
             nest_x, nest_y = self.nest_pos
             to_nest_theta = np.arctan2(nest_y - y, nest_x - x)
-            self.theta[idx] = 0.25 * self.theta[idx] + 0.75 * to_nest_theta
+            # Đang né vật cản -> gần như bỏ qua lực hút thẳng về tổ 1 lúc,
+            # để thật sự trượt dọc rìa vật cản ra ngoài trước khi lại lao
+            # thẳng về tổ - nếu không, hướng về tổ (trọng số 0.75) sẽ kéo
+            # kiến quay lại đúng chỗ vừa bị chặn ngay tick sau, gây kẹt cứng
+            avoiding = self.avoid_cooldown[idx] > 0
+            nest_weight = np.where(avoiding, cfg.RETURN_NEST_WEIGHT_AVOIDING, 0.75).astype(np.float32)
+            self.theta[idx] = (1.0 - nest_weight) * self.theta[idx] + nest_weight * to_nest_theta
 
             self.x[idx] += np.cos(self.theta[idx]) * cfg.ANT_SPEED
             self.y[idx] += np.sin(self.theta[idx]) * cfg.ANT_SPEED
             self._bounce_walls(idx)
             self._avoid_obstacles(idx, prev_x, prev_y)
 
-            xi = self._wrap_indices(self.x[idx])
-            yi = self._wrap_indices(self.y[idx])
-            self.surface.deposit_pheromone(xi, yi)
+            # Không củng cố dấu vết pheromone tại chỗ đang né - nếu không,
+            # đúng điểm kẹt cạnh vật cản sẽ liên tục được "tô đậm" mùi,
+            # càng kéo thêm nhiều kiến tìm ăn khác lao vào đúng chỗ kẹt đó
+            not_avoiding = idx[self.avoid_cooldown[idx] == 0]
+            if len(not_avoiding) > 0:
+                xi = self._wrap_indices(self.x[not_avoiding])
+                yi = self._wrap_indices(self.y[not_avoiding])
+                self.surface.deposit_pheromone(xi, yi)
 
             dist = np.hypot(self.x[idx] - nest_x, self.y[idx] - nest_y)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
@@ -210,9 +232,14 @@ class AntColony:
 
     def _avoid_obstacles(self, idx, prev_x, prev_y):
         """Kiến không đi xuyên qua được đá/nước - nếu ô mới là chướng ngại
-        vật, lùi lại vị trí cũ và lệch hướng sang bên (trái/phải ngẫu
-        nhiên) để né, thay vì quay ngoắt gần như quay đầu - giữ được phần
-        lớn tiến trình theo dấu pheromone thay vì mất hướng hoàn toàn."""
+        vật, lùi lại vị trí cũ và né sang MỘT bên đã khóa sẵn (trái HOẶC
+        phải, gần vuông góc với hướng đang đi) để TRƯỢT DỌC rìa vật cản ra
+        ngoài, giống kiến thật đi vòng quanh chướng ngại vật - thay vì random
+        lại hướng né mỗi tick (dễ khiến kiến dội qua dội lại tại chỗ). Hướng
+        né được "khóa" trong suốt cả pha né (xem avoid_side/avoid_cooldown),
+        và pha né được LÀM MỚI mỗi lần vẫn còn bị chặn, nên vật cản càng to
+        thì kiến càng có nhiều thời gian trượt vòng qua trước khi bị mùi
+        pheromone/hướng về tổ kéo trở lại."""
         xi = self._wrap_indices(self.x[idx])
         yi = self._wrap_indices(self.y[idx])
         blocked = self.surface.is_blocked(xi, yi)
@@ -221,12 +248,19 @@ class AntColony:
         blocked_idx = idx[blocked]
         self.x[blocked_idx] = prev_x[blocked]
         self.y[blocked_idx] = prev_y[blocked]
-        # lệch sang trái hoặc phải 1 góc vừa phải (không quay ngoắt lại)
+
         n_blocked = len(blocked_idx)
-        side = np.random.choice([-1.0, 1.0], size=n_blocked)
-        self.theta[blocked_idx] += side * np.random.uniform(
-            np.pi * 0.25, np.pi * 0.55, n_blocked
-        )
+        fresh = self.avoid_cooldown[blocked_idx] <= 0
+        # Lần đầu chạm vật cản (chưa trong pha né) -> tung đồng xu chọn 1
+        # bên rồi KHÓA lại; đã đang né rồi thì giữ nguyên bên cũ (không đổi
+        # ngẫu nhiên giữa chừng, tránh dội qua dội lại)
+        if np.any(fresh):
+            new_side = np.random.choice([-1.0, 1.0], size=int(np.sum(fresh))).astype(np.float32)
+            self.avoid_side[blocked_idx[fresh]] = new_side
+        side = self.avoid_side[blocked_idx]
+        self.theta[blocked_idx] += side * cfg.AVOID_TURN_ANGLE
+        # Làm mới (refresh) pha né mỗi khi vẫn còn bị chặn
+        self.avoid_cooldown[blocked_idx] = cfg.AVOID_COOLDOWN_TICKS
 
     # ------------------------------------------------------------------
     def _move_towards_2d(self, idx, target_xy, speed):

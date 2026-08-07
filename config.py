@@ -33,6 +33,27 @@ TURN_NOISE = 0.35           # độ nhiễu góc quay mỗi tick (radian)
 SENSE_DIST = 1.6            # khoảng cách "ngửi" pheromone phía trước
 SENSE_ANGLE = 0.6           # góc lệch 2 bên khi ngửi pheromone
 
+# ----- Né vật cản (đá/nước): "bám tường" thay vì dội ngẫu nhiên -----
+# LƯU Ý: nếu chỉ xoay 1 góc ngẫu nhiên rồi lập tức để mùi pheromone/hướng
+# về tổ kéo lại như cũ, kiến sẽ dội qua dội lại NGAY TẠI rìa vật cản (kẹt
+# thành từng cụm dài bám sát đá/nước) vì lực kéo về pheromone/tổ mạnh hơn
+# nhiều so với góc né. Cách khắc phục: khi né, kiến "khóa" 1 hướng né cố
+# định (trái HOẶC phải, không đổi ngẫu nhiên mỗi lần) và tạm thời GIẢM HẲN
+# lực kéo về pheromone/tổ trong vài chục tick để có thời gian trượt dọc
+# theo rìa vật cản ra ngoài, giống kiến thật đi vòng quanh chướng ngại vật.
+AVOID_COOLDOWN_TICKS = 25    # số tick "khóa hướng né" mỗi lần chạm vật cản
+                             # (được LÀM MỚI lại mỗi lần vẫn còn bị chặn, nên
+                             # vật cản càng to thì kiến càng có nhiều thời
+                             # gian trượt vòng qua trước khi bị kéo lại)
+AVOID_TURN_ANGLE = 1.35      # góc né khi vừa chạm vật cản (~77 độ, gần vuông
+                             # góc với hướng đang đi - để TRƯỢT DỌC theo rìa
+                             # thay vì chỉ hơi chếch)
+SEARCH_BIAS_SUPPRESS_FACTOR = 0.1   # trong lúc đang né, lực kéo theo mùi
+                             # pheromone khi tìm ăn bị giảm còn bấy nhiêu %
+RETURN_NEST_WEIGHT_AVOIDING = 0.08  # trong lúc đang né, tỉ trọng "hướng
+                             # thẳng về tổ" mỗi tick giảm xuống bấy nhiêu
+                             # (bình thường là 0.75 - xem _update_surface_ants)
+
 # ----- Pheromone (mùi dẫn đường về tổ khi tha thức ăn) -----
 PHEROMONE_DECAY = 0.985     # mỗi tick pheromone giảm còn 98.5%
 PHEROMONE_DEPOSIT = 1.0     # lượng mùi để lại mỗi tick khi đang tha đồ

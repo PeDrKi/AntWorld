@@ -20,15 +20,21 @@ import config as cfg
 from world import SurfaceWorld, UndergroundWorld
 from ants import AntColony
 
+
+def rgb255(r, g, b, a=255):
+    """Ursina's color.rgb()/color.rgba() cần giá trị 0-1, KHÔNG tự chia
+    cho 255. Hàm này cho phép dùng thang màu quen thuộc 0-255."""
+    return color.rgba(r / 255, g / 255, b / 255, a / 255)
+
 app = Ursina(title="Ant World 3D", borderless=False, size=(cfg.SCREEN_W, cfg.SCREEN_H))
-window.color = color.rgb(18, 18, 24)
+window.color = rgb255(18, 18, 24)
 Sky()
 
 # ---------------------------------------------------------------------
 # Ánh sáng cơ bản để khối 3D có chiều sâu, đổ bóng nhẹ
 # ---------------------------------------------------------------------
 DirectionalLight(rotation=(45, -45, 0), shadows=False)
-AmbientLight(color=color.rgba(200, 200, 210, 0.55))
+AmbientLight(color=rgb255(200, 200, 210, 140))
 
 # ---------------------------------------------------------------------
 # Thế giới mô phỏng (logic không đổi so với bản trước, chỉ thêm trục Z)
@@ -63,7 +69,7 @@ if SHOW_GLASS_BOX:
         model="cube",
         scale=(cfg.GRID_SIZE + 2, glass_height, cfg.GRID_SIZE + 2),
         position=(0, (GLASS_TOP + GLASS_BOTTOM) / 2, 0),
-        color=color.rgba(255, 255, 255, 16),
+        color=rgb255(255, 255, 255, 16),
         double_sided=True,
     )
 
@@ -75,9 +81,8 @@ ground = Entity(
     model="plane",
     scale=(cfg.GRID_SIZE, 1, cfg.GRID_SIZE),
     position=(0, 0, 0),
-    color=color.rgba(205, 178, 132, 235),
+    color=rgb255(205, 178, 132, 235),
     double_sided=True,
-    unlit=True,
 )
 GROUND_OPAQUE_ALPHA = 235
 GROUND_TRANSPARENT_ALPHA = 55
@@ -87,8 +92,7 @@ ground_transparent = False
 nest_hole = Entity(
     model=Cylinder(resolution=12, radius=1.6, height=0.12),
     position=sim_to_world(cfg.NEST_POS[0], cfg.NEST_POS[1], 0.02),
-    color=color.rgb(30, 22, 14),
-    unlit=True,
+    color=rgb255(30, 22, 14),
 )
 
 # ---------------------------------------------------------------------
@@ -99,8 +103,7 @@ for name, center, radius, rgb in underground_world.rooms:
         model="sphere",
         scale=radius * 2,
         position=sim_to_world(*center),
-        color=color.rgba(rgb[0], rgb[1], rgb[2], 215),
-        unlit=True,
+        color=rgb255(rgb[0], rgb[1], rgb[2], 215),
     )
     # QUAN TRỌNG: không gắn Text làm con của room_ent, vì tỉ lệ (scale) của
     # room_ent sẽ nhân dồn vào tỉ lệ chữ và có thể tạo ra 1 mặt phẳng chữ
@@ -123,8 +126,7 @@ for a, b in underground_world.corridors:
     p2 = sim_to_world(*b)
     Entity(
         model=Mesh(vertices=[p1, p2], mode="line", thickness=6),
-        color=color.rgba(160, 128, 92, 230),
-        unlit=True,
+        color=rgb255(160, 128, 92, 230),
     )
 
 # ---------------------------------------------------------------------
@@ -139,8 +141,7 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
                 model="sphere",
                 scale=0.55,
                 position=sim_to_world(gx, gy, 0.2),
-                color=color.rgb(60, 150, 60),
-                unlit=True,
+                color=rgb255(60, 150, 60),
             )
             food_entities[(gx, gy)] = ent
 
@@ -148,13 +149,13 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
 # Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu
 # ---------------------------------------------------------------------
 ant_entities = [
-    Entity(model="sphere", scale=0.3, color=color.black, unlit=True) for _ in range(colony.n)
+    Entity(model="sphere", scale=0.3, color=color.black) for _ in range(colony.n)
 ]
 
-COLOR_SEARCH = color.rgb(25, 25, 25)
-COLOR_CARRY_SURFACE = color.rgb(215, 120, 30)
-COLOR_UNDERGROUND = color.rgb(220, 220, 220)
-COLOR_CARRY_UNDERGROUND = color.rgb(235, 190, 70)
+COLOR_SEARCH = rgb255(25, 25, 25)
+COLOR_CARRY_SURFACE = rgb255(215, 120, 30)
+COLOR_UNDERGROUND = rgb255(220, 220, 220)
+COLOR_CARRY_UNDERGROUND = rgb255(235, 190, 70)
 
 # ---------------------------------------------------------------------
 # Camera xoay quỹ đạo tự do quanh khối thế giới
@@ -220,7 +221,7 @@ def input(key):
     elif key == "g":
         ground_transparent = not ground_transparent
         alpha = GROUND_TRANSPARENT_ALPHA if ground_transparent else GROUND_OPAQUE_ALPHA
-        ground.color = color.rgba(205, 178, 132, alpha)
+        ground.color = rgb255(205, 178, 132, alpha)
 
 
 app.run()

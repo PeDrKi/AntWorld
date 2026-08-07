@@ -77,6 +77,7 @@ ground = Entity(
     position=(0, 0, 0),
     color=color.rgba(205, 178, 132, 235),
     double_sided=True,
+    unlit=True,
 )
 GROUND_OPAQUE_ALPHA = 235
 GROUND_TRANSPARENT_ALPHA = 55
@@ -87,6 +88,7 @@ nest_hole = Entity(
     model=Cylinder(resolution=12, radius=1.6, height=0.12),
     position=sim_to_world(cfg.NEST_POS[0], cfg.NEST_POS[1], 0.02),
     color=color.rgb(30, 22, 14),
+    unlit=True,
 )
 
 # ---------------------------------------------------------------------
@@ -98,6 +100,7 @@ for name, center, radius, rgb in underground_world.rooms:
         scale=radius * 2,
         position=sim_to_world(*center),
         color=color.rgba(rgb[0], rgb[1], rgb[2], 215),
+        unlit=True,
     )
     # QUAN TRỌNG: không gắn Text làm con của room_ent, vì tỉ lệ (scale) của
     # room_ent sẽ nhân dồn vào tỉ lệ chữ và có thể tạo ra 1 mặt phẳng chữ
@@ -121,6 +124,7 @@ for a, b in underground_world.corridors:
     Entity(
         model=Mesh(vertices=[p1, p2], mode="line", thickness=6),
         color=color.rgba(160, 128, 92, 230),
+        unlit=True,
     )
 
 # ---------------------------------------------------------------------
@@ -136,6 +140,7 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
                 scale=0.55,
                 position=sim_to_world(gx, gy, 0.2),
                 color=color.rgb(60, 150, 60),
+                unlit=True,
             )
             food_entities[(gx, gy)] = ent
 
@@ -143,7 +148,7 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
 # Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu
 # ---------------------------------------------------------------------
 ant_entities = [
-    Entity(model="sphere", scale=0.3, color=color.black) for _ in range(colony.n)
+    Entity(model="sphere", scale=0.3, color=color.black, unlit=True) for _ in range(colony.n)
 ]
 
 COLOR_SEARCH = color.rgb(25, 25, 25)
@@ -158,8 +163,8 @@ COLOR_CARRY_UNDERGROUND = color.rgb(235, 190, 70)
 # test_3d_basic.py đã chạy thành công trên máy bạn - thay vì dịch chuyển
 # tâm xoay, để loại trừ khả năng lệch vị trí camera do phép xoay.
 editor_cam = EditorCamera(rotation_smoothing=0)
-editor_cam.rotation_x = 20
-CAMERA_START_DISTANCE = -90
+editor_cam.rotation_x = 45   # nghiêng xuống nhiều hơn để thấy cả mặt đất lẫn hầm
+CAMERA_START_DISTANCE = -80
 camera.z = CAMERA_START_DISTANCE
 editor_cam.target_z = CAMERA_START_DISTANCE
 

@@ -47,6 +47,31 @@ Kiến khi đến phòng nào cũng **lượn lại trong phòng đó một lúc
 thái "dwell") trước khi rời đi, thay vì chỉ chạm tâm phòng rồi quay đầu -
 để phòng ngầm luôn có "sự sống" thay vì chỉ thấy kiến đi trên đường nối.
 
+## Xâm chiếm tổ đối thủ khi khan hiếm thức ăn
+
+Khi kho thức ăn của 1 tổ CHỈ CÒN ÍT kéo dài đủ lâu (~5 giây ở tốc độ x1),
+tổ đó tự động cử 1 đội (ưu tiên lính) hành quân sang **xâm chiếm tổ đối
+thủ**:
+- Đội quân hành quân thẳng tới lỗ tổ đối phương, giao chiến với lính phòng
+  thủ của họ ngay tại đó (lính gác của bên bị xâm chiếm sẽ tự động lao lên
+  nghênh chiến, có lợi thế "sân nhà").
+- Nếu còn sống, chúng **cướp dần thức ăn từ kho đối thủ** rồi mang về nộp
+  vào kho nhà mình như thức ăn bình thường.
+- Sau 1 đợt xâm chiếm, tổ nghỉ 1 khoảng thời gian trước khi cân nhắc phát
+  động đợt tiếp theo.
+
+Đây là xung đột THẬT giữa 2 đàn (có thể gây chết chóc + mất tài nguyên cho
+CẢ HAI bên), không chỉ cạnh tranh gián tiếp qua tìm thức ăn như trước.
+HUD phía trên sẽ báo khi có tổ đang cử quân đi xâm chiếm hoặc đang bị xâm
+chiếm.
+
+**Lưu ý cân bằng:** nếu cả 2 tổ cùng phát triển quá đông so với tốc độ tái
+tạo thức ăn trên bản đồ, kho có thể cạn kiệt đồng loạt, khiến các đợt xâm
+chiếm qua lại làm cả 2 bên suy yếu nhanh hơn (có thể dẫn đến 1 hoặc cả 2 tổ
+tuyệt chủng ở những ván chơi rất dài). Nếu muốn giảm mức độ khốc liệt, có
+thể tăng `RAID_COOLDOWN_TICKS` hoặc giảm `RAID_ATTACKER_KILL_PROB`/
+`RAID_DEFENDER_KILL_PROB` trong `config.py`.
+
 ## Cài đặt (Windows)
 
 ```powershell

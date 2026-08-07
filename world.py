@@ -245,8 +245,11 @@ class UndergroundWorld:
         self.water_in_storage = 0.0
         self.ticks_nursery_empty = 0   # số tick liên tiếp phòng ấu trùng rỗng
         self.ticks_water_empty = 0     # số tick liên tiếp hết nước dự trữ
+        self.ticks_storage_low = 0     # số tick liên tiếp kho CHỈ CÒN ÍT
         self.total_births = 0
         self.total_deaths = 0
+        self.total_food_looted = 0.0    # tổng thức ăn CƯỚP ĐƯỢC từ tổ đối
+                                         # thủ qua các đợt xâm chiếm
         # Nghĩa địa: số "nắm xác" đang hiển thị (giảm dần theo thời gian -
         # xem GRAVEYARD_DECAY_PER_TICK - để không phình to vô hạn)
         self.corpse_count = 0.0
@@ -286,7 +289,10 @@ class UndergroundWorld:
     def update_starvation_tracker(self):
         """Gọi mỗi tick: theo dõi xem TOÀN BỘ nguồn thức ăn (cả kho lẫn
         phòng ấu trùng) và nguồn nước có đang cạn kiệt kéo dài không - dùng
-        để tính nguy cơ chết đói/chết khát cho cả đàn."""
+        để tính nguy cơ chết đói/chết khát cho cả đàn. Đồng thời theo dõi
+        RIÊNG việc kho CHỈ CÒN ÍT (chưa hẳn về 0) kéo dài - tín hiệu "khan
+        hiếm" nhẹ hơn, dùng để cân nhắc phát động xâm chiếm tổ đối thủ
+        (is_starving là khủng hoảng NẶNG hơn hẳn, ít khi xảy ra)."""
         if self.food_in_nursery <= 0 and self.food_in_storage <= 0:
             self.ticks_nursery_empty += 1
         else:
@@ -296,6 +302,16 @@ class UndergroundWorld:
             self.ticks_water_empty += 1
         else:
             self.ticks_water_empty = 0
+
+        if self.food_in_storage < cfg.RAID_STORAGE_THRESHOLD:
+            self.ticks_storage_low += 1
+        else:
+            self.ticks_storage_low = 0
+
+    def is_food_scarce(self):
+        """Kho CHỈ CÒN ÍT kéo dài đủ lâu - tín hiệu để cân nhắc xâm chiếm
+        tổ đối thủ (không cần khủng hoảng nặng như is_starving)."""
+        return self.ticks_storage_low > cfg.RAID_SCARCITY_GRACE_TICKS
 
     def consume_upkeep(self, population):
         """Mỗi kiến còn sống tiêu hao 1 lượng nhỏ thức ăn VÀ nước từ kho

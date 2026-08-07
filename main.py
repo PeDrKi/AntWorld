@@ -734,6 +734,17 @@ def main(max_frames=None):
         canh_bao = "  *** DAN KIEN DANG DOI ***" if c["is_starving"] else ""
         khat = "  *** DAN KIEN DANG KHAT NUOC ***" if c["is_dehydrated"] else ""
         ke_thu = "  *** CO KE THU TREN MAT DAT ***" if enemy.active else ""
+        # "Bị xâm chiếm" của 1 tổ = tổ ĐỐI PHƯƠNG đang có quân ở trạng thái
+        # cướp phá (STATE_RAID_LOOT) - phải tra chéo sang counts() của bên kia
+        main_invaded = np.any(rival_colony.alive & (rival_colony.state == cfg.STATE_RAID_LOOT))
+        rival_invaded = np.any(colony.alive & (colony.state == cfg.STATE_RAID_LOOT))
+        xam_chiem = ""
+        if main_invaded:
+            xam_chiem += "  *** TO CHINH DANG BI XAM CHIEM ***"
+        if c["raiders_out"] > 0:
+            xam_chiem += f"  (dang cu {c['raiders_out']} quan di xam chiem doi thu)"
+        if rival_invaded:
+            xam_chiem += "  *** TO DOI THU DANG BI XAM CHIEM ***"
         lines = [
             f"TO CHINH - Dan so: {c['population']} (toi da {colony.n}, linh: {c['soldiers']}, "
             f"gac: {c['guards_on_duty']}/{c['guards_total']})   Sinh: {c['total_births']}  Chet: {c['total_deaths']}",
@@ -741,8 +752,9 @@ def main(max_frames=None):
             f"gac: {r['guards_on_duty']}/{r['guards_total']})   Sinh: {r['total_births']}  Chet: {r['total_deaths']}",
             f"Kho: {c['food_in_storage']:.0f}  Nuoc: {c['water_in_storage']:.0f}  "
             f"Trung: {c['egg_count']} qua  Au trung: {c['larva_count']} con  "
-            f"Nghia dia: {c['corpse_count']:.0f} xac  Ke thu da giet: {enemy.total_kills}"
-            f"{canh_bao}{khat}{ke_thu}",
+            f"Nghia dia: {c['corpse_count']:.0f} xac  Da cuop duoc: {c['total_food_looted']:.0f}  "
+            f"Ke thu da giet: {enemy.total_kills}"
+            f"{canh_bao}{khat}{ke_thu}{xam_chiem}",
             "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat",
         ]
         panel = pygame.Surface((900, 20 * len(lines) + 10), pygame.SRCALPHA)
@@ -839,8 +851,8 @@ def main(max_frames=None):
         # --- cập nhật mô phỏng ---
         if not sim_paused:
             for _ in range(sim_speed):
-                colony.update(enemy=enemy)
-                rival_colony.update(enemy=enemy)
+                colony.update(enemy=enemy, rival=rival_colony)
+                rival_colony.update(enemy=enemy, rival=colony)
                 enemy.update(ALL_COLONIES)
                 if enemy.active:
                     surface_world.deposit_danger(enemy.x, enemy.y)

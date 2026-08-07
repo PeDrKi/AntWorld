@@ -190,6 +190,39 @@ GUARD_ALERT_RADIUS = 16     # kẻ thù vào trong bán kính này (tính từ l
                             # thì lính gác lao lên mặt đất nghênh chiến
 GUARD_SPEED = 0.22          # lính gác lao lên nhanh hơn tốc độ đi thường
 
+# ----- Xâm chiếm/phá tổ đối thủ khi khan hiếm thức ăn -----
+# Khi kho CẠN KIỆT và đàn đang thật sự đói (không chỉ tạm thời ít), tổ sẽ tự
+# cử 1 đội (ưu tiên lính) hành quân sang XÂM CHIẾM tổ đối thủ: giao chiến
+# với lính phòng thủ của họ ngay tại tổ, và cướp thức ăn mang về nếu còn
+# sống. Đây là hành vi ĐỐI KHÁNG THẬT giữa 2 đàn, không phải chỉ cạnh tranh
+# gián tiếp qua tìm thức ăn như trước.
+RAID_STORAGE_THRESHOLD = 15   # kho dưới mức này coi là "ít" (xem
+                            # ticks_storage_low/is_food_scarce trong world.py)
+RAID_SCARCITY_GRACE_TICKS = 300  # kho phải LIÊN TỤC ở mức thấp bấy nhiêu
+                            # tick (~5 giây ở tốc độ x1) mới coi là khan
+                            # hiếm THẬT SỰ (tránh phát động chỉ vì 1 khoảnh
+                            # khắc kho tạm thời thấp)
+RAID_CHECK_INTERVAL = 90     # cứ mỗi bấy nhiêu tick, kiểm tra 1 lần có nên
+                            # phát động đợt xâm chiếm mới không
+RAID_PARTY_SIZE = 6          # số kiến (ưu tiên lính) cử đi mỗi đợt xâm chiếm
+RAID_COOLDOWN_TICKS = 900     # sau 1 đợt phát động, nghỉ bấy nhiêu tick mới
+                            # cân nhắc phát động đợt tiếp theo
+RAID_SPEED = 0.16            # tốc độ hành quân sang tổ đối thủ
+RAID_KILL_RADIUS = 3.5       # phạm vi quanh tổ đối thủ được coi là "chiến
+                            # trường" - phòng thủ của họ trong phạm vi này
+                            # mới bị lôi vào giao chiến
+RAID_ATTACKER_KILL_PROB = 0.015  # xác suất/tick 1 kiến xâm chiếm hạ được 1
+                            # lính phòng thủ (nhân đôi nếu phòng thủ không
+                            # phải lính - xem MAJOR_DEFENSE_FACTOR áp dụng
+                            # cho phe phòng thủ)
+RAID_DEFENDER_KILL_PROB = 0.02   # phòng thủ có lợi thế sân nhà nên xác suất
+                            # hạ được quân xâm chiếm/tick cao hơn 1 chút
+RAID_STEAL_PER_TICK = 3.0    # mỗi tick còn đứng cướp phá thì rút được bấy
+                            # nhiêu thức ăn từ kho đối thủ (chia đều số
+                            # quân xâm chiếm còn sống)
+RAID_MAX_LOOT_TICKS = 220    # tối đa đứng cướp phá bấy nhiêu tick trước khi
+                            # tự rút quân về (dù kho đối thủ chưa cạn hẳn)
+
 # ----- Tổ kiến đối thủ (cạnh tranh tài nguyên trên cùng bản đồ) -----
 RIVAL_NEST_POS = (14, 36)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
                             # để không bị bất lợi hình học (diện tích kiếm
@@ -231,6 +264,8 @@ STATE_GUARD_DUTY = 6       # lính gác đang đóng quân, lượn trong phòng
 STATE_GUARD_RUSH = 7       # lính gác đang lao lên mặt đất nghênh chiến
 STATE_GUARD_RETURN = 8     # lính gác xong việc, đang quay về giếng để
                            # xuống lại phòng gác
+STATE_RAID_TO_ENEMY = 9    # đội xâm chiếm đang hành quân sang tổ đối thủ
+STATE_RAID_LOOT = 10       # đang giao chiến/cướp phá tại tổ đối thủ
 
 # Kiến "lượn" trong phòng bao lâu trước khi tiếp tục hành trình (tick mô
 # phỏng), và di chuyển nhẹ/chậm ra sao trong lúc đó

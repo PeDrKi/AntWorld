@@ -80,18 +80,26 @@ def draw_surface_layer(state, surf):
     # --- địa hình: đá + nước (lấy mẫu thưa theo bước lưới cho nhanh) -
     # vẽ Ở GIỮA từng Ô LƯỚI (gx+0.5, gy+0.5), KHÔNG phải tại điểm giao 2
     # đường lưới (gx, gy) - để trông như 1 viên gạch/tường nằm gọn TRONG 1
-    # ô, thay vì bị 4 đường lưới cắt ngang qua giữa ---
+    # ô, thay vì bị 4 đường lưới cắt ngang qua giữa. Dùng sprite tùy chỉnh
+    # (rock.png/water.png) nếu người chơi đã cung cấp, không thì vẽ vuông
+    # màu như trước. ---
     terrain = surface_world.terrain
     step = max(1, int(1 / max(cell / cfg.BASE_CELL_PX, 0.05)))
+    r = max(1, int(round(cell * step)))  # LẤP ĐẦY hẳn cả ô, không chừa viền
+    rock_sprite = state.sprites.get_static("rock.png", r) if state.sprites.has("rock.png") else None
+    water_sprite = state.sprites.get_static("water.png", r) if state.sprites.has("water.png") else None
     for gx in range(0, cfg.GRID_SIZE, step):
         for gy in range(0, cfg.GRID_SIZE, step):
             t = terrain[gx, gy]
             if t == cfg.TERRAIN_EMPTY:
                 continue
             sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
-            color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
-            r = max(1, int(round(cell * step)))  # LẤP ĐẦY hẳn cả ô, không chừa viền
-            pygame.draw.rect(surf, color, (sx - r / 2, sy - r / 2, r, r))
+            sprite = rock_sprite if t == cfg.TERRAIN_ROCK else water_sprite
+            if sprite is not None:
+                surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
+            else:
+                color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
+                pygame.draw.rect(surf, color, (sx - r / 2, sy - r / 2, r, r))
 
     # --- đường mùi (pheromone) - vẽ TRƯỚC thức ăn/kiến để nằm dưới, như
     # dấu vết in trên mặt đất ---
@@ -103,33 +111,50 @@ def draw_surface_layer(state, surf):
     # kẽ hở quanh thức ăn bình thường, chỉ đá/nước mới thật sự chặn đường
     # (xem _avoid_obstacles trong ants.py) - kích thước nhỏ hơn giúp NHÌN
     # RA NGAY sự khác biệt này, không tưởng nhầm thức ăn cũng chặn đường
-    # như đá/nước ---
+    # như đá/nước. Dùng sprite food.png tùy chỉnh nếu có. ---
     food = surface_world.food
     food_type = surface_world.food_type
     fstep = 1 if cell > 10 else 2
+    food_size = max(3, int(cell * fstep * 0.55))
+    food_sprite = state.sprites.get_static("food.png", food_size) if state.sprites.has("food.png") else None
     for gx in range(0, cfg.GRID_SIZE, fstep):
         for gy in range(0, cfg.GRID_SIZE, fstep):
             if food[gx, gy] > 0.5:
-                ftype = int(food_type[gx, gy])
-                fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
                 sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
-                size = max(3, int(cell * fstep * 0.55))  # NHỎ HƠN ô - chừa kẽ hở
-                pygame.draw.rect(surf, fc, (sx - size / 2, sy - size / 2, size, size))
+                if food_sprite is not None:
+                    surf.blit(food_sprite, food_sprite.get_rect(center=(int(sx), int(sy))))
+                else:
+                    ftype = int(food_type[gx, gy])
+                    fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
+                    pygame.draw.rect(surf, fc, (sx - food_size / 2, sy - food_size / 2, food_size, food_size))
 
-    # --- lỗ tổ 2 bên ---
-    for pos, color in ((cfg.NEST_POS, (30, 22, 14)), (cfg.RIVAL_NEST_POS, (45, 20, 18))):
+    # --- lỗ tổ 2 bên - dùng sprite nest_main.png/nest_rival.png tùy chỉnh
+    # nếu có, không thì vẽ vòng tròn màu như trước ---
+    for pos, color, sprite_name in (
+        (cfg.NEST_POS, (30, 22, 14), "nest_main.png"),
+        (cfg.RIVAL_NEST_POS, (45, 20, 18), "nest_rival.png"),
+    ):
         sx, sy = camera.world_to_screen(pos[0], pos[1], state.CENTER_X, state.CENTER_Y)
         r = max(3, int(cell * 1.4))
-        pygame.draw.circle(surf, color, (int(sx), int(sy)), r)
-        pygame.draw.circle(surf, (0, 0, 0), (int(sx), int(sy)), r, 2)
+        if state.sprites.has(sprite_name):
+            sprite = state.sprites.get_static(sprite_name, r * 2)
+            surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
+        else:
+            pygame.draw.circle(surf, color, (int(sx), int(sy)), r)
+            pygame.draw.circle(surf, (0, 0, 0), (int(sx), int(sy)), r, 2)
 
-    # --- kẻ thù ---
+    # --- kẻ thù - dùng sprite enemy.png tùy chỉnh nếu có (tự xoay theo
+    # đúng hướng di chuyển thật, giống kiến), không thì vẽ hình thoi đỏ ---
     enemy = state.enemy
     if enemy.active:
         sx, sy = camera.world_to_screen(enemy.x, enemy.y, state.CENTER_X, state.CENTER_Y)
         r = max(3, int(cell * 0.6))
-        pts = [(sx, sy - r), (sx + r, sy), (sx, sy + r), (sx - r, sy)]
-        pygame.draw.polygon(surf, (220, 30, 30), pts)
+        if state.sprites.has("enemy.png"):
+            sprite = state.sprites.get_rotated("enemy.png", r * 2, float(enemy.theta))
+            surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
+        else:
+            pts = [(sx, sy - r), (sx + r, sy), (sx, sy + r), (sx - r, sy)]
+            pygame.draw.polygon(surf, (220, 30, 30), pts)
 
     draw_ants(state, surf, state.colony, (25, 25, 25), (215, 120, 30))
     draw_ants(state, surf, state.rival_colony, (120, 30, 25), (230, 140, 40))
@@ -169,6 +194,17 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     is_working = colony_obj.state[idx] == cfg.STATE_DWELL
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
+
+    # Tên sprite TÙY CHỌN cho đàn này (ant_worker_main*/ant_worker_rival*) -
+    # xem sprite_manager.py. None nếu colony_obj không phải 1 trong 2 đàn
+    # đã biết (an toàn phòng hờ) - khi đó luôn vẽ vector như cũ.
+    if colony_obj is state.colony:
+        sprite_prefix = "ant_worker_main"
+    elif colony_obj is state.rival_colony:
+        sprite_prefix = "ant_worker_rival"
+    else:
+        sprite_prefix = None
+
     for i in range(len(idx)):
         sx, sy = sxs[i], sys_[i]
         if sx < -10 or sx > state.SCREEN_W + 10 or sy < -10 or sy > CANVAS_H + 10:
@@ -190,18 +226,40 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         abd_x, abd_y = sx - dirx * r * 0.95, sy - diry * r * 0.95
         hd_x, hd_y = sx + dirx * r * 1.0, sy + diry * r * 1.0
 
-        if underground:
-            # Viền sáng mỏng quanh cả 3 đốt thân để vẫn nổi rõ trên nền
-            # hành lang rất tối, KHÔNG cần đổi hẳn màu thân (giữ đúng màu
-            # thật của loài, chỉ mượn thêm viền để dễ nhìn trong bóng tối)
-            rim = (150, 140, 125)
-            pygame.draw.circle(surf, rim, (int(abd_x), int(abd_y)), abdomen_r + 1)
-            pygame.draw.circle(surf, rim, (int(sx), int(sy)), thorax_r + 1)
-            pygame.draw.circle(surf, rim, (int(hd_x), int(hd_y)), head_r + 1)
+        # --- Ảnh sprite tùy chỉnh (nếu người chơi đã cung cấp) THAY THẾ
+        # phần vẽ vector thân/đầu/râu bên dưới - mọi lớp phủ khác (huy
+        # hiệu, vòng sáng, mồi tha) vẫn vẽ đè lên như cũ dù dùng sprite hay
+        # vector, để không mất chức năng nào khi chuyển sang ảnh tùy chỉnh.
+        sprite_img = None
+        if sprite_prefix is not None:
+            sname = sprite_prefix + ("_carry.png" if carrying[i] else ".png")
+            if state.sprites.has(sname):
+                size_px = max(4, int(r * 3.6))
+                sprite_img = state.sprites.get_rotated(sname, size_px, th)
 
-        pygame.draw.circle(surf, color, (int(abd_x), int(abd_y)), abdomen_r)
-        pygame.draw.circle(surf, color, (int(sx), int(sy)), thorax_r)
-        pygame.draw.circle(surf, head_color, (int(hd_x), int(hd_y)), head_r)
+        if sprite_img is not None:
+            rect = sprite_img.get_rect(center=(int(sx), int(sy)))
+            surf.blit(sprite_img, rect)
+        else:
+            if underground:
+                # Viền sáng mỏng quanh cả 3 đốt thân để vẫn nổi rõ trên nền
+                # hành lang rất tối, KHÔNG cần đổi hẳn màu thân (giữ đúng màu
+                # thật của loài, chỉ mượn thêm viền để dễ nhìn trong bóng tối)
+                rim = (150, 140, 125)
+                pygame.draw.circle(surf, rim, (int(abd_x), int(abd_y)), abdomen_r + 1)
+                pygame.draw.circle(surf, rim, (int(sx), int(sy)), thorax_r + 1)
+                pygame.draw.circle(surf, rim, (int(hd_x), int(hd_y)), head_r + 1)
+
+            pygame.draw.circle(surf, color, (int(abd_x), int(abd_y)), abdomen_r)
+            pygame.draw.circle(surf, color, (int(sx), int(sy)), thorax_r)
+            pygame.draw.circle(surf, head_color, (int(hd_x), int(hd_y)), head_r)
+
+            if r >= 2.6:  # đủ to (zoom gần) mới vẽ thêm râu, tránh rối ở xa
+                ant_len = head_r * 0.9
+                for side in (-1, 1):
+                    ax = hd_x + dirx * ant_len + perp_x * head_r * 0.5 * side
+                    ay = hd_y + diry * ant_len + perp_y * head_r * 0.5 * side
+                    pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (int(ax), int(ay)), 1)
 
         if is_guard[i]:  # lính gác: 1 chấm sáng nhỏ trên bụng để phân biệt
             badge_r = max(1, int(abdomen_r * 0.4))
@@ -235,13 +293,6 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
                 fring_surf, (80, 255, 120, 220), (fring_r + 2, fring_r + 2), fring_r, 3
             )
             surf.blit(fring_surf, (int(sx) - fring_r - 2, int(sy) - fring_r - 2))
-
-        if r >= 2.6:  # đủ to (zoom gần) mới vẽ thêm râu, tránh rối ở xa
-            ant_len = head_r * 0.9
-            for side in (-1, 1):
-                ax = hd_x + dirx * ant_len + perp_x * head_r * 0.5 * side
-                ay = hd_y + diry * ant_len + perp_y * head_r * 0.5 * side
-                pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (int(ax), int(ay)), 1)
 
         # --- Mồi tha trên lưng: 1 miếng nhỏ đúng màu loại thức ăn thật,
         # hiện rõ ràng ngay TRƯỚC ĐẦU con kiến (theo hướng đang đi), có

@@ -100,25 +100,28 @@ def _grid_positions(n, cx, cy, r_px, icon_r, group_size=5):
     return [(x + off_x, y + off_y) for x, y in positions]
 
 
-def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
+def draw_storage_pile(state, surf, cx, cy, r_px, amount, seed_key):
     """Kho thức ăn KHÔNG chỉ là 1 con số - vẽ luôn số thức ăn ĐANG LƯU
     TRỮ THẬT SỰ dưới dạng các viên thức ăn xếp THÀNH LƯỚI GỌN GÀNG (không
     rải ngẫu nhiên - xem _grid_positions) để đếm bằng mắt thường dễ dàng,
     số hàng/cột tăng theo lượng tồn kho hiện tại (1 icon = ĐÚNG 1 đơn vị
-    thức ăn - xem STORAGE_FOOD_PER_ICON). Tất cả viên đều dùng chung 1 MÀU
-    THỨC ĂN DUY NHẤT (khớp với FOOD_TYPE_COLOR - chỉ còn 1 loại thức ăn),
-    chỉ ngả sáng/tối nhẹ ngẫu nhiên giữa các viên để đống trông có khối
-    thay vì phẳng lì 1 màu tuyệt đối - màu CỐ Ý chọn sáng/rực hơn hẳn màu
-    sàn đất để không bị lẫn với sàn phòng."""
+    thức ăn - xem STORAGE_FOOD_PER_ICON). TÁI DÙNG sprite food.png tùy
+    chỉnh nếu có (đúng loại thức ăn thật đang dùng trên mặt đất), không
+    thì vẽ viên tròn màu như trước - chỉ ngả sáng/tối nhẹ ngẫu nhiên giữa
+    các viên để đống trông có khối thay vì phẳng lì 1 màu tuyệt đối."""
     n_icons = int(np.clip(amount / cfg.STORAGE_FOOD_PER_ICON, 0, cfg.STORAGE_MAX_ICONS))
     if n_icons <= 0:
         return
     r = max(2, int(r_px * 0.085))
+    sprite = state.sprites.get_static("food.png", r * 2) if state.sprites.has("food.png") else None
     rng_local = np.random.RandomState(seed_key * 733 + 5)
     shade_jitter = rng_local.uniform(-22, 22, n_icons)
     base = cfg.FOOD_TYPE_COLOR[cfg.FOOD_TYPE_SEED]
     for i, (px, py) in enumerate(_grid_positions(n_icons, cx, cy, r_px, r)):
         px, py = int(px), int(py)
+        if sprite is not None:
+            surf.blit(sprite, sprite.get_rect(center=(px, py)))
+            continue
         j = shade_jitter[i]
         color = tuple(int(np.clip(c + j, 20, 255)) for c in base)
         pygame.draw.circle(surf, (35, 25, 15), (px, py), r + 1)  # viền tối cho nổi khối
@@ -127,12 +130,13 @@ def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
         pygame.draw.circle(surf, (255, 255, 230), (px - r // 3, py - r // 3), hi)  # điểm sáng
 
 
-def draw_pupae(surf, cx, cy, r_px, colony_obj, seed_key):
+def draw_pupae(state, surf, cx, cy, r_px, colony_obj, seed_key):
     """Phòng nhộng THẬT SỰ có nhộng bên trong - mỗi nhộng là 1 CÁI KÉN hình
     bầu dục (tơ bọc quanh, màu vàng nhạt/nâu đất đặc trưng), KHÁC HẲN dáng
     ấu trùng (mập tròn, trắng nhợt) hay trứng (chấm nhỏ trắng ngà) - càng
     gần "nở" (growth cao) kén càng đậm màu hơn, đúng thực tế (kén nhộng
-    sậm màu dần khi kiến trưởng thành bên trong sắp hoàn thiện)."""
+    sậm màu dần khi kiến trưởng thành bên trong sắp hoàn thiện). Dùng
+    sprite pupa.png tùy chỉnh nếu người chơi đã cung cấp."""
     active_idx = np.where(colony_obj.pupa_active)[0]
     if len(active_idx) == 0:
         return
@@ -140,17 +144,23 @@ def draw_pupae(surf, cx, cy, r_px, colony_obj, seed_key):
     ang = rng_local.uniform(0, 2 * np.pi, cfg.PUPA_MAX_COUNT)
     rad = np.sqrt(rng_local.uniform(0, 1, cfg.PUPA_MAX_COUNT)) * r_px * 0.62
     tilt = rng_local.uniform(-0.5, 0.5, cfg.PUPA_MAX_COUNT)
+    sprite_size = max(4, int(r_px * 0.28))
+    sprite = state.sprites.get_static("pupa.png", sprite_size) if state.sprites.has("pupa.png") else None
     for i in active_idx:
-        growth = float(colony_obj.pupa_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
+        px, py = cx + dx, cy + dy
+        if sprite is not None:
+            rotated = pygame.transform.rotate(sprite, math.degrees(tilt[i]))
+            surf.blit(rotated, rotated.get_rect(center=(px, py)))
+            continue
+        growth = float(colony_obj.pupa_growth[i])
         w = max(4, int(r_px * 0.13))
         h = max(3, int(r_px * 0.085))
         # Màu kén đậm dần theo growth: vàng rơm nhạt lúc mới hóa nhộng ->
         # nâu vàng đậm lúc sắp nở
         shade = 0.55 + 0.45 * growth
         color = (int(215 * shade + 40 * (1 - shade)), int(180 * shade + 40 * (1 - shade)), int(110 * shade + 30 * (1 - shade)))
-        px, py = cx + dx, cy + dy
         cocoon = pygame.Surface((w * 2 + 4, h * 2 + 4), pygame.SRCALPHA)
         pygame.draw.ellipse(cocoon, (60, 45, 25), (0, 0, w * 2 + 4, h * 2 + 4))
         pygame.draw.ellipse(cocoon, color, (2, 2, w * 2, h * 2))
@@ -162,33 +172,44 @@ def draw_pupae(surf, cx, cy, r_px, colony_obj, seed_key):
         surf.blit(rotated, rect)
 
 
-def draw_larvae(surf, cx, cy, r_px, colony_obj, seed_key):
+def draw_larvae(state, surf, cx, cy, r_px, colony_obj, seed_key):
     """Phòng ấu trùng THẬT SỰ có ấu trùng bên trong - mỗi ấu trùng lớn
     dần theo growth (0..1): bé + trắng nhợt lúc mới đẻ, to + ngả vàng
-    khi sắp nở thành kiến mới."""
+    khi sắp nở thành kiến mới. Dùng sprite larva.png tùy chỉnh nếu có."""
     active_idx = np.where(colony_obj.larva_active)[0]
     if len(active_idx) == 0:
         return
     rng_local = np.random.RandomState(seed_key * 331 + 7)
     ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)
     rad = np.sqrt(rng_local.uniform(0, 1, cfg.LARVA_MAX_COUNT)) * r_px * 0.68
+    has_sprite = state.sprites.has("larva.png")
     for i in active_idx:
         growth = float(colony_obj.larva_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
         size = max(3, int(r_px * (0.07 + 0.11 * growth)))
+        if has_sprite:
+            sprite = state.sprites.get_static("larva.png", size * 2)
+            surf.blit(sprite, sprite.get_rect(center=(cx + dx, cy + dy)))
+            continue
         shade = int(248 - growth * 60)
         color = (shade, shade, max(140, shade - 55))
         pygame.draw.ellipse(surf, (60, 55, 25), (cx + dx - size - 1, cy + dy - size * 0.7 - 1, size * 2 + 2, size * 1.4 + 2))
         pygame.draw.ellipse(surf, color, (cx + dx - size, cy + dy - size * 0.7, size * 2, size * 1.4))
 
 
-def draw_queen(surf, cx, cy, r_px, room_rgb, frame_counter):
+def draw_queen(state, surf, cx, cy, r_px, room_rgb, frame_counter):
     """Phòng chúa THẬT SỰ có 1 con kiến chúa - to hẳn so với thợ
     thường, đứng yên giữa phòng (chỉ hơi bồng bềnh nhẹ cho có sức
-    sống), với bụng (gaster) to đặc trưng để đẻ trứng."""
+    sống), với bụng (gaster) to đặc trưng để đẻ trứng. Dùng sprite
+    queen.png tùy chỉnh nếu người chơi đã cung cấp."""
     bob = math.sin(frame_counter * 0.03) * r_px * 0.03
     qy = cy + bob
+    if state.sprites.has("queen.png"):
+        size = max(6, int(r_px * 1.3))
+        sprite = state.sprites.get_static("queen.png", size)
+        surf.blit(sprite, sprite.get_rect(center=(int(cx), int(qy))))
+        return
     body_color = tuple(max(0, c - 40) for c in room_rgb)
     gaster_w, gaster_h = r_px * 0.95, r_px * 0.62
     pygame.draw.ellipse(surf, body_color, (cx - gaster_w * 0.15, qy - gaster_h / 2, gaster_w, gaster_h))
@@ -203,56 +224,74 @@ def draw_queen(surf, cx, cy, r_px, room_rgb, frame_counter):
     pygame.draw.ellipse(surf, (0, 0, 0), (cx - gaster_w * 0.15, qy - gaster_h / 2, gaster_w, gaster_h), 2)
 
 
-def draw_water_drops(surf, cx, cy, r_px, amount, seed_key):
+def draw_water_drops(state, surf, cx, cy, r_px, amount, seed_key):
     """Bể trữ nước KHÔNG chỉ là 1 con số - vẽ luôn lượng nước ĐANG TRỮ
     THẬT SỰ dưới dạng các giọt nước xanh lấp lánh xếp THÀNH LƯỚI GỌN GÀNG
     (không rải ngẫu nhiên - xem _grid_positions) để đếm bằng mắt thường dễ
-    dàng, to/nhỏ theo lượng nước tồn hiện tại."""
+    dàng, to/nhỏ theo lượng nước tồn hiện tại. TÁI DÙNG sprite water.png
+    tùy chỉnh nếu có, không thì vẽ giọt nước tròn màu như trước."""
     n_icons = int(np.clip(amount / cfg.WATER_PER_ICON, 0, cfg.WATER_MAX_ICONS))
     if n_icons <= 0:
         return
     r = max(3, int(r_px * 0.09))
+    sprite = state.sprites.get_static("water.png", r * 2) if state.sprites.has("water.png") else None
     for px, py in _grid_positions(n_icons, cx, cy, r_px, r):
         px, py = int(px), int(py)
+        if sprite is not None:
+            surf.blit(sprite, sprite.get_rect(center=(px, py)))
+            continue
         pygame.draw.circle(surf, (20, 60, 100), (px, py), r + 1)
         pygame.draw.circle(surf, (60, 150, 230), (px, py), r)
         hi = max(1, int(r * 0.45))
         pygame.draw.circle(surf, (220, 240, 255), (px - r // 3, py - r // 3), hi)
 
 
-def draw_eggs(surf, cx, cy, r_px, colony_obj, seed_key):
+def draw_eggs(state, surf, cx, cy, r_px, colony_obj, seed_key):
     """Phòng trứng THẬT SỰ có trứng bên trong - trứng nhỏ, trắng ngà,
-    hơi to dần khi sắp nở (chuyển sang phòng ấu trùng)."""
+    hơi to dần khi sắp nở (chuyển sang phòng ấu trùng). Dùng sprite
+    egg.png tùy chỉnh nếu người chơi đã cung cấp."""
     active_idx = np.where(colony_obj.egg_active)[0]
     if len(active_idx) == 0:
         return
     rng_local = np.random.RandomState(seed_key * 421 + 3)
     ang = rng_local.uniform(0, 2 * np.pi, cfg.EGG_MAX_COUNT)
     rad = np.sqrt(rng_local.uniform(0, 1, cfg.EGG_MAX_COUNT)) * r_px * 0.65
+    has_sprite = state.sprites.has("egg.png")
     for i in active_idx:
         growth = float(colony_obj.egg_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
         size = max(2, int(r_px * (0.045 + 0.035 * growth)))
+        if has_sprite:
+            sprite = state.sprites.get_static("egg.png", size * 2)
+            surf.blit(sprite, sprite.get_rect(center=(cx + dx, cy + dy)))
+            continue
         color = (250, 248, 235)
         pygame.draw.ellipse(surf, (150, 145, 120), (cx + dx - size - 1, cy + dy - size * 1.2 - 1, size * 2 + 2, size * 2.4 + 2))
         pygame.draw.ellipse(surf, color, (cx + dx - size, cy + dy - size * 1.2, size * 2, size * 2.4))
 
 
-def draw_graveyard(surf, cx, cy, r_px, corpse_count, seed_key):
+def draw_graveyard(state, surf, cx, cy, r_px, corpse_count, seed_key):
     """Nghĩa địa - mỗi kiến chết để lại 1 'nắm xác' nhỏ ở đây, mờ dần
-    theo thời gian (phân hủy) thay vì kiến biến mất vô hình."""
+    theo thời gian (phân hủy) thay vì kiến biến mất vô hình. Dùng sprite
+    corpse.png tùy chỉnh nếu người chơi đã cung cấp."""
     n_icons = int(np.clip(corpse_count, 0, cfg.GRAVEYARD_MAX_CORPSES))
     if n_icons <= 0:
         return
     rng_local = np.random.RandomState(seed_key * 857 + 29)
     ang = rng_local.uniform(0, 2 * np.pi, n_icons)
     rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.7
+    tilt = rng_local.uniform(0, 360, n_icons)
+    size = max(2, int(r_px * 0.09))
+    sprite = state.sprites.get_static("corpse.png", size * 2) if state.sprites.has("corpse.png") else None
     for i in range(n_icons):
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
         px, py = cx + dx, cy + dy
-        size = max(2, int(r_px * 0.09))
+        if sprite is not None:
+            rotated = pygame.transform.rotate(sprite, float(tilt[i]))
+            surf.blit(rotated, rotated.get_rect(center=(px, py)))
+            continue
         pygame.draw.line(surf, (60, 50, 45), (px - size, py - size), (px + size, py + size), 2)
         pygame.draw.line(surf, (60, 50, 45), (px - size, py + size), (px + size, py - size), 2)
         pygame.draw.circle(surf, (45, 38, 34), (px, py), size)
@@ -323,19 +362,19 @@ def draw_underground_layer(state, surf, depth):
 
             # --- mỗi phòng THỰC SỰ làm đúng chức năng của nó ---
             if room_id == 0:  # Kho thức ăn: vẽ đống thức ăn tồn kho thật
-                draw_storage_pile(surf, int(cx), int(cy), r_px, uworld.food_in_storage, seed_key)
+                draw_storage_pile(state, surf, int(cx), int(cy), r_px, uworld.food_in_storage, seed_key)
             elif room_id == 1:  # Phòng ấu trùng: vẽ các ấu trùng đang lớn thật
-                draw_larvae(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+                draw_larvae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
             elif room_id == 2:  # Phòng chúa: vẽ 1 con kiến chúa thật
-                draw_queen(surf, int(cx), int(cy), r_px, room_rgb, state.frame_counter)
+                draw_queen(state, surf, int(cx), int(cy), r_px, room_rgb, state.frame_counter)
             elif room_id == 3:  # Bể trữ nước: vẽ các giọt nước tồn trữ thật
-                draw_water_drops(surf, int(cx), int(cy), r_px, uworld.water_in_storage, seed_key)
+                draw_water_drops(state, surf, int(cx), int(cy), r_px, uworld.water_in_storage, seed_key)
             elif room_id == 4:  # Phòng trứng: vẽ các trứng đang ủ thật
-                draw_eggs(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+                draw_eggs(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
             elif room_id == 6:  # Nghĩa địa: vẽ các nắm xác thật
-                draw_graveyard(surf, int(cx), int(cy), r_px, uworld.corpse_count, seed_key)
+                draw_graveyard(state, surf, int(cx), int(cy), r_px, uworld.corpse_count, seed_key)
             elif room_id == 7:  # Phòng nhộng: vẽ các kén nhộng đang biến thái thật
-                draw_pupae(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+                draw_pupae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
             # room_id == 5 (Phòng gác cửa): không cần vẽ thêm gì đặc biệt
             # - lính gác đóng quân ở đây đã tự hiện ra qua draw_ants() bên
             # dưới (vì depth của họ = DEPTH_GUARD), giống như trong bất kỳ

@@ -16,6 +16,7 @@ from world import SurfaceWorld, UndergroundWorld
 from ants import AntColony
 from enemy import EnemyManager
 from camera import Camera2D
+from sprite_manager import SpriteManager
 
 # Khi chạy bình thường: assets/ nằm cạnh file .py này. Khi được đóng gói
 # thành .exe bằng PyInstaller (chế độ --onefile), file được giải nén tạm
@@ -33,6 +34,13 @@ if getattr(sys, "frozen", False):
 else:
     SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_PATH = os.path.join(SAVE_DIR, cfg.SAVE_FILE_NAME)
+
+# Thư mục sprite TÙY CHỈNH do người chơi tự thêm vào (ảnh pixel art tự vẽ)
+# - PHẢI đặt cạnh file .exe/.py thật (giống SAVE_DIR ở trên), KHÔNG phải
+# trong _MEIPASS, vì người chơi cần TỰ TAY thêm/đổi file ảnh vào đây lúc
+# đang dùng bản .exe đã đóng gói - thư mục _MEIPASS là thư mục tạm, không
+# thể thêm file vào và bị xóa ngay khi tắt app.
+SPRITES_DIR = os.path.join(SAVE_DIR, "assets", "sprites")
 
 
 class GameState:
@@ -75,6 +83,11 @@ class GameState:
         self.ALL_COLONIES = [self.colony, self.rival_colony]
 
         self.camera = Camera2D(cfg.GRID_SIZE / 2.0, cfg.GRID_SIZE / 2.0, zoom=1.0)
+
+        # Sprite pixel art TÙY CHỌN do người chơi tự thêm (xem sprite_manager.py
+        # để biết quy ước đặt tên file) - nếu thư mục trống/không tồn tại,
+        # mọi thứ vẫn vẽ vector như trước, không có gì thay đổi.
+        self.sprites = SpriteManager(SPRITES_DIR)
 
         # tầng đang xem: 0 = mặt đất, >=1 = tầng ngầm
         self.current_layer = 0
@@ -163,6 +176,8 @@ class GameState:
     def place_food_at(self, gx, gy, amount=8.0, food_type=None):
         gx = int(np.clip(gx, 0, cfg.GRID_SIZE - 1))
         gy = int(np.clip(gy, 0, cfg.GRID_SIZE - 1))
+        if self.surface_world.terrain[gx, gy] != cfg.TERRAIN_EMPTY:
+            return  # ô đã có đá/nước - không cho thức ăn mọc đè lên
         if food_type is None:
             types = list(cfg.FOOD_TYPE_WEIGHTS.keys())
             weights = list(cfg.FOOD_TYPE_WEIGHTS.values())

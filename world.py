@@ -61,18 +61,30 @@ class SurfaceWorld:
 
     def add_obstacle(self, cx, cy, terrain_type, radius):
         """Đánh dấu 1 vùng địa hình (đá/nước) trên lưới - dùng cả lúc khởi
-        tạo lẫn khi người chơi tự đặt bằng công cụ. Trả về feature (kèm ID
-        duy nhất) để main.py vẽ thêm lên màn hình 3D và có thể xóa sau này."""
+        tạo lẫn khi người chơi tự đặt bằng công cụ. Có THỨ TỰ ƯU TIÊN giữa
+        các lớp: ĐÁ > NƯỚC > THỨC ĂN - đá luôn "đè lên trên cùng" (đặt đá
+        đè lên nước hiện có thì đá thắng), NƯỚC KHÔNG BAO GIỜ đè lên đá đã
+        có sẵn (giữ nguyên đá, chỉ lấp phần còn trống), và cả đá lẫn nước
+        đều xóa sạch thức ăn nếu lỡ trùng vị trí (thức ăn luôn ở "lớp dưới
+        cùng"). Trả về feature (kèm ID duy nhất) để main.py vẽ thêm lên
+        màn hình 3D và có thể xóa sau này."""
         n = cfg.GRID_SIZE
         r = int(round(radius))
         x0, x1 = max(0, cx - r), min(n, cx + r + 1)
         y0, y1 = max(0, cy - r), min(n, cy + r + 1)
         # Vùng tròn thay vì vuông, cho tự nhiên hơn
         xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
-        mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= r ** 2
-        self.terrain[xs[mask], ys[mask]] = terrain_type
+        circle_mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= r ** 2
+        txs, tys = xs[circle_mask], ys[circle_mask]
+
+        if terrain_type == cfg.TERRAIN_WATER:
+            # Nước không được đè lên đá đã có sẵn - đá luôn ở lớp trên cùng
+            allowed = self.terrain[txs, tys] != cfg.TERRAIN_ROCK
+            txs, tys = txs[allowed], tys[allowed]
+
+        self.terrain[txs, tys] = terrain_type
         # Xóa thức ăn nếu lỡ trùng vị trí (không cho thức ăn mọc trong đá/nước)
-        self.food[xs[mask], ys[mask]] = 0
+        self.food[txs, tys] = 0
         fid = self._next_feature_id
         self._next_feature_id += 1
         feature = (fid, terrain_type, int(cx), int(cy), float(radius))
@@ -172,7 +184,9 @@ class SurfaceWorld:
 
     def respawn_random_cluster(self):
         """Thêm 1 cụm thức ăn mới ở vị trí ngẫu nhiên - mô phỏng nguồn thức
-        ăn xuất hiện theo mùa, KHÔNG vô hạn/tức thời như lúc khởi tạo."""
+        ăn xuất hiện theo mùa, KHÔNG vô hạn/tức thời như lúc khởi tạo. CHỈ
+        thêm vào những ô còn TRỐNG (không phải đá/nước) - thức ăn không
+        bao giờ được phép mọc đè lên địa hình đã có."""
         n = cfg.GRID_SIZE
         rng = np.random.default_rng()
         cx = rng.integers(4, n - 4)
@@ -180,8 +194,9 @@ class SurfaceWorld:
         r = cfg.FOOD_CLUSTER_RADIUS
         x0, x1 = max(0, cx - r), min(n, cx + r + 1)
         y0, y1 = max(0, cy - r), min(n, cy + r + 1)
-        self.food[x0:x1, y0:y1] += cfg.FOOD_RESPAWN_AMOUNT
-        self.food_type[x0:x1, y0:y1] = self._random_food_type(rng)
+        empty_mask = self.terrain[x0:x1, y0:y1] == cfg.TERRAIN_EMPTY
+        self.food[x0:x1, y0:y1][empty_mask] += cfg.FOOD_RESPAWN_AMOUNT
+        self.food_type[x0:x1, y0:y1][empty_mask] = self._random_food_type(rng)
         return (int(cx), int(cy))
 
 

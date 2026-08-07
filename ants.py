@@ -143,10 +143,23 @@ class AntColony:
         self.total_food_collected = 0
         self.tick_count = 0
 
+        # --- Trophallaxis (mớm thức ăn miệng-miệng) - danh sách các "khoảnh
+        # khắc mớm mồi" GẦN ĐÂY để lớp hiển thị vẽ 1 dây nối ngắn/nhòe dần
+        # giữa 2 con kiến (hoặc kiến-ấu trùng, kiến-chúa) đang trao đổi thức
+        # ăn - đúng theo hành vi THẬT của loài kiến: KHÔNG chỉ "vác cục mồi
+        # bỏ vào kho" đơn thuần, mà thức ăn còn được truyền tay/mớm trực
+        # tiếp giữa các cá thể. Mỗi phần tử: (x1,y1, x2,y2, tick_tao_ra,
+        # tầng) - HOÀN TOÀN chỉ để HIỂN THỊ, không ảnh hưởng gì tới số liệu
+        # thức ăn/kinh tế của tổ (xem _record_trophallaxis bên dưới).
+        self.trophallaxis_events = []
+
     # ------------------------------------------------------------------
     def update(self, enemy=None, rival=None):
         self.tick_count += 1
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
+        if self.trophallaxis_events:
+            cutoff = self.tick_count - cfg.TROPHALLAXIS_TTL_TICKS
+            self.trophallaxis_events = [e for e in self.trophallaxis_events if e[4] > cutoff]
         self._update_surface_ants()
         self._update_underground_ants()
         self._update_nurses()
@@ -405,6 +418,20 @@ class AntColony:
                     self.carry_amount[food_idx] = 0.0
                     self.carrying[food_idx] = False
                     self.carry_type[food_idx] = 0
+
+                    # Trophallaxis: nếu đúng lúc có nurse đang chờ sẵn ở
+                    # kho, thợ vừa về "mớm" trực tiếp cho nurse thay vì chỉ
+                    # đổ vào đống chung - CHỈ là hiệu ứng hình ảnh, số liệu
+                    # kho không đổi gì so với trước (nurse vẫn tự lấy hàng
+                    # theo đúng chu trình riêng, xem _update_nurses).
+                    nurse_present = np.where(
+                        self.alive & (self.job == cfg.JOB_NURSE) & (self.state == cfg.STATE_NURSE_AT_STORAGE)
+                    )[0]
+                    n_pairs = min(len(food_idx), len(nurse_present))
+                    for k in range(n_pairs):
+                        fi, ni = food_idx[k], nurse_present[k]
+                        self._record_trophallaxis(self.x[fi], self.y[fi], self.x[ni], self.y[ni], self.depth[fi])
+
                     # Không rời phòng ngay - LƯỢN trong kho 1 lúc (như đang
                     # sắp xếp/kiểm tra đồ) rồi quay lại mặt đất kiếm tiếp
                     # (không còn "thành nurse" ngẫu nhiên nữa - chăm ấu
@@ -491,6 +518,18 @@ class AntColony:
             self.state[done] = self.next_state[done]
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    def _record_trophallaxis(self, x1, y1, x2, y2, depth):
+        """Ghi lại 1 khoảnh khắc "mớm mồi" giữa (x1,y1) và (x2,y2) ở tầng
+        `depth` để lớp hiển thị vẽ hiệu ứng ngắn - xem trophallaxis_events
+        ở __init__. Tự giới hạn số sự kiện lưu cùng lúc để không phình bộ
+        nhớ nếu vì lý do gì đó không được dọn dẹp kịp."""
+        self.trophallaxis_events.append(
+            (float(x1), float(y1), float(x2), float(y2), self.tick_count, int(depth))
+        )
+        if len(self.trophallaxis_events) > 300:
+            self.trophallaxis_events = self.trophallaxis_events[-300:]
+
     def _wander_in_room(self, idx, center, radius):
         """Đi lại chậm, ngẫu nhiên quanh tâm 1 phòng, KHÔNG đổi trạng thái -
         dùng cho các chức năng LƯU TRÚ VÔ THỜI HẠN tại 1 phòng (nurse chờ ở
@@ -555,6 +594,16 @@ class AntColony:
                 self.underground.deposit_to_nursery(len(arrived))
                 self.carrying[arrived] = False
                 self.carry_type[arrived] = 0
+                # Trophallaxis: mớm cho 1 "ấu trùng" ở ngay gần đó (điểm
+                # ngẫu nhiên nhỏ quanh vị trí nurse - không cần khớp chính
+                # xác ấu trùng nào, chỉ để hình ảnh "đang mớm" rõ ràng)
+                nx, ny = self.underground.nursery
+                off_ang = np.random.uniform(0, 2 * np.pi, len(arrived))
+                off_rad = np.random.uniform(0.2, 0.6, len(arrived)) * cfg.ROOM_RADIUS_NURSERY
+                lx = nx + np.cos(off_ang) * off_rad
+                ly = ny + np.sin(off_ang) * off_rad
+                for k, a in enumerate(arrived):
+                    self._record_trophallaxis(self.x[a], self.y[a], lx[k], ly[k], self.depth[a])
                 self.dwell_ticks[arrived] = np.random.randint(
                     cfg.NURSE_IDLE_TICKS_MIN, cfg.NURSE_IDLE_TICKS_MAX + 1, size=len(arrived)
                 ).astype(np.int16)
@@ -632,6 +681,13 @@ class AntColony:
             dist = self._move_towards_2d(idx, self.underground.queen_room, cfg.UG_SPEED)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
+                # Trophallaxis: attendant vừa quay lại thì "mớm" cho chúa
+                # (hình ảnh - chúa không cần "ăn" theo số liệu riêng, việc
+                # đẻ trứng vẫn tiêu thụ thẳng từ kho như trước, xem
+                # try_consume_for_egg trong world.py)
+                qx, qy = self.underground.queen_room
+                for a in arrived:
+                    self._record_trophallaxis(self.x[a], self.y[a], qx, qy, self.depth[a])
                 self.dwell_ticks[arrived] = np.random.randint(
                     cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1, size=len(arrived)
                 ).astype(np.int16)

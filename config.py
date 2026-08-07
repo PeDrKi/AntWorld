@@ -281,6 +281,12 @@ ATTENDANT_SWITCH_TICKS_MIN, ATTENDANT_SWITCH_TICKS_MAX = 160, 420  # attendant
                              # túc trực ở 1 phòng (chúa/trứng) bao lâu
                              # trước khi đổi sang phòng kia
 
+TROPHALLAXIS_TTL_TICKS = 22  # 1 "khoảnh khắc mớm mồi" (xem
+                             # trophallaxis_events trong ants.py) hiển thị
+                             # trong bấy nhiêu tick rồi tự biến mất (nhòe
+                             # dần) - ngắn, chỉ là 1 điểm nhấn thoáng qua
+                             # chứ không phải hiệu ứng thường trực
+
 # ----- Xâm chiếm/phá tổ đối thủ khi khan hiếm thức ăn -----
 # Khi kho CẠN KIỆT và đàn đang thật sự đói (không chỉ tạm thời ít), tổ sẽ tự
 # cử 1 đội (ưu tiên lính) hành quân sang XÂM CHIẾM tổ đối thủ: giao chiến

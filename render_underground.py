@@ -223,6 +223,34 @@ def draw_graveyard(surf, cx, cy, r_px, corpse_count, seed_key):
         pygame.draw.circle(surf, (45, 38, 34), (px, py), size)
 
 
+def draw_trophallaxis(state, surf, colony_obj, depth):
+    """Vẽ các khoảnh khắc MỚM MỒI (trophallaxis) GẦN ĐÂY: 1 dây nối ngắn
+    sáng màu + 2 chấm nhỏ ở 2 đầu, NHÒE DẦN (tối màu dần) rồi tự biến mất
+    - mô phỏng khoảnh khắc 2 cá thể (thợ-nurse, nurse-ấu trùng, attendant-
+    chúa) trao đổi thức ăn miệng-miệng, đúng hành vi xã hội ĐẶC TRƯNG NHẤT
+    của loài kiến thật - không chỉ đơn thuần "vác cục mồi bỏ vào kho"."""
+    if not colony_obj.trophallaxis_events:
+        return
+    camera = state.camera
+    tick_now = colony_obj.tick_count
+    ttl = cfg.TROPHALLAXIS_TTL_TICKS
+    for x1, y1, x2, y2, tick_created, ev_depth in colony_obj.trophallaxis_events:
+        if ev_depth != depth:
+            continue
+        age = tick_now - tick_created
+        if age < 0 or age > ttl:
+            continue
+        t = 1.0 - age / ttl  # 1.0 = vừa xảy ra, 0.0 = sắp biến mất
+        brightness = 0.3 + 0.7 * t
+        col = tuple(int(c * brightness) for c in (255, 235, 180))
+        sx1, sy1 = camera.world_to_screen(x1, y1, state.CENTER_X, state.CENTER_Y)
+        sx2, sy2 = camera.world_to_screen(x2, y2, state.CENTER_X, state.CENTER_Y)
+        pygame.draw.line(surf, col, (int(sx1), int(sy1)), (int(sx2), int(sy2)), 2)
+        dot_r = max(2, int(2 + 2 * t))
+        pygame.draw.circle(surf, col, (int(sx1), int(sy1)), dot_r)
+        pygame.draw.circle(surf, col, (int(sx2), int(sy2)), dot_r)
+
+
 def draw_underground_layer(state, surf, depth):
     camera = state.camera
     pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
@@ -286,3 +314,5 @@ def draw_underground_layer(state, surf, depth):
     # nổi trên nền tối, không cần đổi màu thân nữa.
     draw_ants(state, surf, state.colony, (45, 40, 36), (215, 120, 30), depth_filter=depth, underground=True)
     draw_ants(state, surf, state.rival_colony, (110, 40, 33), (230, 140, 40), depth_filter=depth, underground=True)
+    draw_trophallaxis(state, surf, state.colony, depth)
+    draw_trophallaxis(state, surf, state.rival_colony, depth)

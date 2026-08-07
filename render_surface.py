@@ -94,7 +94,10 @@ def draw_surface_layer(state, surf):
     # dấu vết in trên mặt đất ---
     draw_pheromone_trails(state, surf)
 
-    # --- thức ăn (lấy mẫu thưa) ---
+    # --- thức ăn (lấy mẫu thưa) - vẽ HÌNH VUÔNG chiếm 1 phần ô lưới,
+    # ĐỒNG NHẤT với cách vẽ đá/nước ở trên (thay vì hình tròn nằm ngay tại
+    # điểm giao 2 đường lưới như trước - trông tách biệt hẳn với các ô đá/
+    # nước hình vuông, không đồng bộ) ---
     food = surface_world.food
     food_type = surface_world.food_type
     fstep = 1 if cell > 10 else 2
@@ -104,8 +107,8 @@ def draw_surface_layer(state, surf):
                 ftype = int(food_type[gx, gy])
                 fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
                 sx, sy = camera.world_to_screen(gx, gy, state.CENTER_X, state.CENTER_Y)
-                r = max(2, int(cell * 0.28))
-                pygame.draw.circle(surf, fc, (int(sx), int(sy)), r)
+                size = max(3, int(cell * 0.5))
+                pygame.draw.rect(surf, fc, (sx - size / 2, sy - size / 2, size, size))
 
     # --- lỗ tổ 2 bên ---
     for pos, color in ((cfg.NEST_POS, (30, 22, 14)), (cfg.RIVAL_NEST_POS, (45, 20, 18))):

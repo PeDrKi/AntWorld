@@ -112,7 +112,7 @@ def draw_storage_pile(state, surf, cx, cy, r_px, amount, seed_key):
     n_icons = int(np.clip(amount / cfg.STORAGE_FOOD_PER_ICON, 0, cfg.STORAGE_MAX_ICONS))
     if n_icons <= 0:
         return
-    r = max(2, int(r_px * 0.085))
+    r = max(2, int(r_px * 0.085 * cfg.ENTITY_SPRITE_SCALE))
     sprite = state.sprites.get_static("food.png", r * 2) if state.sprites.has("food.png") else None
     rng_local = np.random.RandomState(seed_key * 733 + 5)
     shade_jitter = rng_local.uniform(-22, 22, n_icons)
@@ -144,7 +144,7 @@ def draw_pupae(state, surf, cx, cy, r_px, colony_obj, seed_key):
     ang = rng_local.uniform(0, 2 * np.pi, cfg.PUPA_MAX_COUNT)
     rad = np.sqrt(rng_local.uniform(0, 1, cfg.PUPA_MAX_COUNT)) * r_px * 0.62
     tilt = rng_local.uniform(-0.5, 0.5, cfg.PUPA_MAX_COUNT)
-    sprite_size = max(4, int(r_px * 0.28))
+    sprite_size = max(4, int(r_px * 0.28 * cfg.ENTITY_SPRITE_SCALE))
     sprite = state.sprites.get_static("pupa.png", sprite_size) if state.sprites.has("pupa.png") else None
     for i in active_idx:
         dx = int(math.cos(ang[i]) * rad[i])
@@ -187,7 +187,7 @@ def draw_larvae(state, surf, cx, cy, r_px, colony_obj, seed_key):
         growth = float(colony_obj.larva_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
-        size = max(3, int(r_px * (0.07 + 0.11 * growth)))
+        size = max(3, int(r_px * (0.07 + 0.11 * growth) * cfg.ENTITY_SPRITE_SCALE))
         if has_sprite:
             sprite = state.sprites.get_static("larva.png", size * 2)
             surf.blit(sprite, sprite.get_rect(center=(cx + dx, cy + dy)))
@@ -206,7 +206,7 @@ def draw_queen(state, surf, cx, cy, r_px, room_rgb, frame_counter):
     bob = math.sin(frame_counter * 0.03) * r_px * 0.03
     qy = cy + bob
     if state.sprites.has("queen.png"):
-        size = max(6, int(r_px * 1.3))
+        size = max(6, int(r_px * 1.3 * cfg.ENTITY_SPRITE_SCALE))
         sprite = state.sprites.get_static("queen.png", size)
         surf.blit(sprite, sprite.get_rect(center=(int(cx), int(qy))))
         return
@@ -233,7 +233,7 @@ def draw_water_drops(state, surf, cx, cy, r_px, amount, seed_key):
     n_icons = int(np.clip(amount / cfg.WATER_PER_ICON, 0, cfg.WATER_MAX_ICONS))
     if n_icons <= 0:
         return
-    r = max(3, int(r_px * 0.09))
+    r = max(3, int(r_px * 0.09 * cfg.ENTITY_SPRITE_SCALE))
     sprite = state.sprites.get_static("water.png", r * 2) if state.sprites.has("water.png") else None
     for px, py in _grid_positions(n_icons, cx, cy, r_px, r):
         px, py = int(px), int(py)
@@ -261,7 +261,7 @@ def draw_eggs(state, surf, cx, cy, r_px, colony_obj, seed_key):
         growth = float(colony_obj.egg_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
-        size = max(2, int(r_px * (0.045 + 0.035 * growth)))
+        size = max(2, int(r_px * (0.045 + 0.035 * growth) * cfg.ENTITY_SPRITE_SCALE))
         if has_sprite:
             sprite = state.sprites.get_static("egg.png", size * 2)
             surf.blit(sprite, sprite.get_rect(center=(cx + dx, cy + dy)))
@@ -282,7 +282,7 @@ def draw_graveyard(state, surf, cx, cy, r_px, corpse_count, seed_key):
     ang = rng_local.uniform(0, 2 * np.pi, n_icons)
     rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.7
     tilt = rng_local.uniform(0, 360, n_icons)
-    size = max(2, int(r_px * 0.09))
+    size = max(2, int(r_px * 0.09 * cfg.ENTITY_SPRITE_SCALE))
     sprite = state.sprites.get_static("corpse.png", size * 2) if state.sprites.has("corpse.png") else None
     for i in range(n_icons):
         dx = int(math.cos(ang[i]) * rad[i])
@@ -330,7 +330,7 @@ def draw_underground_layer(state, surf, depth):
     pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
     cell = camera.cell_px()
     if state.grid_visible and cell >= 3:
-        from render_surface import draw_grid_lines
+        from .render_surface import draw_grid_lines
         draw_grid_lines(state, surf)
 
     for colony_idx, (uworld, colony_obj, base_rgb) in enumerate((

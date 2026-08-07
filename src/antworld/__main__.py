@@ -158,6 +158,18 @@ def render(state):
         screen.fill(cfg.COLOR_BG_UNDERGROUND)
         draw_underground_layer(state, screen, state.current_layer)
 
+    # --- Hiệu ứng chớp đen mờ dần khi vừa đổi tầng (xem trigger_layer_fade
+    # trong game_state.py) - vẽ NGAY SAU khung nhìn mô phỏng nhưng TRƯỚC
+    # toàn bộ HUD/toolbar/panel nổi bên dưới, để lớp phủ chỉ làm tối phần
+    # bản đồ, không làm mờ luôn cả giao diện (vẫn bấm nút bình thường được
+    # trong lúc đang chuyển tầng). alpha=0 thì bỏ qua luôn, khỏi tốn 1 lần
+    # blit surface mỗi khung hình bình thường (chiếm đa số thời gian chơi).
+    fade_alpha = state.layer_fade_alpha()
+    if fade_alpha > 0:
+        overlay = pygame.Surface((state.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, fade_alpha))
+        screen.blit(overlay, (0, 0))
+
     hud.draw_graph(state, screen)
     hud.draw_hud(state, screen)
     hud.draw_toolbar(state, screen)
@@ -185,6 +197,7 @@ def main(max_frames=None):
         state.update_follow_camera()
         state.check_alerts()
         state.update_toasts()
+        state.advance_layer_fade()
         render(state)
         state.clock.tick(cfg.FPS)
 

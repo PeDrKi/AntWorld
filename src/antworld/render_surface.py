@@ -115,7 +115,12 @@ def draw_surface_layer(state, surf):
     food = surface_world.food
     food_type = surface_world.food_type
     fstep = 1 if cell > 10 else 2
-    food_size = max(3, int(cell * fstep * 0.55))
+    # Giới hạn trần ở 82% kích thước ô lưới dù ENTITY_SPRITE_SCALE lớn cỡ
+    # nào - PHẢI luôn nhỏ hơn rõ rệt so với đá/nước (vốn lấp ĐẦY TRỌN 1 ô,
+    # xem r = cell * step ở trên) để người chơi còn phân biệt được "thức
+    # ăn đi xuyên qua được" khác với "đá/nước chặn đường" chỉ bằng mắt.
+    food_size = min(int(cell * fstep * 0.55 * cfg.ENTITY_SPRITE_SCALE), int(cell * fstep * 0.82))
+    food_size = max(3, food_size)
     food_sprite = state.sprites.get_static("food.png", food_size) if state.sprites.has("food.png") else None
     for gx in range(0, cfg.GRID_SIZE, fstep):
         for gy in range(0, cfg.GRID_SIZE, fstep):
@@ -135,7 +140,7 @@ def draw_surface_layer(state, surf):
         (cfg.RIVAL_NEST_POS, (45, 20, 18), "nest_rival.png"),
     ):
         sx, sy = camera.world_to_screen(pos[0], pos[1], state.CENTER_X, state.CENTER_Y)
-        r = max(3, int(cell * 1.4))
+        r = max(3, int(cell * 1.4 * cfg.ENTITY_SPRITE_SCALE))
         if state.sprites.has(sprite_name):
             sprite = state.sprites.get_static(sprite_name, r * 2)
             surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
@@ -148,7 +153,7 @@ def draw_surface_layer(state, surf):
     enemy = state.enemy
     if enemy.active:
         sx, sy = camera.world_to_screen(enemy.x, enemy.y, state.CENTER_X, state.CENTER_Y)
-        r = max(3, int(cell * 0.6))
+        r = max(3, int(cell * 0.6 * cfg.ENTITY_SPRITE_SCALE))
         if state.sprites.has("enemy.png"):
             sprite = state.sprites.get_rotated("enemy.png", r * 2, float(enemy.theta))
             surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
@@ -186,8 +191,6 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     xs, ys = colony_obj.x[idx], colony_obj.y[idx]
     thetas = colony_obj.theta[idx]
     carrying = colony_obj.carrying[idx]
-    carry_type = colony_obj.carry_type[idx]
-    carry_food_type = colony_obj.carry_food_type[idx]
     is_major = colony_obj.role[idx] == cfg.ROLE_MAJOR
     is_guard = colony_obj.is_guard[idx]
     job = colony_obj.job[idx]
@@ -209,7 +212,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         sx, sy = sxs[i], sys_[i]
         if sx < -10 or sx > state.SCREEN_W + 10 or sy < -10 or sy > CANVAS_H + 10:
             continue
-        base_r = cell * 0.155
+        base_r = cell * 0.155 * cfg.ENTITY_SPRITE_SCALE
         major = bool(is_major[i])
         r = base_r * (cfg.MAJOR_SIZE_SCALE if major else 1.0)
         color = color_carry if carrying[i] else color_normal
@@ -294,32 +297,11 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             )
             surf.blit(fring_surf, (int(sx) - fring_r - 2, int(sy) - fring_r - 2))
 
-        # --- Mồi tha trên lưng: 1 miếng nhỏ đúng màu loại thức ăn thật,
-        # hiện rõ ràng ngay TRƯỚC ĐẦU con kiến (theo hướng đang đi), có
-        # DÂY NỐI mảnh từ hàm tới mồi (như đang thực sự ngoạm) để rõ ràng
-        # đây là vật đang được THA ĐI, không chỉ đổi màu thân là xong.
-        # LƯU Ý: cố tình vẽ TĨNH (không nhấp nháy/lắc lư theo thời gian) -
-        # từng thử hiệu ứng nhấp nháy độ trong suốt trước đó nhưng với hàng
-        # chục con kiến cùng lúc, mỗi con lệch pha khác nhau, trông như cả
-        # đàn đang "đổi màu loạn xạ" rất khó nhìn - nên bỏ hẳn animation. ---
-        if carrying[i]:
-            mx = int(hd_x + dirx * r * 1.35)
-            my = int(hd_y + diry * r * 1.35)
-            morsel_r = max(3, int(r * 0.95))
-            # Dây/hàm nối đầu tới mồi - cho thấy đang NGOẠM chứ không phải
-            # vật trôi nổi cạnh đầu
-            pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (mx, my), max(1, int(r * 0.22)))
-            if carry_type[i] == 2:  # nước - giọt xanh
-                base_c, hi_c = (60, 140, 230), (200, 230, 255)
-            else:  # thức ăn - đúng màu duy nhất
-                base_c = cfg.FOOD_TYPE_COLOR.get(int(carry_food_type[i]), (150, 115, 60))
-                hi_c = tuple(min(255, c + 70) for c in base_c)
-            # Viền sáng TĨNH quanh mồi để "nổi" hẳn lên so với thân kiến và
-            # nền đất - khỏi phải nhìn kỹ mới nhận ra đang tha gì
-            glow_r = morsel_r + 3
-            glow_surf = pygame.Surface((glow_r * 2 + 2, glow_r * 2 + 2), pygame.SRCALPHA)
-            pygame.draw.circle(glow_surf, (*hi_c, 140), (glow_r + 1, glow_r + 1), glow_r, 2)
-            surf.blit(glow_surf, (mx - glow_r - 1, my - glow_r - 1))
-            pygame.draw.circle(surf, base_c, (mx, my), morsel_r)
-            pygame.draw.circle(surf, hi_c, (mx, my), max(1, morsel_r // 2))
-            pygame.draw.circle(surf, (20, 15, 10), (mx, my), morsel_r, 1)
+        # --- Trạng thái ĐANG THA MỒI được thể hiện qua chính "hình dạng"
+        # con kiến, KHÔNG đính kèm icon rời: nếu người chơi có sprite tùy
+        # chỉnh thì đã tự chuyển sang file "..._carry.png" ở trên (dáng
+        # ngậm mồi vẽ sẵn trong ảnh đó); nếu dùng hình vector mặc định thì
+        # đổi hẳn sang `color_carry` (màu cam) khác biệt rõ với màu bình
+        # thường - không vẽ thêm viên mồi/dây nối rời như bản trước (từng
+        # gây cảm giác "2 khối chồng nhau trông như sai trạng thái" khi
+        # phóng to, xem lịch sử sửa lỗi carry-morsel).

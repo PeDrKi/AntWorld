@@ -99,6 +99,10 @@ class GameState:
 
         # tầng đang xem: 0 = mặt đất, >=1 = tầng ngầm
         self.current_layer = 0
+        # Hiệu ứng chớp đen mờ dần MỖI KHI current_layer vừa đổi - xem
+        # LAYER_FADE_TICKS trong config.py. 0 = không có lớp phủ (bình
+        # thường); > 0 = đang mờ dần, đếm ngược mỗi khung hình render tới 0.
+        self.layer_fade_tick = 0
 
         # --- Trạng thái công cụ / thời gian mô phỏng ---
         self.current_tool = None  # None | "food" | "enemy" | "rock" | "water" | "erase" | "follow"
@@ -167,7 +171,7 @@ class GameState:
         self.CENTER_X = self.SCREEN_W / 2.0
         self.CENTER_Y = self.CANVAS_H / 2.0
 
-        import hud
+        from . import hud
         hud.build_toolbar(self)
 
     # ------------------------------------------------------------------
@@ -175,7 +179,31 @@ class GameState:
         return max(self.underground_world.max_depth(), self.rival_underground.max_depth())
 
     def change_layer(self, delta):
-        self.current_layer = int(np.clip(self.current_layer + delta, 0, self.max_layer_overall()))
+        new_layer = int(np.clip(self.current_layer + delta, 0, self.max_layer_overall()))
+        if new_layer != self.current_layer:
+            self.current_layer = new_layer
+            self.trigger_layer_fade()
+
+    def trigger_layer_fade(self):
+        """Bắt đầu (hoặc khởi động lại nếu đang giữa chừng) hiệu ứng chớp
+        đen mờ dần - gọi NGAY SAU KHI current_layer vừa đổi giá trị, dù đổi
+        bằng cách nào (phím tắt, lăn chuột, hay camera tự bám theo kiến)."""
+        self.layer_fade_tick = cfg.LAYER_FADE_TICKS
+
+    def advance_layer_fade(self):
+        """Gọi 1 lần mỗi khung hình render (main.py) để đếm ngược hiệu ứng."""
+        if self.layer_fade_tick > 0:
+            self.layer_fade_tick -= 1
+
+    def layer_fade_alpha(self):
+        """Độ mờ (0-255) của lớp phủ đen hiện tại - 0 nghĩa là không vẽ gì
+        (bình thường). Dùng easing bậc 2 (tick^2) thay vì tuyến tính để cảm
+        giác mượt hơn: mờ NHANH lúc mới đổi tầng (gây chú ý ngay), rồi CHẬM
+        dần khi gần hiện rõ hoàn toàn tầng mới (không bị "hụt" đột ngột)."""
+        if cfg.LAYER_FADE_TICKS <= 0 or self.layer_fade_tick <= 0:
+            return 0
+        t = self.layer_fade_tick / cfg.LAYER_FADE_TICKS
+        return int(255 * (t * t))
 
     # ------------------------------------------------------------------
     # Hàm hỗ trợ đặt thức ăn / tái sinh (thuần logic, không cần entity
@@ -324,6 +352,8 @@ class GameState:
         target_y = float(colony.y[idx])
         layer_changed = new_layer != self.current_layer
         self.current_layer = new_layer
+        if layer_changed:
+            self.trigger_layer_fade()
         if layer_changed:
             # Kiến "dịch chuyển tức thời" giữa các tầng (đi thang máy lên/
             # xuống hầm - xem README) chứ KHÔNG đi liên tục như trên cùng

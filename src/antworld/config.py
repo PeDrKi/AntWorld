@@ -222,6 +222,19 @@ ROLE_MINOR = 0    # thợ nhỏ - đa số, lo tìm ăn/chăm ấu trùng
 ROLE_MAJOR = 1    # thợ lớn/lính - ít hơn nhưng khỏe hơn, chuyên bảo vệ tổ
 MAJOR_WORKER_RATIO = 0.15   # tỉ lệ lính trong đàn
 MAJOR_SIZE_SCALE = 1.7      # lính to hơn thợ thường bao nhiêu lần khi vẽ
+
+# ----- Kích thước hiển thị (chỉ ảnh hưởng NHÌN THẤY, không đụng tới mô
+# phỏng/va chạm/khoảng cách thật) -----
+# Nhân thêm vào kích thước VẼ RA của kiến, trứng, ấu trùng, nhộng, chúa,
+# thức ăn, kẻ thù, lỗ tổ, xác kiến, đống dự trữ trong hầm... để dễ theo
+# dõi hơn khi nhìn màn hình (đàn kiến đông, icon quá nhỏ khó phân biệt).
+# 1.0 = kích thước gốc trước khi tăng. Không áp dụng cho đá/nước trên mặt
+# đất (đã lấp đầy trọn 1 ô lưới - phóng thêm sẽ đè lên ô bên cạnh) và
+# không áp dụng cho bán kính phòng dưới hầm (ROOM_RADIUS - đó là kích
+# thước cả căn phòng, tăng lên sẽ đổi bố cục bản đồ hầm chứ không chỉ
+# icon bên trong).
+ENTITY_SPRITE_SCALE = 1.6
+
 MAJOR_DEFENSE_FACTOR = 0.3  # xác suất lính bị kẻ thù giết = bấy nhiêu lần
                             # so với thợ thường (lính "trâu" hơn nhiều)
 SOLDIER_DAMAGE_PROB = 0.05  # xác suất 1 lính gây sát thương lên kẻ thù/tick
@@ -542,6 +555,16 @@ UPKEEP_FOOD_PER_ANT_PER_TICK = 0.0004  # mỗi kiến còn sống tiêu hao 1 l�
 MIN_ZOOM = 0.35
 MAX_ZOOM = 3.5
 ZOOM_STEP = 1.12             # mỗi nấc lăn chuột (không giữ Ctrl) nhân/chia zoom bấy nhiêu
+
+# Hiệu ứng chuyển tầng: MỖI LẦN đổi current_layer (phím Lên/Xuống,
+# Ctrl+lăn chuột, hoặc camera tự động bám theo kiến đi xuyên tầng) - màn
+# hình chớp NHANH sang đen rồi mờ dần hiện lại tầng mới, thay vì cắt cảnh
+# tức thời gây giật. Chỉ áp dụng cho phần KHUNG NHÌN MÔ PHỎNG (mặt đất/
+# hầm) - thanh công cụ/HUD/panel nổi vẽ ĐÈ LÊN SAU nên không bị tối theo,
+# vẫn bấm được bình thường trong lúc đang chuyển tầng. Xem
+# GameState.change_layer() / update_follow_camera() (nơi bắt đầu hiệu
+# ứng) và render() trong __main__.py (nơi vẽ lớp phủ đen mờ dần).
+LAYER_FADE_TICKS = 14        # tổng số khung hình mờ dần (~0.23s ở 60 FPS)
 
 # Màu nền riêng cho từng loại tầng, để luôn biết đang xem tầng nào dù có
 # nhìn lướt qua HUD hay không

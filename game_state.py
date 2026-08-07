@@ -85,6 +85,14 @@ class GameState:
         self.DRAG_PLACE_INTERVAL_FRAMES = 6
         self.drag_cooldown = 0
 
+        # --- Camera theo dõi 1 con kiến cụ thể ---
+        # follow_colony: tham chiếu trực tiếp tới self.colony hoặc
+        # self.rival_colony (đối tượng, so sánh bằng "is"); follow_idx: vị
+        # trí của con kiến đó TRONG MẢNG NumPy của đàn đó. None/None nghĩa
+        # là không theo dõi con nào.
+        self.follow_colony = None
+        self.follow_idx = None
+
         # Thanh công cụ - danh sách Button; được hud.build_toolbar() điền vào
         self.buttons = []
         self.tool_buttons = []
@@ -157,6 +165,18 @@ class GameState:
         if tool in ("food", "enemy", "dig", "rock", "water") and layer != 0:
             return  # các công cụ này chỉ có nghĩa trên mặt đất (Tầng 0)
 
+        if tool == "follow":
+            # Công cụ "Theo dõi": bấm trúng 1 con kiến (thuộc tổ nào cũng
+            # được, ở TẦNG ĐANG XEM) -> camera bắt đầu bám theo nó. Bấm vào
+            # chỗ trống (không trúng con nào) -> ngừng theo dõi, giống thao
+            # tác "bấm ra ngoài để bỏ chọn" quen thuộc.
+            found = self.find_nearest_ant(sim_x, sim_y, layer, cfg.FOLLOW_PICK_RADIUS)
+            if found is not None:
+                self.start_follow(found[0], found[1])
+            else:
+                self.stop_follow()
+            return
+
         if tool == "food":
             self.place_food_at(int(sim_x), int(sim_y))
         elif tool == "enemy":
@@ -196,6 +216,93 @@ class GameState:
                             col.alive[kill_idx] = False
                             col.underground.total_deaths += len(kill_idx)
                             col.underground.add_corpse(len(kill_idx))
+
+    # ------------------------------------------------------------------
+    # Camera theo dõi 1 con kiến cụ thể
+    # ------------------------------------------------------------------
+    def find_nearest_ant(self, sim_x, sim_y, layer, max_dist):
+        """Tìm con kiến CÒN SỐNG gần điểm (sim_x, sim_y) nhất, ĐANG Ở đúng
+        tầng `layer`, trong cả 2 đàn - trả về (colony, idx) hoặc None nếu
+        không có con nào trong bán kính max_dist."""
+        best = None
+        best_d2 = max_dist * max_dist
+        for colony in self.ALL_COLONIES:
+            mask = colony.alive & (colony.depth == layer)
+            if not np.any(mask):
+                continue
+            idx = np.where(mask)[0]
+            dx = colony.x[idx] - sim_x
+            dy = colony.y[idx] - sim_y
+            d2 = dx * dx + dy * dy
+            j = int(np.argmin(d2))
+            if d2[j] < best_d2:
+                best_d2 = float(d2[j])
+                best = (colony, int(idx[j]))
+        return best
+
+    def start_follow(self, colony, idx):
+        self.follow_colony = colony
+        self.follow_idx = idx
+        # Phóng to ngay lập tức để nhìn rõ "từng chút một" - chỉ phóng to
+        # thêm nếu đang zoom xa hơn mức mục tiêu, không tự thu nhỏ lại nếu
+        # người chơi đã zoom gần sẵn từ trước.
+        if self.camera.zoom < cfg.FOLLOW_AUTO_ZOOM:
+            self.camera.zoom = cfg.FOLLOW_AUTO_ZOOM
+
+    def stop_follow(self):
+        self.follow_colony = None
+        self.follow_idx = None
+
+    def is_following(self):
+        return self.follow_colony is not None and self.follow_idx is not None
+
+    def update_follow_camera(self):
+        """Gọi 1 lần mỗi khung hình render (không phải mỗi tick mô phỏng):
+        nếu đang theo dõi 1 con kiến, tự chuyển sang đúng tầng nó đang ở và
+        cho camera bám mượt theo vị trí của nó. Tự động NGỪNG theo dõi nếu
+        con kiến đó đã chết (không "hồi sinh" theo dõi nhầm 1 con kiến mới
+        sinh ra tình cờ dùng lại đúng ô nhớ đã trống)."""
+        if not self.is_following():
+            return
+        colony, idx = self.follow_colony, self.follow_idx
+        if idx is None or idx >= colony.n or not bool(colony.alive[idx]):
+            self.stop_follow()
+            return
+        new_layer = int(colony.depth[idx])
+        target_x = float(colony.x[idx])
+        target_y = float(colony.y[idx])
+        layer_changed = new_layer != self.current_layer
+        self.current_layer = new_layer
+        if layer_changed:
+            # Kiến "dịch chuyển tức thời" giữa các tầng (đi thang máy lên/
+            # xuống hầm - xem README) chứ KHÔNG đi liên tục như trên cùng
+            # 1 tầng, nên tọa độ (x, y) của nó cũng đổi đột ngột luôn (từ
+            # miệng hang sang hẳn 1 phòng khác). Nếu vẫn bám mượt dần như
+            # bình thường, camera sẽ bị trễ lại phía sau vài khung hình,
+            # khiến con kiến tạm thời RA KHỎI khung hình - nên ở đúng
+            # khung hình đổi tầng này, camera phải bám THẲNG vào vị trí
+            # mới ngay lập tức, không mượt dần.
+            self.camera.cx = target_x
+            self.camera.cy = target_y
+        else:
+            smooth = cfg.FOLLOW_CAMERA_SMOOTH
+            self.camera.cx += (target_x - self.camera.cx) * smooth
+            self.camera.cy += (target_y - self.camera.cy) * smooth
+
+    def follow_status_text(self):
+        """Chuỗi mô tả ngắn con kiến đang theo dõi, để HUD hiển thị."""
+        if not self.is_following():
+            return None
+        colony, idx = self.follow_colony, self.follow_idx
+        ten_to = "Doi thu" if colony is self.rival_colony else "Chinh"
+        role = "Linh gac" if bool(colony.is_guard[idx]) else (
+            "Y ta" if bool(colony.carrying[idx]) and int(colony.carry_type[idx]) == 0 else "Tho"
+        )
+        mang = ""
+        if bool(colony.carrying[idx]):
+            ct = int(colony.carry_type[idx])
+            mang = " | dang mang: " + ("thuc an" if ct == 1 else "nuoc" if ct == 2 else "au trung/khac")
+        return f"Theo doi: to {ten_to}, {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
 
     # ------------------------------------------------------------------
     def set_tool(self, name):

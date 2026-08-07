@@ -22,6 +22,10 @@ Thanh công cụ dưới màn hình:
   - "Xoa": dùng được ở MỌI tầng - xóa đúng nội dung của tầng đang xem
     (mặt đất: thức ăn/đá/nước/kiến; tầng ngầm: phòng tự đào + kiến đang ở
     tầng đó).
+  - "Theo doi": dùng được ở MỌI tầng - bấm trúng 1 con kiến bất kỳ (tổ
+    nào cũng được) để camera TỰ ĐỘNG bám theo nó, kể cả khi nó di chuyển
+    sang tầng khác (mặt đất <-> hầm). Bấm vào chỗ trống để ngừng theo dõi.
+    Tự kéo camera / tự đổi tầng bằng tay cũng sẽ tự ngừng theo dõi.
   - "Tam dung" / "Toc do xN": điều khiển thời gian mô phỏng.
   - "Tai sinh thuc an: BAT/TAT": bật/tắt thức ăn tự xuất hiện theo chu kỳ.
   - "Ke thu tu nhien: BAT/TAT": bật/tắt việc kẻ thù tự động xuất hiện.
@@ -66,12 +70,15 @@ def handle_events(state):
             if event.key == pygame.K_ESCAPE:
                 return False
             elif event.key == pygame.K_UP:
+                state.stop_follow()
                 state.change_layer(-1)
             elif event.key == pygame.K_DOWN:
+                state.stop_follow()
                 state.change_layer(1)
         elif event.type == pygame.MOUSEWHEEL:
             mx, my = pygame.mouse.get_pos()
             if ctrl_held:
+                state.stop_follow()
                 state.change_layer(-1 if event.y > 0 else 1)
             else:
                 factor = cfg.ZOOM_STEP if event.y > 0 else 1.0 / cfg.ZOOM_STEP
@@ -88,6 +95,7 @@ def handle_events(state):
                     if pos is not None:
                         state.perform_tool_action(state.current_tool, pos[0], pos[1], state.current_layer)
             elif event.button == 3:
+                state.stop_follow()
                 state.panning = True
                 state.last_mouse = event.pos
         elif event.type == pygame.MOUSEBUTTONUP:
@@ -147,6 +155,7 @@ def main(max_frames=None):
             for _ in range(state.sim_speed):
                 state.step_simulation()
 
+        state.update_follow_camera()
         render(state)
         state.clock.tick(cfg.FPS)
 

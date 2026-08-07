@@ -190,6 +190,18 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             pygame.draw.circle(ring_surf, (255, 235, 120, ring_alpha), (ring_r + 1, ring_r + 1), ring_r, 2)
             surf.blit(ring_surf, (int(sx) - ring_r - 1, int(sy) - ring_r - 1))
 
+        # --- Con kiến ĐANG ĐƯỢC CAMERA THEO DÕI: 1 vòng tròn xanh lá sáng
+        # nhấp nháy RÕ RÀNG bao quanh, to hơn hẳn vòng "đang làm việc" ở
+        # trên, để không thể nhầm lẫn giữa hàng chục con kiến khác ---
+        if state.follow_colony is colony_obj and idx[i] == state.follow_idx:
+            fpulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.2)
+            fring_r = max(4, int(r * 2.6 + fpulse * r * 0.6))
+            fring_surf = pygame.Surface((fring_r * 2 + 4, fring_r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(
+                fring_surf, (80, 255, 120, 220), (fring_r + 2, fring_r + 2), fring_r, 3
+            )
+            surf.blit(fring_surf, (int(sx) - fring_r - 2, int(sy) - fring_r - 2))
+
         if r >= 2.6:  # đủ to (zoom gần) mới vẽ thêm râu, tránh rối ở xa
             ant_len = head_r * 0.9
             for side in (-1, 1):

@@ -473,3 +473,18 @@ QUEEN_BODY_SCALE = 3.2
 GRAVEYARD_MAX_CORPSES = 60       # trần số "nắm xác" hiển thị cùng lúc
 GRAVEYARD_DECAY_PER_TICK = 0.0008  # tốc độ phân hủy (xác cũ dần biến mất
                              # sau khoảng vài chục giây, không phải tức thời)
+
+# ----- Camera theo dõi 1 con kiến cụ thể (chọn công cụ "Theo dõi" rồi bấm
+# vào 1 con kiến bất kỳ, thuộc tổ nào cũng được) -----
+FOLLOW_PICK_RADIUS = 1.6     # bấm chuột cách con kiến bao xa (đơn vị ô mô
+                             # phỏng) vẫn còn tính là "chọn trúng" nó - đủ
+                             # rộng để không cần bấm chính xác tuyệt đối
+                             # từng pixel, nhất là lúc đang zoom xa
+FOLLOW_CAMERA_SMOOTH = 0.15  # camera đuổi theo kiến mượt dần mỗi khung hình
+                             # (0-1: càng lớn càng "dí sát", 1.0 = dính
+                             # cứng luôn vào đúng vị trí kiến không có độ trễ)
+FOLLOW_AUTO_ZOOM = 2.4       # khi BẮT ĐẦU theo dõi 1 con kiến, tự phóng to
+                             # lên mức này (nếu đang zoom xa hơn mức này) để
+                             # nhìn rõ "từng chút một" ngay lập tức - nếu
+                             # đang zoom gần hơn mức này rồi thì giữ nguyên,
+                             # không tự thu nhỏ lại

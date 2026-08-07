@@ -14,7 +14,7 @@ def build_toolbar(state):
     row1_y = state.SCREEN_H - cfg.TOOLBAR_H + 6
     row2_y = row1_y + 38
 
-    def make_tool_button(label, tool_name, x, y, w=108, h=30):
+    def make_tool_button(label, tool_name, x, y, w=96, h=30):
         b = Button((x, y, w, h), label, on_click=lambda: state.set_tool(tool_name))
         b.text_tool = tool_name
         state.tool_buttons.append(b)
@@ -24,10 +24,10 @@ def build_toolbar(state):
     x = 10
     for label, tool_name in [
         ("Dat thuc an", "food"), ("Tha ke thu", "enemy"), ("Dao phong", "dig"),
-        ("Dat da", "rock"), ("Dat nuoc", "water"), ("Xoa", "erase"),
+        ("Dat da", "rock"), ("Dat nuoc", "water"), ("Xoa", "erase"), ("Theo doi", "follow"),
     ]:
         make_tool_button(label, tool_name, x, row1_y)
-        x += 114
+        x += 100
 
     pause_btn = Button((x + 10, row1_y, 90, 30), "Tam dung")
     speed_btn = Button((x + 108, row1_y, 90, 30), "Toc do: x1")
@@ -119,6 +119,9 @@ def draw_hud(state, surf):
         f"{canh_bao}{khat}{ke_thu}{xam_chiem}",
         "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat",
     ]
+    follow_text = state.follow_status_text()
+    if follow_text:
+        lines.append(follow_text + "  (bam vao cho trong de ngung theo doi)")
     panel = pygame.Surface((900, 20 * len(lines) + 10), pygame.SRCALPHA)
     panel.fill((0, 0, 0, 140))
     surf.blit(panel, (8, 8))
@@ -140,8 +143,10 @@ def draw_toolbar(state, surf):
     pygame.draw.rect(surf, (22, 22, 26), (0, state.SCREEN_H - cfg.TOOLBAR_H, state.SCREEN_W, cfg.TOOLBAR_H))
     for b in state.buttons:
         b.draw(surf, state.font)
-    hint = "Chon cong cu, CLICK hoac GIU+KEO chuot trai de dung (tru Dao phong/Tha ke thu)"
-    if state.current_tool in ("food", "enemy", "dig", "rock", "water") and state.current_layer != 0:
+    hint = "Chon cong cu, CLICK hoac GIU+KEO chuot trai de dung (tru Dao phong/Tha ke thu/Theo doi)"
+    if state.current_tool == "follow":
+        hint = "Theo doi: bam TRUNG 1 con kien de camera bam theo no (tu doi tang theo no luon) - bam cho TRONG de ngung"
+    elif state.current_tool in ("food", "enemy", "dig", "rock", "water") and state.current_layer != 0:
         hint = "Cong cu nay chi dung duoc o Tang 0 (Mat dat) - doi tang bang Ctrl+Lan chuot"
     txt = state.font_small.render(hint, True, (255, 230, 90))
     surf.blit(txt, (10, state.SCREEN_H - 18))

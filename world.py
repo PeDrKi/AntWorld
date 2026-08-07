@@ -298,13 +298,16 @@ class UndergroundWorld:
         self.food_in_nursery += int(count)
         self.food_in_storage = max(0, self.food_in_storage - int(count))
 
-    def update_starvation_tracker(self):
-        """Gọi mỗi tick: theo dõi xem TOÀN BỘ nguồn thức ăn (cả kho lẫn
-        phòng ấu trùng) và nguồn nước có đang cạn kiệt kéo dài không - dùng
-        để tính nguy cơ chết đói/chết khát cho cả đàn. Đồng thời theo dõi
-        RIÊNG việc kho CHỈ CÒN ÍT (chưa hẳn về 0) kéo dài - tín hiệu "khan
-        hiếm" nhẹ hơn, dùng để cân nhắc phát động xâm chiếm tổ đối thủ
-        (is_starving là khủng hoảng NẶNG hơn hẳn, ít khi xảy ra)."""
+    def update_starvation_tracker(self, population=0):
+        """Gọi mỗi tick (kèm sĩ số đàn HIỆN TẠI): theo dõi xem TOÀN BỘ
+        nguồn thức ăn (cả kho lẫn phòng ấu trùng) và nguồn nước có đang cạn
+        kiệt kéo dài không - dùng để tính nguy cơ chết đói/chết khát cho cả
+        đàn. Đồng thời theo dõi RIÊNG việc kho CHỈ CÒN ÍT (chưa hẳn về 0)
+        kéo dài - tín hiệu "khan hiếm" nhẹ hơn, dùng để cân nhắc phát động
+        xâm chiếm tổ đối thủ (is_starving là khủng hoảng NẶNG hơn hẳn, ít
+        khi xảy ra). Ngưỡng "ít" TỈ LỆ THEO DÂN SỐ (xem
+        RAID_STORAGE_THRESHOLD_PER_ANT) thay vì 1 hằng số cố định, để tín
+        hiệu khan hiếm vẫn có ý nghĩa dù đàn còn nhỏ hay đã lớn."""
         if self.food_in_nursery <= 0 and self.food_in_storage <= 0:
             self.ticks_nursery_empty += 1
         else:
@@ -315,7 +318,10 @@ class UndergroundWorld:
         else:
             self.ticks_water_empty = 0
 
-        if self.food_in_storage < cfg.RAID_STORAGE_THRESHOLD:
+        scarce_threshold = max(
+            cfg.RAID_STORAGE_THRESHOLD_MIN, population * cfg.RAID_STORAGE_THRESHOLD_PER_ANT
+        )
+        if self.food_in_storage < scarce_threshold:
             self.ticks_storage_low += 1
         else:
             self.ticks_storage_low = 0

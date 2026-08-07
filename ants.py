@@ -117,8 +117,9 @@ class AntColony:
         self._update_guards(enemy, rival)
         self._update_raids(rival)
         self.surface.decay_pheromone()
-        self.underground.update_starvation_tracker()
-        self.underground.consume_upkeep(int(np.sum(self.alive)))
+        population = int(np.sum(self.alive))
+        self.underground.update_starvation_tracker(population)
+        self.underground.consume_upkeep(population)
         self.underground.decay_graveyard()
         if self.surface.has_water_source():
             self.underground.deposit_water(cfg.WATER_BASE_INCOME_PER_TICK)
@@ -210,6 +211,30 @@ class AntColony:
                 self.carry_food_type[got_idx] = food_types[got_food]
                 self.state[got_idx] = cfg.STATE_RETURNING
                 self.total_food_collected += len(got_idx)
+
+            # --- "Uống" nước tại mép nước: kiến tìm ăn đi tình cờ NGANG
+            # SÁT mép nước có thể tranh thủ uống 1 ngụm mang về tổ, y hệt
+            # nhặt thức ăn - chỉ xét những con VẪN CÒN đang STATE_SEARCHING
+            # thật sự (tay không, chưa vừa nhặt được thức ăn ở trên) để
+            # không "vừa nhặt thức ăn vừa uống nước" cùng 1 tick. Xác suất
+            # nhỏ mỗi tick (WATER_PICKUP_PROB) thay vì uống ngay lập tức -
+            # kiến thường lượn/né quanh mép nước khá nhiều tick liền (xem
+            # _avoid_obstacles), nên qua vài chục tick gần như chắc chắn sẽ
+            # có lúc "tranh thủ" uống được, không cần xác suất cao mỗi tick.
+            still_searching = idx[self.state[idx] == cfg.STATE_SEARCHING]
+            if len(still_searching) > 0:
+                wxi = self._wrap_indices(self.x[still_searching])
+                wyi = self._wrap_indices(self.y[still_searching])
+                near_w = self.surface.near_water(wxi, wyi)
+                if np.any(near_w):
+                    candidates = still_searching[near_w]
+                    rolls = np.random.uniform(0, 1, len(candidates))
+                    drink_idx = candidates[rolls < cfg.WATER_PICKUP_PROB]
+                    if len(drink_idx) > 0:
+                        self.carrying[drink_idx] = True
+                        self.carry_type[drink_idx] = 2
+                        self.carry_amount[drink_idx] = cfg.WATER_CARRY_AMOUNT
+                        self.state[drink_idx] = cfg.STATE_RETURNING
 
         # --- Kiến đang tha thức ăn về tổ ---
         if np.any(returning):

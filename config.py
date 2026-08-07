@@ -42,7 +42,7 @@ DUG_ROOM_FIRST_DEPTH = 6    # phòng đầu tiên người chơi tự đào -> t
                             # thêm càng "xuống sâu" thêm 1 tầng mới)
 
 # ----- Kiến -----
-NUM_ANTS = 20               # số kiến KHỞI TẠO (không còn là giới hạn tối đa -
+NUM_ANTS = 10                # số kiến KHỞI TẠO (không còn là giới hạn tối đa -
                             # đàn có thể lớn lên qua sinh sản, xem MAX_ANTS_PER_COLONY)
                             # phải để giữ khung hình mượt; có thể tăng dần và
                             # theo dõi FPS hiển thị góc màn hình
@@ -137,9 +137,21 @@ WATER_CLUSTER_RADIUS = 2.4
 TERRAIN_SAFE_RADIUS_FROM_NEST = 6  # không đặt địa hình quá gần lỗ tổ
 
 # ----- Nước: KHÔNG CHỈ là chướng ngại vật mà còn là tài nguyên sống còn -----
-# Kiến không đi được VÀO nước (vẫn chặn đường như trước), nhưng nếu đứng
-# đủ GẦN mép nước có thể "uống" mang về - đàn kiến cần nước như cần ăn.
+# Kiến không đi được VÀO nước (vẫn chặn đường như trước), nhưng nếu đang
+# tìm ăn mà tình cờ đi sát MÉP nước, có thể tranh thủ "uống" 1 ngụm mang
+# về tổ - y hệt việc nhặt thức ăn, chỉ khác là không tiêu hao tài nguyên
+# trên bản đồ (nước không "cạn" khi kiến uống). Đây là NGUỒN THU NƯỚC
+# CHỦ ĐỘNG thật sự (xem WATER_PICKUP_PROB/WATER_CARRY_AMOUNT và
+# near_water() trong world.py, dùng trong _update_surface_ants ants.py).
 WATER_COLLECT_RADIUS = 2.0     # khoảng cách tới mép nước để có thể "uống"
+                               # (near_water() coi ô sát cạnh 1 ô nước là
+                               # đủ gần - xem world.py)
+WATER_PICKUP_PROB = 0.05       # xác suất "uống" thành công MỖI TICK khi
+                               # đang ở sát mép nước (không phải lúc nào
+                               # cũng dừng lại ngay tick đầu tiên chạm mép -
+                               # để hành vi tự nhiên hơn, giống lúc kiến
+                               # còn đang né/lượn quanh vật cản nước)
+WATER_CARRY_AMOUNT = 3.0       # lượng nước mang về mỗi lần "uống" thành công
 ERASE_RADIUS = 3.0             # bán kính xóa vật thể (thức ăn/đá/nước)
                                # quanh điểm click của công cụ "Xóa"
 
@@ -147,11 +159,22 @@ ERASE_RADIUS = 3.0             # bán kính xóa vật thể (thức ăn/đá/n�
 HISTORY_SAMPLE_INTERVAL = 200   # cứ mỗi bấy nhiêu tick lấy mẫu 1 lần
 HISTORY_MAX_POINTS = 150        # giữ tối đa bấy nhiêu điểm gần nhất (cũ hơn
                                 # sẽ bị loại bỏ dần - tránh phình bộ nhớ)
-WATER_BASE_INCOME_PER_TICK = 0.45  # tổ tự động thu được bấy nhiêu nước mỗi
-                               # tick MIỄN LÀ còn ít nhất 1 vũng nước trên
-                               # bản đồ (đại diện cho việc kiến đi lấy nước
-                               # thường xuyên) - nếu bạn lấp hết nước bằng
-                               # đá hoặc nước cạn sạch, nguồn thu này = 0
+WATER_BASE_INCOME_PER_TICK = 0.03  # nguồn thu "nền" RẤT NHỎ, tự động cộng
+                               # mỗi tick MIỄN LÀ còn ít nhất 1 vũng nước
+                               # trên bản đồ (đại diện cho hơi ẩm/độ ẩm nền,
+                               # không phải kiến chủ động lấy) - CHỦ YẾU
+                               # nguồn nước giờ đến từ việc kiến THẬT SỰ ghé
+                               # qua mép nước và "uống" mang về (xem
+                               # WATER_PICKUP_PROB/WATER_CARRY_AMOUNT ở
+                               # trên) - trước đây hằng số này để cao (0.45)
+                               # khiến kho nước tăng KHÔNG GIỚI HẠN theo
+                               # thời gian bất kể dân số (đã kiểm chứng: sau
+                               # 25.000 tick lên tới hàng nghìn), nay hạ hẳn
+                               # xuống để nước phụ thuộc THẬT vào hành vi
+                               # đàn kiến - nếu bạn lấp hết nước bằng đá
+                               # hoặc nước cạn sạch, nguồn thu nền này = 0
+                               # (nhưng nguồn thu chủ động cũng mất theo vì
+                               # không còn mép nước nào để uống)
 WATER_UPKEEP_PER_ANT_PER_TICK = 0.00035  # mỗi kiến còn sống tiêu hao nước
                                         # mỗi tick để duy trì sự sống
 WATER_STARVATION_GRACE_TICKS = 600     # số tick được phép hết nước dự trữ
@@ -208,8 +231,33 @@ GUARD_SPEED = 0.22          # lính gác lao lên nhanh hơn tốc độ đi th�
 # với lính phòng thủ của họ ngay tại tổ, và cướp thức ăn mang về nếu còn
 # sống. Đây là hành vi ĐỐI KHÁNG THẬT giữa 2 đàn, không phải chỉ cạnh tranh
 # gián tiếp qua tìm thức ăn như trước.
-RAID_STORAGE_THRESHOLD = 15   # kho dưới mức này coi là "ít" (xem
-                            # ticks_storage_low/is_food_scarce trong world.py)
+# NGƯỠNG "khan hiếm" giờ TỈ LỆ THEO SĨ SỐ ĐÀN HIỆN TẠI (giống tinh thần
+# EGG_MIN_STORAGE_BUFFER_PER_ANT ở trên) thay vì 1 hằng số cố định như bản
+# trước - lý do: hằng số cố định (15) gần như không bao giờ đạt tới nữa chỉ
+# sau vài nghìn tick đầu ván (kho tăng vượt xa mức 15 rất nhanh rồi cứ thế
+# tăng dần suốt ván, đàn 100-300 con vẫn có kho hàng nghìn) - đã kiểm thử
+# thực nghiệm: với hằng số cố định, xâm chiếm CHỈ xảy ra đúng 1 lần lúc mới
+# vào ván (kho = 0 lúc khởi tạo), sau đó KHÔNG BAO GIỜ lặp lại nữa. Đặt tỉ
+# lệ theo dân số (gần bằng EGG_MIN_STORAGE_BUFFER_PER_ANT) khiến ngưỡng
+# "khan hiếm" bám sát mức kho mà đàn thực tế duy trì khi đang tăng trưởng
+# gần hết công suất kiếm ăn - tức là xâm chiếm có thể xảy ra LẶP LẠI tự
+# nhiên trong lối chơi mặc định mỗi khi đàn tăng dân nhanh hơn khả năng
+# kiếm ăn thực tế, không chỉ đúng 1 lần lúc đầu ván.
+RAID_STORAGE_THRESHOLD_PER_ANT = 2.0  # kho dưới (dân số hiện tại x số
+                            # này) coi là "ít" (xem ticks_storage_low/
+                            # is_food_scarce trong world.py) - ĐÃ KIỂM THỬ
+                            # thực nghiệm nhiều mức: 10.0 khiến 2 tổ liên
+                            # tục xâm chiếm nhau không dứt, cả 2 bị kẹt ở
+                            # dân số rất thấp (~10-20 con) suốt ván, không
+                            # bao giờ lớn lên nổi; 2.0 tạo ra xâm chiếm
+                            # THẬT trong giai đoạn đầu ván (khi đàn còn nhỏ/
+                            # yếu, kho chưa kịp tích lũy) nhưng KHÔNG còn
+                            # xảy ra nữa 1 khi đàn đã phát triển ổn định -
+                            # giống nhịp độ 1 game thật: đầu ván rủi ro
+                            # cạnh tranh cao, càng về sau càng an toàn hơn.
+RAID_STORAGE_THRESHOLD_MIN = 15  # sàn TỐI THIỂU (áp dụng cả khi đàn còn
+                            # rất nhỏ lúc mới vào ván, để không phát động
+                            # xâm chiếm chỉ vì kho vài đơn vị lúc mới sinh)
 RAID_SCARCITY_GRACE_TICKS = 300  # kho phải LIÊN TỤC ở mức thấp bấy nhiêu
                             # tick (~5 giây ở tốc độ x1) mới coi là khan
                             # hiếm THẬT SỰ (tránh phát động chỉ vì 1 khoảnh
@@ -240,9 +288,9 @@ RIVAL_NEST_POS = (11, 29)   # lệch khỏi trung tâm nhưng KHÔNG ở góc b�
                             # để không bị bất lợi hình học (diện tích kiếm
                             # ăn khả dụng thấp hơn hẳn tổ chính ở giữa) -
                             # tỉ lệ tương đương (14,36) trên bản đồ 50 ô cũ
-NUM_RIVAL_ANTS = 20         # CÙNG quy mô khởi tạo với tổ chính - đàn nào
+NUM_RIVAL_ANTS = 10          # CÙNG quy mô khởi tạo với tổ chính - đàn nào
                             # sinh sản/kiếm ăn tốt hơn sẽ tự lớn nhanh hơn
-MAX_ANTS_PER_COLONY = 1000  # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ cấp phát
+MAX_ANTS_PER_COLONY = 200   # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ cấp phát
                             # sẵn cho mảng NumPy) - đàn khởi tạo NUM_ANTS con,
                             # rồi tự sinh sản lớn lên dần tới tối đa số này
                             # nếu đủ thức ăn/nước/không gian ấu trùng

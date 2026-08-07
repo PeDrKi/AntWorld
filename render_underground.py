@@ -32,26 +32,16 @@ def layer_name(depth):
 
 def draw_room_floor(surf, cx, cy, r_px, room_rgb, seed_key):
     """Vẽ 1 phòng ngầm như 1 KHU VỰC SÀN thật sự (không phải hình tròn
-    trang trí) - có viền tường đất bo tròn + lớp sàn sáng hơn bên trong
-    + vài chấm vân sàn để mắt nhận ra ngay đây là không gian kiến có
-    thể đi lại/hoạt động bên trong, khác hẳn đường hành lang mảnh."""
+    trang trí) - có viền tường đất bo tròn + lớp sàn sáng hơn bên trong,
+    để mắt nhận ra ngay đây là không gian kiến có thể đi lại/hoạt động
+    bên trong, khác hẳn đường hành lang mảnh. (Không còn vẽ thêm các chấm
+    "vân sàn" ngẫu nhiên như bản trước - dễ bị nhầm với thức ăn/ấu trùng/
+    xác kiến khi nhìn nhanh.)"""
     wall_color = tuple(max(0, c - 60) for c in room_rgb)
     floor_color = tuple(min(255, c + 45) for c in room_rgb)
     pygame.draw.circle(surf, wall_color, (cx, cy), r_px + max(2, int(r_px * 0.12)))
     pygame.draw.circle(surf, floor_color, (cx, cy), r_px)
     pygame.draw.circle(surf, room_rgb, (cx, cy), max(1, int(r_px * 0.78)))
-
-    rng_local = np.random.RandomState(seed_key * 97 + 13)
-    n_dots = int(np.clip(r_px * r_px / 90, 5, 26))
-    ang = rng_local.uniform(0, 2 * np.pi, n_dots)
-    rad = np.sqrt(rng_local.uniform(0, 1, n_dots)) * r_px * 0.82
-    dot_color = tuple(max(0, c - 35) for c in room_rgb)
-    for a, rr in zip(ang, rad):
-        dx = int(math.cos(a) * rr)
-        dy = int(math.sin(a) * rr)
-        dr = max(1, int(r_px * 0.05))
-        pygame.draw.circle(surf, dot_color, (cx + dx, cy + dy), dr)
-
     pygame.draw.circle(surf, (0, 0, 0), (cx, cy), r_px + max(2, int(r_px * 0.12)), 2)
 
 

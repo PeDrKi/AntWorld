@@ -19,9 +19,13 @@ Can thiệp vào thế giới (thanh công cụ dưới màn hình):
   - "Dat da"      : chọn rồi click để đặt 1 cụm đá (chặn đường kiến)
   - "Dat nuoc"    : chọn rồi click để đặt 1 vũng nước (cũng chặn đường)
   - "Tam dung" / "Toc do xN": điều khiển thời gian mô phỏng
+  - "Tai sinh thuc an: BAT/TAT": bật/tắt việc thức ăn mới tự xuất hiện
+    ngẫu nhiên theo chu kỳ (tắt đi nếu bạn muốn tự kiểm soát hoàn toàn
+    nguồn thức ăn bằng công cụ "Dat thuc an")
 """
 from ursina import *
 import numpy as np
+from PIL import Image
 
 import config as cfg
 from world import SurfaceWorld, UndergroundWorld
@@ -98,11 +102,30 @@ if SHOW_GLASS_BOX:
 # ---------------------------------------------------------------------
 # Mặt đất - có thể bấm phím G để chuyển giữa đục/trong suốt
 # ---------------------------------------------------------------------
+def make_grid_texture(tile_px=32, border_px=4):
+    """Tạo 1 texture ô vuông nhỏ (nền trắng + viền đen mảnh quanh mép) rồi
+    lặp lại (tile) theo đúng số ô của lưới mô phỏng - khi nhân với màu nền
+    đất sẽ cho hiệu ứng đường viền đen mảnh giữa các ô như bạn muốn.
+    LƯU Ý: với lưới lớn (50x50), viền quá mảnh (ví dụ 2px/32px) sẽ bị mờ
+    gần như biến mất khi nhìn từ xa do texture bị thu nhỏ nhiều lần - viền
+    4px/32px (12.5%) đủ dày để vẫn rõ ràng ở mọi khoảng cách camera."""
+    arr = np.full((tile_px, tile_px, 3), 255, dtype=np.uint8)
+    arr[:border_px, :, :] = 0
+    arr[-border_px:, :, :] = 0
+    arr[:, :border_px, :] = 0
+    arr[:, -border_px:, :] = 0
+    return Image.fromarray(arr, mode="RGB")
+
+
+GRID_TEXTURE = Texture(make_grid_texture(), filtering=None)
+
 ground = Entity(
     model="plane",
     scale=(cfg.GRID_SIZE, 1, cfg.GRID_SIZE),
     position=(0, 0, 0),
     color=rgb255(205, 178, 132, 235),
+    texture=GRID_TEXTURE,
+    texture_scale=(cfg.GRID_SIZE, cfg.GRID_SIZE),
     double_sided=True,
     collider="box",
 )
@@ -246,6 +269,23 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
             food_entities[(gx, gy)] = ent
 
 
+def ensure_food_entity(gx, gy):
+    """Đảm bảo ô (gx, gy) có entity thức ăn hiển thị - tạo mới nếu chưa có,
+    hoặc bật lại + cập nhật màu nếu đã có sẵn. Dùng chung cho: thức ăn lúc
+    khởi tạo, thức ăn người chơi tự đặt, và thức ăn tái sinh ngẫu nhiên."""
+    if (gx, gy) not in food_entities:
+        food_entities[(gx, gy)] = Entity(
+            model="sphere",
+            scale=0.55,
+            position=sim_to_world(gx, gy, 0.2),
+            color=food_color_for(gx, gy),
+        )
+    else:
+        ent = food_entities[(gx, gy)]
+        ent.enabled = True
+        ent.color = food_color_for(gx, gy)
+
+
 def place_food_at(gx, gy, amount=8.0, food_type=None):
     """Đặt thức ăn tại 1 ô lưới cụ thể (dùng cho công cụ click chuột) -
     tạo entity hiển thị nếu ô đó chưa có sẵn. Nếu không chỉ định loại,
@@ -258,17 +298,19 @@ def place_food_at(gx, gy, amount=8.0, food_type=None):
         food_type = int(np.random.choice(types, p=weights))
     surface_world.food[gx, gy] += amount
     surface_world.food_type[gx, gy] = food_type
-    if (gx, gy) not in food_entities:
-        food_entities[(gx, gy)] = Entity(
-            model="sphere",
-            scale=0.55,
-            position=sim_to_world(gx, gy, 0.2),
-            color=food_color_for(gx, gy),
-        )
-    else:
-        ent = food_entities[(gx, gy)]
-        ent.enabled = True
-        ent.color = food_color_for(gx, gy)
+    ensure_food_entity(gx, gy)
+
+
+def do_random_food_respawn():
+    """Tái sinh 1 cụm thức ăn ngẫu nhiên MỚI trên bản đồ (khác với
+    place_food_at - đây là 1 cụm nhỏ lan ra vài ô xung quanh tâm, giống lúc
+    thế giới khởi tạo) và đảm bảo có entity hiển thị (trước đây bị thiếu
+    bước này nên thức ăn tái sinh không hiện ra được trên màn hình)."""
+    cx, cy = surface_world.respawn_random_cluster()
+    r = int(round(cfg.FOOD_CLUSTER_RADIUS))
+    for gx in range(max(0, cx - r), min(cfg.GRID_SIZE, cx + r + 1)):
+        for gy in range(max(0, cy - r), min(cfg.GRID_SIZE, cy + r + 1)):
+            ensure_food_entity(gx, gy)
 
 # ---------------------------------------------------------------------
 # Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu.
@@ -314,6 +356,8 @@ enemy_entity = Entity(
 current_tool = None   # None | "food" | "enemy" | "dig"
 sim_paused = False
 sim_speed = 1          # 1, 2, hoặc 4 lần tốc độ mỗi khung hình
+food_respawn_enabled = True   # bật/tắt tái sinh thức ăn ngẫu nhiên theo "mùa"
+food_respawn_tick = 0
 
 TOOL_BUTTON_COLOR = rgb255(40, 40, 45, 235)
 TOOL_BUTTON_ACTIVE_COLOR = rgb255(70, 130, 180, 235)
@@ -382,6 +426,26 @@ def _cycle_speed():
 pause_button.on_click = _toggle_pause
 speed_button.on_click = _cycle_speed
 
+# Hàng nút thứ 2: bật/tắt tái sinh thức ăn ngẫu nhiên
+respawn_button = Button(
+    text="Tai sinh thuc an: BAT",
+    parent=camera.ui,
+    position=(-0.62, -0.53),
+    scale=(0.28, 0.06),
+    color=TOOL_BUTTON_ACTIVE_COLOR,
+    text_size=0.65,
+)
+
+
+def _toggle_food_respawn():
+    global food_respawn_enabled
+    food_respawn_enabled = not food_respawn_enabled
+    respawn_button.text = f"Tai sinh thuc an: {'BAT' if food_respawn_enabled else 'TAT'}"
+    respawn_button.color = TOOL_BUTTON_ACTIVE_COLOR if food_respawn_enabled else TOOL_BUTTON_COLOR
+
+
+respawn_button.on_click = _toggle_food_respawn
+
 tool_hint = Text(
     parent=camera.ui,
     text="Chon 1 cong cu roi CLICK CHUOT TRAI len mat dat de dung",
@@ -436,12 +500,16 @@ def render_colony(colony_obj, entities, color_search, color_carry_surface,
 
 
 def update():
-    global frame_counter
+    global frame_counter, food_respawn_tick
     if not sim_paused:
         for _ in range(sim_speed):
             colony.update()
             rival_colony.update()
             enemy.update(ALL_COLONIES)
+            if food_respawn_enabled:
+                food_respawn_tick += 1
+                if food_respawn_tick % cfg.FOOD_RESPAWN_INTERVAL == 0:
+                    do_random_food_respawn()
 
     render_colony(colony, ant_entities, COLOR_SEARCH, COLOR_CARRY_SURFACE,
                   COLOR_UNDERGROUND, COLOR_CARRY_UNDERGROUND)

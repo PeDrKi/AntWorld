@@ -61,9 +61,10 @@ class AntColony:
         if self.surface.has_water_source():
             self.underground.deposit_water(cfg.WATER_BASE_INCOME_PER_TICK)
         self._update_lifecycle()
-
-        if self.tick_count % cfg.FOOD_RESPAWN_INTERVAL == 0:
-            self.surface.respawn_random_cluster()
+        # LƯU Ý: việc tái sinh thức ăn ngẫu nhiên KHÔNG còn nằm ở đây nữa -
+        # đã chuyển sang main.py để có thể bật/tắt bằng nút trên thanh công
+        # cụ, và để tránh 2 tổ (chính + đối thủ) cùng kích hoạt trùng lặp
+        # khi cả 2 đều gọi update() mỗi khung hình.
 
     # ------------------------------------------------------------------
     def _wrap_indices(self, arr):

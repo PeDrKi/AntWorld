@@ -8,14 +8,37 @@ import pygame
 COLOR_BTN = (40, 40, 45)
 COLOR_BTN_ACTIVE = (70, 130, 180)
 
+# Mỗi "style" là (mau_khong_active, mau_active, mau_vien) - dùng để NHÓM
+# các nút theo MÀU SẮC để mắt nhận ra ngay từng nhóm chức năng, thay vì
+# tất cả cùng 1 màu xám như trước (khó phân biệt "đặt vật thể" với "bật/
+# tắt" hay "điều khiển thời gian"):
+#   - "place"  : các công cụ ĐẶT lên mặt đất (thức ăn/đá/nước/đào phòng) -
+#                tông màu đất/cam ấm, gợi liên tưởng "vật chất trên nền đất"
+#   - "danger" : hành động có tính "rủi ro/tấn công" (thả kẻ thù) - đỏ
+#   - "tool"   : công cụ THAO TÁC/CHỌN (xóa, theo dõi) - xanh dương
+#   - "time"   : điều khiển thời gian (tạm dừng, tốc độ) - tím
+#   - "toggle" : công tắc BẬT/TẮT (đỏ = TẮT, xanh lá = BẬT - đúng trực giác
+#                đèn giao thông, không cần đọc chữ mới biết trạng thái)
+#   - "nav"    : điều hướng camera/tầng - vàng đồng
+BUTTON_STYLES = {
+    "default": ((40, 40, 45), (70, 130, 180), (90, 90, 100)),
+    "place": ((54, 58, 40), (205, 125, 40), (98, 106, 70)),
+    "danger": ((58, 40, 40), (205, 70, 55), (108, 74, 74)),
+    "tool": ((40, 50, 58), (64, 145, 205), (84, 104, 124)),
+    "time": ((46, 42, 58), (150, 110, 220), (100, 90, 125)),
+    "toggle": ((66, 42, 42), (54, 158, 86), (110, 84, 84)),
+    "nav": ((58, 52, 30), (205, 165, 60), (112, 100, 62)),
+}
+
 
 class Button:
-    def __init__(self, rect, text, on_click=None, toggle=False, active=False):
+    def __init__(self, rect, text, on_click=None, toggle=False, active=False, style="default"):
         self.rect = pygame.Rect(rect)
         self.text = text
         self.on_click = on_click
         self.toggle = toggle
         self.active = active
+        self.style = style  # xem BUTTON_STYLES ở trên
         # Vị trí TƯƠNG ĐỐI so với panel chứa nó (góc trên-trái nội dung
         # panel) - dùng khi nút này thuộc 1 Panel có thể kéo di chuyển được
         # (xem Panel.reposition_children() bên dưới). None nếu nút đứng
@@ -36,10 +59,11 @@ class Button:
         self.rect.topleft = (cx + self.rel_pos[0], cy + self.rel_pos[1])
 
     def draw(self, surf, font):
-        color = COLOR_BTN_ACTIVE if self.active else COLOR_BTN
-        pygame.draw.rect(surf, color, self.rect, border_radius=5)
-        pygame.draw.rect(surf, (90, 90, 100), self.rect, width=1, border_radius=5)
-        label = font.render(self.text, True, (240, 240, 240))
+        base, active_c, border = BUTTON_STYLES.get(self.style, BUTTON_STYLES["default"])
+        color = active_c if self.active else base
+        pygame.draw.rect(surf, color, self.rect, border_radius=6)
+        pygame.draw.rect(surf, border, self.rect, width=2 if self.active else 1, border_radius=6)
+        label = font.render(self.text, True, (250, 250, 250))
         lr = label.get_rect(center=self.rect.center)
         surf.blit(label, lr)
 

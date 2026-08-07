@@ -34,6 +34,37 @@ def draw_grid_lines(state, surf):
         gy += step
 
 
+def draw_pheromone_trails(state, surf):
+    """Vẽ RÕ đường mùi (pheromone) mà kiến để lại khi tha đồ về tổ - lớp
+    phủ trong suốt, đậm/nhạt theo đúng nồng độ mùi thật tại từng ô. Mùi tìm
+    đường (màu xanh lam) và mùi báo động/nguy hiểm (màu đỏ, để lại quanh
+    kẻ thù) được vẽ tách biệt để dễ phân biệt."""
+    surface_world = state.surface_world
+    camera = state.camera
+    cell = camera.cell_px()
+
+    overlay = pygame.Surface((cfg.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
+    r = max(2, int(cell * 0.42))
+
+    xi, yi = np.where(surface_world.pheromone > 0.05)
+    if len(xi) > 0:
+        vals = surface_world.pheromone[xi, yi]
+        sxs, sys_ = camera.world_to_screen(xi.astype(np.float32), yi.astype(np.float32), state.CENTER_X, state.CENTER_Y)
+        alphas = np.clip(vals / cfg.PHEROMONE_MAX, 0, 1) * 150
+        for sx, sy, a in zip(sxs, sys_, alphas):
+            pygame.draw.circle(overlay, (60, 170, 255, int(a)), (int(sx), int(sy)), r)
+
+    dxi, dyi = np.where(surface_world.danger_pheromone > 0.1)
+    if len(dxi) > 0:
+        dvals = surface_world.danger_pheromone[dxi, dyi]
+        dsxs, dsys = camera.world_to_screen(dxi.astype(np.float32), dyi.astype(np.float32), state.CENTER_X, state.CENTER_Y)
+        dalphas = np.clip(dvals / cfg.DANGER_PHEROMONE_MAX, 0, 1) * 140
+        for sx, sy, a in zip(dsxs, dsys, dalphas):
+            pygame.draw.circle(overlay, (230, 50, 40, int(a)), (int(sx), int(sy)), r)
+
+    surf.blit(overlay, (0, 0))
+
+
 def draw_surface_layer(state, surf):
     camera = state.camera
     cell = camera.cell_px()
@@ -58,6 +89,10 @@ def draw_surface_layer(state, surf):
             color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
             r = max(1, int(cell * step * 0.55))
             pygame.draw.rect(surf, color, (sx - r / 2, sy - r / 2, r, r))
+
+    # --- đường mùi (pheromone) - vẽ TRƯỚC thức ăn/kiến để nằm dưới, như
+    # dấu vết in trên mặt đất ---
+    draw_pheromone_trails(state, surf)
 
     # --- thức ăn (lấy mẫu thưa) ---
     food = surface_world.food
@@ -112,6 +147,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     carry_food_type = colony_obj.carry_food_type[idx]
     is_major = colony_obj.role[idx] == cfg.ROLE_MAJOR
     is_guard = colony_obj.is_guard[idx]
+    is_working = colony_obj.state[idx] == cfg.STATE_DWELL
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
     for i in range(len(idx)):
@@ -142,6 +178,17 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         if is_guard[i]:  # lính gác: 1 chấm sáng nhỏ trên bụng để phân biệt
             badge_r = max(1, int(abdomen_r * 0.4))
             pygame.draw.circle(surf, (255, 225, 90), (int(abd_x), int(abd_y)), badge_r)
+
+        # --- Đang LÀM VIỆC (STATE_DWELL - lượn trong phòng): 1 vòng sáng
+        # nhấp nháy nhẹ quanh con kiến, để phân biệt rõ ràng với kiến chỉ
+        # đang ĐI QUA hành lang - nhìn phát biết ngay ai đang "làm việc" ---
+        if is_working[i]:
+            pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.15 + i)
+            ring_r = max(2, int(r * 1.7 + pulse * r * 0.5))
+            ring_alpha = int(90 + pulse * 100)
+            ring_surf = pygame.Surface((ring_r * 2 + 2, ring_r * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.circle(ring_surf, (255, 235, 120, ring_alpha), (ring_r + 1, ring_r + 1), ring_r, 2)
+            surf.blit(ring_surf, (int(sx) - ring_r - 1, int(sy) - ring_r - 1))
 
         if r >= 2.6:  # đủ to (zoom gần) mới vẽ thêm râu, tránh rối ở xa
             ant_len = head_r * 0.9

@@ -11,22 +11,28 @@ FPS = 60
 # ----- Độ sâu = TẦNG rời rạc (0 = mặt đất, số càng lớn càng sâu) -----
 # Thay vì 1 khối 3D duy nhất, thế giới giờ là 1 chồng các tầng 2D phẳng,
 # giống lát cắt ngang của bể nuôi kiến - mỗi tầng là 1 bản đồ (x, y) riêng.
-# Giữ CTRL + lăn chuột để chuyển qua lại giữa các tầng. Thứ tự tầng đi từ
-# NÔNG -> SÂU phản ánh đúng vai trò từng phòng trong 1 tổ kiến thật:
-# gác cửa ngay dưới cửa hang -> kho/nước gần cửa để tha đồ nhanh -> trứng/
-# ấu trùng ở giữa (cần được bảo vệ) -> phòng chúa sâu nhất (quan trọng
-# nhất) -> nghĩa địa/phòng rác tách hẳn ra 1 góc riêng.
+# Giữ CTRL + lăn chuột để chuyển qua lại giữa các tầng.
+#
+# LƯU Ý: 1 TẦNG CÓ THỂ CHỨA NHIỀU PHÒNG (không phải 1 phòng/1 tầng như bản
+# trước) - 1 phòng chiếm cả 1 tầng chỉ để chứa vài chấm tài nguyên là quá
+# phí diện tích. Các phòng CÙNG CHỨC NĂNG/CHỦ ĐỀ được gộp chung 1 tầng, đặt
+# lệch tâm nhau (xem *_OFFSET_XY) để không đè lên nhau khi vẽ:
+#   - Kho thức ăn + Bể trữ nước: cùng là nơi TRỮ ĐỒ mang về, gộp 1 tầng
+#   - Phòng trứng + Phòng ấu trùng: cùng là nơi CHĂM CON NON, gộp 1 tầng
+# Thứ tự tầng đi từ NÔNG -> SÂU: gác cửa ngay dưới cửa hang -> kho+nước gần
+# cửa để tha đồ nhanh -> trứng+ấu trùng ở giữa (cần được bảo vệ) -> phòng
+# chúa sâu nhất (quan trọng nhất) -> nghĩa địa tách hẳn ra 1 góc riêng.
 LAYER_SURFACE_DEPTH = 0     # tầng 0 LUÔN LUÔN là mặt đất
 DEPTH_GUARD = 1             # phòng gác cửa - ngay dưới cửa hang, tuyến
                             # phòng thủ đầu tiên trước khi vào sâu hơn
-DEPTH_STORAGE = 2           # kho thức ăn - tầng nông, gần cửa để tha đồ nhanh
-DEPTH_WATER = 3             # bể trữ nước - cũng nông, tương tự kho
-DEPTH_EGG = 4               # phòng trứng - trứng chúa mới đẻ ủ ở đây
-DEPTH_NURSERY = 5           # phòng ấu trùng - ấu trùng lớn lên nhờ thức ăn
-DEPTH_QUEEN = 6             # phòng chúa - sâu nhất, được bảo vệ kỹ nhất
-DEPTH_GRAVEYARD = 7         # nghĩa địa/phòng rác - tách riêng 1 góc
-DUG_ROOM_FIRST_DEPTH = 8    # phòng đầu tiên người chơi tự đào -> tầng 8,
-                            # phòng đào tiếp theo -> tầng 9, 10, ... (mỗi
+DEPTH_STORAGE = 2           # kho thức ăn - CHUNG TẦNG với bể trữ nước
+DEPTH_WATER = 2             # bể trữ nước - CHUNG TẦNG với kho thức ăn
+DEPTH_EGG = 3               # phòng trứng - CHUNG TẦNG với phòng ấu trùng
+DEPTH_NURSERY = 3           # phòng ấu trùng - CHUNG TẦNG với phòng trứng
+DEPTH_QUEEN = 4             # phòng chúa - sâu nhất, được bảo vệ kỹ nhất
+DEPTH_GRAVEYARD = 5         # nghĩa địa/phòng rác - tách riêng 1 góc
+DUG_ROOM_FIRST_DEPTH = 6    # phòng đầu tiên người chơi tự đào -> tầng 6,
+                            # phòng đào tiếp theo -> tầng 7, 8, ... (mỗi
                             # phòng tự đào chiếm 1 tầng riêng, càng đào
                             # thêm càng "xuống sâu" thêm 1 tầng mới)
 
@@ -159,14 +165,15 @@ NEST_RADIUS = 1.2
 
 # Vị trí các phòng dưới hầm tính THEO OFFSET so với lỗ tổ (không phải tọa độ
 # tuyệt đối) - để có thể dùng chung công thức này cho cả tổ đối thủ đặt ở
-# nơi khác trên bản đồ. z là độ sâu tuyệt đối (không đổi theo vị trí ngang).
-STORAGE_OFFSET_XY = (-7, 5)
-NURSERY_OFFSET_XY = (7, 5)
-QUEEN_OFFSET_XY = (0, 9)
-GUARD_OFFSET_XY = (0, -3)      # ngay dưới cửa hang - gần lỗ tổ nhất
-WATER_OFFSET_XY = (-9, 2)      # cạnh kho nhưng tách phòng riêng
-EGG_OFFSET_XY = (4, 3)         # gần phòng ấu trùng (trứng nở ra sẽ "chuyển" qua đó)
-GRAVEYARD_OFFSET_XY = (10, -6) # tách hẳn ra 1 góc riêng, xa khu sinh hoạt chính
+# nơi khác trên bản đồ. Các cặp phòng CHUNG TẦNG (kho/nước, trứng/ấu trùng)
+# được đặt lệch hẳn sang 2 bên (trái/phải) để không đè lên nhau khi vẽ.
+GUARD_OFFSET_XY = (0, 3)       # ngay dưới cửa hang - gần lỗ tổ nhất
+STORAGE_OFFSET_XY = (-6, -2)   # cùng tầng với bể nước - đặt bên TRÁI
+WATER_OFFSET_XY = (6, -2)      # cùng tầng với kho - đặt bên PHẢI
+EGG_OFFSET_XY = (-5, -6)       # cùng tầng với ấu trùng - đặt bên TRÁI
+NURSERY_OFFSET_XY = (5, -6)    # cùng tầng với trứng - đặt bên PHẢI
+QUEEN_OFFSET_XY = (0, -9)      # tầng riêng, sâu nhất
+GRAVEYARD_OFFSET_XY = (0, 7)   # tầng riêng, tách hẳn 1 góc
 
 # ----- Phân vai kiến (caste) -----
 ROLE_MINOR = 0    # thợ nhỏ - đa số, lo tìm ăn/chăm ấu trùng

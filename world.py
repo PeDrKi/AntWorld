@@ -256,10 +256,22 @@ class UndergroundWorld:
 
     def room_center_and_radius(self, depth):
         """Tra tâm + bán kính phòng CHỨC NĂNG (không phải phòng tự đào) ở 1
-        tầng cho trước - dùng chung bởi AntColony để biết kiến nên lượn
-        quanh đâu khi đang ở tầng đó (dwell/gác cửa)."""
+        tầng cho trước - dùng cho trường hợp CHỈ 1 phòng duy nhất ở tầng đó
+        (vd phòng gác cửa). LƯU Ý: từ khi nhiều phòng dùng chung 1 tầng
+        (kho+nước, trứng+ấu trùng), hàm này sẽ trả về phòng ĐẦU TIÊN khớp
+        tầng - nếu tầng có thể có NHIỀU phòng, dùng room_center_and_radius_by_id
+        thay vì hàm này để tránh nhầm phòng."""
         for room in self.rooms[: self.FIXED_ROOM_COUNT]:
             if room[5] == depth:
+                return room[2], room[3]
+        return None, None
+
+    def room_center_and_radius_by_id(self, room_id):
+        """Tra tâm + bán kính phòng CHỨC NĂNG theo ĐÚNG room_id cụ thể
+        (0=kho,1=ấu trùng,2=chúa,3=nước,4=trứng,5=gác cửa,6=nghĩa địa) -
+        dùng khi tầng có thể chứa NHIỀU phòng, để không bị nhầm phòng."""
+        for room in self.rooms[: self.FIXED_ROOM_COUNT]:
+            if room[0] == room_id:
                 return room[2], room[3]
         return None, None
 

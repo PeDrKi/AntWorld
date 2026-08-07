@@ -20,27 +20,28 @@ Dùng thư viện **Pygame** để dựng 2D (không còn Ursina/Panda3D).
 
 ## Các phòng ngầm - thực hiện đúng chức năng
 
-Tổ giờ có **7 phòng chức năng**, mỗi phòng 1 tầng riêng, kích thước (bán
-kính) khác nhau theo đúng vai trò - kho/bể nước to nhất (chứa số lượng
-lớn), trứng/gác cửa/nghĩa địa nhỏ hơn:
+Tổ có **7 phòng chức năng**, kích thước (bán kính) khác nhau theo đúng vai
+trò - kho/bể nước to nhất (chứa số lượng lớn), trứng/gác cửa/nghĩa địa nhỏ
+hơn. **1 TẦNG CÓ THỂ CHỨA NHIỀU PHÒNG** (không phải 1 phòng chiếm nguyên cả
+1 tầng như trước - quá phí diện tích): các phòng CÙNG CHỦ ĐỀ được gộp
+chung 1 tầng, đặt lệch sang 2 bên (trái/phải) để không đè lên nhau:
 
 - **Phòng gác cửa** (tầng 1, ngay dưới cửa hang): 1 nửa số "lính" (thợ lớn)
   đóng quân cố định ở đây, lượn quanh chờ lệnh. Hễ có kẻ thù xuất hiện đủ
   gần lỗ tổ, TOÀN BỘ lính gác lập tức lao lên mặt đất nghênh chiến; hết mối
   đe dọa thì tự rút quân về đóng lại.
-- **Kho thức ăn** (tầng 2): hiển thị TRỰC TIẾP lượng thức ăn tồn kho dưới
-  dạng 1 đống các viên thức ăn màu sắc, to/nhỏ theo đúng số lượng thật.
-- **Bể trữ nước** (tầng 3): TÁCH RIÊNG khỏi kho thức ăn - kiến tha nước về
-  sẽ tự động xuống đúng tầng này (khác tầng kho), hiển thị các giọt nước
-  xanh lấp lánh theo đúng lượng nước tồn trữ.
-- **Phòng trứng** (tầng 4): chúa đẻ trứng (tốn thức ăn+nước từ kho) - trứng
-  được ủ Ở ĐÂY theo thời gian (không cần ăn), đủ lớn mới "chuyển" sang
-  phòng ấu trùng.
-- **Phòng ấu trùng** (tầng 5): trứng nở ra thành ấu trùng THẬT, lớn dần nhờ
-  ăn đúng thức ăn nurse mang tới - đủ lớn mới "nở" thành 1 kiến thợ mới.
-- **Phòng chúa** (tầng 6): có 1 con kiến chúa thật đứng giữa phòng, to hẳn
+- **Tầng 2 - Kho thức ăn + Bể trữ nước** (CHUNG 1 TẦNG, đặt 2 bên): kho
+  hiển thị TRỰC TIẾP lượng thức ăn tồn dưới dạng đống viên màu sắc; bể nước
+  hiển thị các giọt nước xanh lấp lánh - cả 2 đều theo đúng số lượng thật,
+  kiến tha thức ăn/nước tự động xuống đúng phòng tương ứng dù cùng tầng.
+- **Tầng 3 - Phòng trứng + Phòng ấu trùng** (CHUNG 1 TẦNG, đặt 2 bên): chúa
+  đẻ trứng (tốn thức ăn+nước từ kho) - trứng ủ trong phòng trứng theo thời
+  gian (không cần ăn), đủ lớn thì "chuyển" sang phòng ấu trùng ngay bên
+  cạnh để lớn tiếp nhờ ăn thức ăn nurse mang tới - đủ lớn mới "nở" thành 1
+  kiến thợ mới.
+- **Phòng chúa** (tầng 4): có 1 con kiến chúa thật đứng giữa phòng, to hẳn
   so với thợ thường, hơi bồng bềnh nhẹ cho có sức sống.
-- **Nghĩa địa** (tầng 7): mỗi kiến chết (già/đói/bị giết) để lại 1 "nắm
+- **Nghĩa địa** (tầng 5): mỗi kiến chết (già/đói/bị giết) để lại 1 "nắm
   xác" ở đây thay vì biến mất vô hình - xác cũ phân hủy dần theo thời gian.
 
 Kiến khi đến phòng nào cũng **lượn lại trong phòng đó một lúc** (trạng
@@ -138,6 +139,12 @@ vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 t�
   = đang tha thức ăn.
 - Tổ đối thủ dùng tông màu đỏ/nâu để phân biệt với tổ chính (đen/cam).
 - Nhãn tầng hiện tại luôn hiện ở góc trên phải màn hình.
+- **Đường mùi (pheromone)**: vệt xanh lam mờ trên mặt đất là đường mùi kiến
+  để lại khi tha đồ về tổ (đậm/nhạt theo đúng nồng độ mùi thật - nơi nhiều
+  kiến qua lại sẽ đậm hơn); vệt đỏ là mùi báo động để lại quanh kẻ thù.
+- **Kiến đang làm việc**: kiến đang lượn trong 1 phòng ngầm (thay vì chỉ đi
+  qua hành lang) có 1 vòng sáng vàng nhấp nháy quanh thân - phân biệt rõ
+  "đang làm việc tại chỗ" với "đang di chuyển".
 
 ## Thanh công cụ
 

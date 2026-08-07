@@ -30,6 +30,15 @@ Thanh công cụ dưới màn hình:
   - "Tai sinh thuc an: BAT/TAT": bật/tắt thức ăn tự xuất hiện theo chu kỳ.
   - "Ke thu tu nhien: BAT/TAT": bật/tắt việc kẻ thù tự động xuất hiện.
 
+Thanh công cụ / bảng thống kê / biểu đồ đều là các "CỬA SỔ" NỔI TRÊN khung
+nhìn mô phỏng (không phải cửa sổ hệ điều hành riêng - pygame chỉ có 1 cửa
+sổ - mà là panel UI vẽ đè lên, hoạt động như cửa sổ con):
+  - KÉO được: bấm giữ vào THANH TIÊU ĐỀ (có 3 chấm nhỏ bên trái) rồi kéo
+    tới bất kỳ vị trí nào trên màn hình.
+  - THU GỌN được: bấm nút [-]/[+"] góc phải thanh tiêu đề để thu lại chỉ
+    còn thanh tiêu đề (giải phóng khung nhìn) / mở ra lại.
+  - Vị trí/trạng thái thu gọn được GIỮ NGUYÊN khi resize cửa sổ.
+
 --- KIẾN TRÚC FILE (đã tách module cho gọn, xem chi tiết trong từng file) ---
   config.py             - hằng số cấu hình toàn bộ game
   world.py              - SurfaceWorld (mặt đất) + UndergroundWorld (hầm)
@@ -77,7 +86,9 @@ def handle_events(state):
                 state.change_layer(1)
         elif event.type == pygame.MOUSEWHEEL:
             mx, my = pygame.mouse.get_pos()
-            if ctrl_held:
+            if any(p.contains((mx, my)) for p in state.panels):
+                pass  # con tro dang o tren 1 panel noi - khong tac dong len camera/tang
+            elif ctrl_held:
                 state.stop_follow()
                 state.change_layer(-1 if event.y > 0 else 1)
             else:
@@ -86,8 +97,8 @@ def handle_events(state):
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 handled = False
-                for b in state.buttons:
-                    if b.handle_click(event.pos):
+                for panel in state.panels:
+                    if panel.handle_mousedown(event.pos):
                         handled = True
                         break
                 if not handled and state.current_tool is not None:
@@ -95,13 +106,21 @@ def handle_events(state):
                     if pos is not None:
                         state.perform_tool_action(state.current_tool, pos[0], pos[1], state.current_layer)
             elif event.button == 3:
-                state.stop_follow()
-                state.panning = True
-                state.last_mouse = event.pos
+                # Chỉ bắt đầu kéo (pan) camera nếu KHÔNG bấm trúng 1 panel
+                # nổi nào - tránh vừa kéo camera vừa kéo panel bên trên nó
+                if not any(p.contains(event.pos) for p in state.panels):
+                    state.stop_follow()
+                    state.panning = True
+                    state.last_mouse = event.pos
         elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 3:
+            if event.button == 1:
+                for panel in state.panels:
+                    panel.handle_mouseup()
+            elif event.button == 3:
                 state.panning = False
         elif event.type == pygame.MOUSEMOTION:
+            for panel in state.panels:
+                panel.handle_mousemotion(event.pos, state.SCREEN_W, state.SCREEN_H)
             if state.panning:
                 dx = event.pos[0] - state.last_mouse[0]
                 dy = event.pos[1] - state.last_mouse[1]
@@ -110,8 +129,12 @@ def handle_events(state):
 
     # --- kéo chuột trái liên tục để rải (thức ăn/đá/nước/xóa) ---
     if state.current_tool in state.DRAG_TOOLS and pygame.mouse.get_pressed()[0]:
-        if state.drag_cooldown <= 0:
-            pos = state.get_canvas_sim_xy(pygame.mouse.get_pos())
+        mp = pygame.mouse.get_pos()
+        over_panel = any(p.contains(mp) for p in state.panels)
+        if over_panel:
+            pass
+        elif state.drag_cooldown <= 0:
+            pos = state.get_canvas_sim_xy(mp)
             if pos is not None:
                 state.perform_tool_action(state.current_tool, pos[0], pos[1], state.current_layer)
                 state.drag_cooldown = state.DRAG_PLACE_INTERVAL_FRAMES

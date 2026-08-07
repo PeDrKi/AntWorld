@@ -16,6 +16,24 @@ class Button:
         self.on_click = on_click
         self.toggle = toggle
         self.active = active
+        # Vị trí TƯƠNG ĐỐI so với panel chứa nó (góc trên-trái nội dung
+        # panel) - dùng khi nút này thuộc 1 Panel có thể kéo di chuyển được
+        # (xem Panel.reposition_children() bên dưới). None nếu nút đứng
+        # độc lập, không thuộc panel nào (vị trí luôn cố định như cũ).
+        self.rel_pos = None
+
+    def bind_to_panel(self, panel, rel_x, rel_y):
+        """Gắn nút này vào 1 Panel tại vị trí tương đối (rel_x, rel_y) tính
+        từ góc trên-trái phần NỘI DUNG (dưới thanh tiêu đề) của panel."""
+        self.rel_pos = (rel_x, rel_y)
+        panel.children.append(self)
+        self.reposition(panel)
+
+    def reposition(self, panel):
+        if self.rel_pos is None:
+            return
+        cx, cy = panel.content_pos()
+        self.rect.topleft = (cx + self.rel_pos[0], cy + self.rel_pos[1])
 
     def draw(self, surf, font):
         color = COLOR_BTN_ACTIVE if self.active else COLOR_BTN
@@ -31,3 +49,106 @@ class Button:
                 self.on_click()
             return True
         return False
+
+
+class Panel:
+    """1 "cửa sổ" nổi trên màn hình (không phải cửa sổ hệ điều hành thật -
+    pygame chỉ có 1 cửa sổ duy nhất - mà là 1 khung UI có thanh tiêu đề,
+    KÉO DI CHUYỂN được tới bất kỳ đâu trong màn hình, và THU GỌN được lại
+    chỉ còn thanh tiêu đề) để người chơi tự sắp xếp, tránh che khuất khung
+    nhìn mô phỏng. Dùng cho thanh công cụ / bảng thống kê / biểu đồ."""
+
+    TITLE_H = 26
+
+    def __init__(self, x, y, w, h, title, collapsed=False):
+        self.x, self.y = x, y
+        self.w, self.h = w, h  # kích thước lúc MỞ RỘNG (không tính title bar)
+        self.title = title
+        self.collapsed = collapsed
+        self.dragging = False
+        self.drag_offset = (0, 0)
+        self.children = []  # các Button gắn vào panel này (xem bind_to_panel)
+
+    def outer_rect(self):
+        h = self.TITLE_H if self.collapsed else self.TITLE_H + self.h
+        return pygame.Rect(int(self.x), int(self.y), self.w, h)
+
+    def content_pos(self):
+        return (int(self.x), int(self.y) + self.TITLE_H)
+
+    def title_bar_rect(self):
+        return pygame.Rect(int(self.x), int(self.y), self.w, self.TITLE_H)
+
+    def collapse_button_rect(self):
+        r = self.title_bar_rect()
+        return pygame.Rect(r.right - 24, r.top + 3, 20, 20)
+
+    def reposition_children(self):
+        for b in self.children:
+            b.reposition(self)
+
+    def move_to(self, x, y, screen_w, screen_h):
+        """Di chuyển panel tới (x, y), giữ nguyên trong màn hình (không cho
+        kéo thanh tiêu đề ra ngoài khung nhìn, mất luôn không tìm lại được)."""
+        self.x = float(max(0, min(x, screen_w - self.w)))
+        self.y = float(max(0, min(y, screen_h - self.TITLE_H)))
+        self.reposition_children()
+
+    # --- Xử lý sự kiện chuột - GỌI TRƯỚC khi xử lý sự kiện của canvas mô
+    # phỏng bên dưới, để việc kéo/thu gọn panel KHÔNG bị "xuyên" xuống dưới
+    # thành thao tác đặt thức ăn/đào phòng/v.v. ---
+    def handle_mousedown(self, pos):
+        """Trả True nếu sự kiện này thuộc về panel (đã xử lý xong, không
+        cho lan xuống canvas nữa), False nếu bấm ở ngoài panel."""
+        if not self.outer_rect().collidepoint(pos):
+            return False
+        if self.collapse_button_rect().collidepoint(pos):
+            self.collapsed = not self.collapsed
+            return True
+        if self.title_bar_rect().collidepoint(pos):
+            self.dragging = True
+            self.drag_offset = (pos[0] - self.x, pos[1] - self.y)
+            return True
+        if self.collapsed:
+            return True  # thu gọn rồi thì cả thân coi như title bar
+        for b in self.children:
+            if b.handle_click(pos):
+                return True
+        return True  # bấm vào khoảng trống trong panel cũng "nuốt" sự kiện
+
+    def handle_mouseup(self):
+        self.dragging = False
+
+    def handle_mousemotion(self, pos, screen_w, screen_h):
+        if self.dragging:
+            self.move_to(pos[0] - self.drag_offset[0], pos[1] - self.drag_offset[1], screen_w, screen_h)
+
+    def contains(self, pos):
+        return self.outer_rect().collidepoint(pos)
+
+    def draw_frame(self, surf, font_title):
+        """Vẽ khung + thanh tiêu đề (KHÔNG vẽ nội dung bên trong - nội dung
+        do nơi gọi tự vẽ vào vùng content_pos()/content_rect, sau khi gọi
+        hàm này, để mỗi panel tự quyết cách vẽ nội dung riêng của nó)."""
+        r = self.outer_rect()
+        bg = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+        bg.fill((18, 18, 22, 232))
+        surf.blit(bg, r.topleft)
+        pygame.draw.rect(surf, (90, 90, 100), r, width=1, border_radius=4)
+
+        tb = self.title_bar_rect()
+        pygame.draw.rect(surf, (42, 42, 50), tb, border_top_left_radius=4, border_top_right_radius=4)
+        pygame.draw.rect(surf, (90, 90, 100), tb, width=1, border_top_left_radius=4, border_top_right_radius=4)
+        # Chấm "tay cầm" nhỏ để gợi ý có thể kéo, tránh người chơi không
+        # biết panel này di chuyển được
+        for i in range(3):
+            pygame.draw.circle(surf, (140, 140, 150), (tb.x + 10, tb.y + 8 + i * 5), 1)
+        label = font_title.render(self.title, True, (235, 235, 235))
+        surf.blit(label, (tb.x + 20, tb.y + 5))
+
+        cb = self.collapse_button_rect()
+        pygame.draw.rect(surf, (60, 60, 72), cb, border_radius=3)
+        pygame.draw.rect(surf, (100, 100, 112), cb, width=1, border_radius=3)
+        symbol = "+" if self.collapsed else "-"
+        sym = font_title.render(symbol, True, (230, 230, 230))
+        surf.blit(sym, sym.get_rect(center=cb.center))

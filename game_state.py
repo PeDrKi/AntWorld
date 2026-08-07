@@ -44,7 +44,10 @@ class GameState:
         self.font_big = pygame.font.SysFont("arial", 22, bold=True)
         self.font_hud = pygame.font.SysFont("consolas", 15)
 
-        self.CANVAS_H = self.SCREEN_H - cfg.TOOLBAR_H
+        # Canvas mô phỏng giờ chiếm TOÀN BỘ cửa sổ (thanh công cụ/bảng
+        # thống kê/biểu đồ không còn là dải cố định chiếm chỗ nữa - chúng
+        # là các Panel NỔI TRÊN canvas, kéo/thu gọn được - xem hud.py)
+        self.CANVAS_H = self.SCREEN_H
         self.CENTER_X = self.SCREEN_W / 2.0
         self.CENTER_Y = self.CANVAS_H / 2.0
 
@@ -93,9 +96,15 @@ class GameState:
         self.follow_colony = None
         self.follow_idx = None
 
-        # Thanh công cụ - danh sách Button; được hud.build_toolbar() điền vào
+        # Thanh công cụ / bảng thống kê / biểu đồ - giờ là các Panel NỔI
+        # (ui_widgets.Panel), kéo/thu gọn được; được hud.build_toolbar()
+        # tạo và điền vào state.panels (+ state.buttons/tool_buttons).
         self.buttons = []
         self.tool_buttons = []
+        self.panels = []
+        self.toolbar_panel = None
+        self.stats_panel = None
+        self.graph_panel = None
 
     # ------------------------------------------------------------------
     def _set_window_icon(self):
@@ -111,17 +120,17 @@ class GameState:
     def handle_resize(self, new_w, new_h):
         """Gọi khi người dùng kéo giãn/phóng to/thu nhỏ cửa sổ (sự kiện
         pygame.VIDEORESIZE) - cập nhật lại toàn bộ kích thước phụ thuộc và
-        dựng lại thanh công cụ (vị trí nút bấm tính theo SCREEN_W/H)."""
+        dựng lại thanh công cụ. Vị trí các panel người chơi đã tự kéo di
+        chuyển sẽ được GIỮ NGUYÊN (xem hud.build_toolbar), chỉ kẹp lại
+        trong khung hình mới nếu cửa sổ bị thu nhỏ hơn."""
         new_w = max(cfg.MIN_WINDOW_W, new_w)
         new_h = max(cfg.MIN_WINDOW_H, new_h)
         self.SCREEN_W, self.SCREEN_H = new_w, new_h
         self.screen = pygame.display.set_mode((new_w, new_h), pygame.RESIZABLE)
-        self.CANVAS_H = self.SCREEN_H - cfg.TOOLBAR_H
+        self.CANVAS_H = self.SCREEN_H
         self.CENTER_X = self.SCREEN_W / 2.0
         self.CENTER_Y = self.CANVAS_H / 2.0
 
-        self.buttons = []
-        self.tool_buttons = []
         import hud
         hud.build_toolbar(self)
 

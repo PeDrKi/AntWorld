@@ -450,8 +450,11 @@ COLOR_GRID_LINE = (0, 0, 0, 40)
 COLOR_GROUND_FILL = (205, 178, 132)
 COLOR_SHAFT = (25, 18, 12)
 
-TOOLBAR_H = 88               # chiều cao thanh công cụ dưới màn hình (pixel)
-GRAPH_PANEL_W, GRAPH_PANEL_H = 300, 170
+# LƯU Ý: TOOLBAR_H / GRAPH_PANEL_W / GRAPH_PANEL_H (hằng số kích thước cố
+# định của thanh công cụ/biểu đồ) đã được XÓA - từ khi thanh công cụ, bảng
+# thống kê, biểu đồ trở thành các Panel NỔI kéo/thu gọn được (xem
+# ui_widgets.Panel + hud.build_toolbar), kích thước mặc định của chúng
+# được định nghĩa trực tiếp ngay trong hud.build_toolbar() thay vì ở đây.
 
 # Kho thức ăn: hiển thị thức ăn ĐANG LƯU TRỮ THẬT SỰ dưới dạng 1 đống nhỏ
 # các "viên" thức ăn rải trong phòng, thay vì chỉ 1 con số vô hình

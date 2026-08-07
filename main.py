@@ -289,6 +289,7 @@ def main(max_frames=None):
     respawn_btn = Button((10, row2_y, 190, 26), "Tai sinh thuc an: BAT", active=True)
     grid_btn = Button((208, row2_y, 150, 26), "Luoi o vuong: BAT", active=True)
     graph_btn = Button((366, row2_y, 130, 26), "Bieu do: HIEN", active=True)
+    enemy_spawn_btn = Button((504, row2_y, 200, 26), "Ke thu tu nhien: BAT", active=True)
     layer_up_btn = Button((cfg.SCREEN_W - 150, row2_y, 60, 26), "Tang ^")
     layer_down_btn = Button((cfg.SCREEN_W - 84, row2_y, 60, 26), "Tang v")
 
@@ -310,6 +311,11 @@ def main(max_frames=None):
         graph_btn.text = f"Bieu do: {'HIEN' if graph_visible else 'AN'}"
         graph_btn.active = graph_visible
 
+    def toggle_enemy_spawn():
+        enemy.auto_spawn_enabled = not enemy.auto_spawn_enabled
+        enemy_spawn_btn.text = f"Ke thu tu nhien: {'BAT' if enemy.auto_spawn_enabled else 'TAT'}"
+        enemy_spawn_btn.active = enemy.auto_spawn_enabled
+
     def change_layer(delta):
         nonlocal current_layer
         current_layer = int(np.clip(current_layer + delta, 0, max_layer_overall()))
@@ -317,9 +323,11 @@ def main(max_frames=None):
     respawn_btn.on_click = toggle_respawn
     grid_btn.on_click = toggle_grid
     graph_btn.on_click = toggle_graph
+    enemy_spawn_btn.on_click = toggle_enemy_spawn
     layer_up_btn.on_click = lambda: change_layer(-1)
     layer_down_btn.on_click = lambda: change_layer(1)
-    buttons += [respawn_btn, grid_btn, graph_btn, layer_up_btn, layer_down_btn]
+    buttons += [respawn_btn, grid_btn, graph_btn, enemy_spawn_btn, layer_up_btn, layer_down_btn]
+
 
     # -------------------------------------------------------------
     # Vẽ 1 tầng (mặt đất hoặc 1 tầng ngầm)

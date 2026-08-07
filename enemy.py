@@ -21,11 +21,18 @@ class EnemyManager:
         self.total_kills = 0
         self.total_defeated = 0  # số lần bị lính đánh bại hoàn toàn
         self.kills_this_visit = 0
+        self.auto_spawn_enabled = True  # bật/tắt được từ thanh công cụ -
+                                         # tắt thì KHÔNG tự xuất hiện định kỳ
+                                         # nữa (nhưng con đang có mặt vẫn
+                                         # sống hết vòng đời bình thường, và
+                                         # công cụ "Tha ke thu" vẫn dùng được)
 
     def update(self, colonies):
         """colonies: danh sách các AntColony (tổ chính + tổ đối thủ nếu
         có) - kẻ thù trung lập, đe dọa TẤT CẢ các tổ như nhau."""
         if not self.active:
+            if not self.auto_spawn_enabled:
+                return  # tắt chế độ tự sinh - không đếm ngược, không xuất hiện
             self.spawn_cooldown -= 1
             if self.spawn_cooldown <= 0:
                 self._spawn()

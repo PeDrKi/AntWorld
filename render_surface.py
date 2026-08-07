@@ -220,13 +220,15 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
 
         # --- Mồi tha trên lưng: 1 miếng nhỏ đúng màu loại thức ăn thật,
         # hiện rõ ràng ngay TRƯỚC ĐẦU con kiến (theo hướng đang đi), có
-        # DÂY NỐI mảnh từ hàm tới mồi (như đang thực sự ngoạm) và LẮC LƯ
-        # nhẹ theo nhịp bước để rõ ràng đây là vật đang được THA ĐI, không
-        # phải chỉ đổi màu thân là xong ---
+        # DÂY NỐI mảnh từ hàm tới mồi (như đang thực sự ngoạm) để rõ ràng
+        # đây là vật đang được THA ĐI, không chỉ đổi màu thân là xong.
+        # LƯU Ý: cố tình vẽ TĨNH (không nhấp nháy/lắc lư theo thời gian) -
+        # từng thử hiệu ứng nhấp nháy độ trong suốt trước đó nhưng với hàng
+        # chục con kiến cùng lúc, mỗi con lệch pha khác nhau, trông như cả
+        # đàn đang "đổi màu loạn xạ" rất khó nhìn - nên bỏ hẳn animation. ---
         if carrying[i]:
-            bob = math.sin(state.frame_counter * 0.35 + i) * r * 0.22
-            mx = int(hd_x + dirx * r * 1.35 + perp_x * bob)
-            my = int(hd_y + diry * r * 1.35 + perp_y * bob)
+            mx = int(hd_x + dirx * r * 1.35)
+            my = int(hd_y + diry * r * 1.35)
             morsel_r = max(3, int(r * 0.95))
             # Dây/hàm nối đầu tới mồi - cho thấy đang NGOẠM chứ không phải
             # vật trôi nổi cạnh đầu
@@ -236,13 +238,11 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             else:  # thức ăn - đúng màu duy nhất
                 base_c = cfg.FOOD_TYPE_COLOR.get(int(carry_food_type[i]), (150, 115, 60))
                 hi_c = tuple(min(255, c + 70) for c in base_c)
-            # Viền sáng nhấp nháy nhẹ quanh mồi để "nổi" hẳn lên so với thân
-            # kiến và nền đất - khỏi phải nhìn kỹ mới nhận ra đang tha gì
-            glow_pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.3 + i * 1.7)
-            glow_r = morsel_r + 2 + int(glow_pulse * 1.5)
+            # Viền sáng TĨNH quanh mồi để "nổi" hẳn lên so với thân kiến và
+            # nền đất - khỏi phải nhìn kỹ mới nhận ra đang tha gì
+            glow_r = morsel_r + 3
             glow_surf = pygame.Surface((glow_r * 2 + 2, glow_r * 2 + 2), pygame.SRCALPHA)
-            glow_alpha = int(90 + glow_pulse * 90)
-            pygame.draw.circle(glow_surf, (*hi_c, glow_alpha), (glow_r + 1, glow_r + 1), glow_r, 2)
+            pygame.draw.circle(glow_surf, (*hi_c, 140), (glow_r + 1, glow_r + 1), glow_r, 2)
             surf.blit(glow_surf, (mx - glow_r - 1, my - glow_r - 1))
             pygame.draw.circle(surf, base_c, (mx, my), morsel_r)
             pygame.draw.circle(surf, hi_c, (mx, my), max(1, morsel_r // 2))

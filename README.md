@@ -156,19 +156,35 @@ vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 t�
 
 ## Cấu trúc file
 
+Đã tách nhỏ từ 1 file `main.py` gộp hết (từng phình to tới ~900 dòng) thành
+các module riêng theo đúng vai trò, dễ đọc/bảo trì hơn:
+
 ```
-config.py    - hằng số: quy mô, tốc độ, số tầng (LAYER_SURFACE_DEPTH,
-               DEPTH_STORAGE, DEPTH_NURSERY, DEPTH_QUEEN, ...)
-world.py     - SurfaceWorld (mặt đất, không đổi) và UndergroundWorld
-               (hầm ngầm - giờ mỗi phòng gắn với 1 tầng rời rạc thay vì
-               tọa độ z liên tục)
-ants.py      - AntColony: đàn kiến dạng mảng NumPy, di chuyển 2D trong
-               PHẠM VI 1 TẦNG; đổi tầng tức thời tại các điểm chuyển
-               trạng thái (giống bước vào/ra thang máy)
-enemy.py     - kẻ thù tự nhiên trên mặt đất (không đổi)
-main.py      - dựng cảnh bằng Pygame: camera 2D (pan/zoom), vẽ từng tầng,
-               thanh công cụ, biểu đồ, vòng lặp update()
+--- Logic mô phỏng (không đụng tới pygame) ---
+config.py             - hằng số cấu hình toàn bộ game (tầng, tốc độ, chi
+                        phí sinh sản, xác suất chiến đấu...)
+world.py              - SurfaceWorld (mặt đất) + UndergroundWorld (hầm
+                        ngầm - mỗi phòng gắn với 1 tầng rời rạc)
+ants.py               - AntColony: đàn kiến dạng mảng NumPy (di chuyển,
+                        vòng đời, trứng/ấu trùng, lính gác, xâm chiếm...)
+enemy.py              - kẻ thù tự nhiên trên mặt đất
+
+--- Lớp hiển thị/điều khiển (pygame) ---
+camera.py             - Camera2D: pan/zoom màn hình <-> tọa độ lưới
+ui_widgets.py         - Button: nút bấm UI đơn giản
+game_state.py         - GameState: gom TOÀN BỘ dữ liệu + logic điều khiển
+                        (world, colony, camera, tool, toggle...) vào 1 chỗ
+render_surface.py     - vẽ tầng mặt đất + draw_ants() (dùng chung mọi tầng)
+render_underground.py - vẽ các tầng ngầm (từng phòng chức năng riêng biệt)
+hud.py                - biểu đồ dân số, bảng thống kê, thanh công cụ
+main.py               - CHỈ còn ~160 dòng: khởi tạo pygame, dựng
+                        GameState, vòng lặp sự kiện gọi vào các module trên
 ```
+
+Nguyên tắc tách: các module render/hud nhận `state` (đối tượng GameState)
+làm tham số đầu tiên để đọc dữ liệu cần vẽ, thay vì dùng closures như bản
+main.py cũ - nhờ vậy mỗi hàm có thể đọc/test độc lập mà không cần dựng cả
+vòng lặp game.
 
 ## Hướng mở rộng tiếp theo (gợi ý)
 

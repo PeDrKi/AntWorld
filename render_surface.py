@@ -97,9 +97,13 @@ def draw_surface_layer(state, surf):
     # dấu vết in trên mặt đất ---
     draw_pheromone_trails(state, surf)
 
-    # --- thức ăn (lấy mẫu thưa) - vẽ HÌNH VUÔNG Ở GIỮA từng ô lưới, ĐỒNG
-    # NHẤT với cách vẽ đá/nước ở trên (không còn nằm tại điểm giao 2 đường
-    # lưới như trước - trông như bị đường lưới cắt ngang qua giữa) ---
+    # --- thức ăn (lấy mẫu thưa) - vẽ HÌNH VUÔNG Ở GIỮA từng ô lưới nhưng
+    # NHỎ HƠN cả ô (chừa kẽ hở quanh), KHÁC với đá/nước ở trên (lấp đầy
+    # kín cả ô) - vì thức ăn KHÔNG PHẢI vật cản, kiến vẫn đi xuyên/đi qua
+    # kẽ hở quanh thức ăn bình thường, chỉ đá/nước mới thật sự chặn đường
+    # (xem _avoid_obstacles trong ants.py) - kích thước nhỏ hơn giúp NHÌN
+    # RA NGAY sự khác biệt này, không tưởng nhầm thức ăn cũng chặn đường
+    # như đá/nước ---
     food = surface_world.food
     food_type = surface_world.food_type
     fstep = 1 if cell > 10 else 2
@@ -109,7 +113,7 @@ def draw_surface_layer(state, surf):
                 ftype = int(food_type[gx, gy])
                 fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
                 sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
-                size = max(3, int(round(cell * fstep)))  # LẤP ĐẦY hẳn cả ô
+                size = max(3, int(cell * fstep * 0.55))  # NHỎ HƠN ô - chừa kẽ hở
                 pygame.draw.rect(surf, fc, (sx - size / 2, sy - size / 2, size, size))
 
     # --- lỗ tổ 2 bên ---

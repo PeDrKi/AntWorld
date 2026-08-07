@@ -619,6 +619,12 @@ def main(max_frames=None):
         draw_ants(surf, rival_colony, (200, 160, 155), (240, 170, 60), depth_filter=depth)
 
     def draw_ants(surf, colony_obj, color_normal, color_carry, depth_filter=0):
+        """Vẽ kiến thành 1 HÌNH DÁNG CON KIẾN THẬT (đầu-ngực-bụng nối theo
+        đúng hướng đang di chuyển) thay vì 1 chấm tròn đơn giản - để không
+        bị lẫn với các chấm khác trong phòng (thức ăn, ấu trùng, trứng, xác,
+        vân sàn...). Lính (ROLE_MAJOR) có đầu to/bạnh hơn hẳn (như có hàm
+        khỏe); lính gác (is_guard) có thêm 1 chấm sáng nhỏ trên bụng để
+        phân biệt với lính thường ngay cả khi đứng lẫn nhau trên mặt đất."""
         mask = colony_obj.alive & (colony_obj.depth == depth_filter)
         if not np.any(mask):
             return
@@ -630,25 +636,51 @@ def main(max_frames=None):
         carry_type = colony_obj.carry_type[idx]
         carry_food_type = colony_obj.carry_food_type[idx]
         is_major = colony_obj.role[idx] == cfg.ROLE_MAJOR
+        is_guard = colony_obj.is_guard[idx]
         sxs = CENTER_X + (xs - camera.cx) * cell
         sys_ = CENTER_Y + (ys - camera.cy) * cell
         for i in range(len(idx)):
             sx, sy = sxs[i], sys_[i]
             if sx < -10 or sx > cfg.SCREEN_W + 10 or sy < -10 or sy > CANVAS_H + 10:
                 continue
-            base_r = cell * 0.16
-            r = max(1, int(base_r * (cfg.MAJOR_SIZE_SCALE if is_major[i] else 1.0)))
+            base_r = cell * 0.155
+            major = bool(is_major[i])
+            r = base_r * (cfg.MAJOR_SIZE_SCALE if major else 1.0)
             color = color_carry if carrying[i] else color_normal
-            pygame.draw.circle(surf, color, (int(sx), int(sy)), r)
+            head_color = tuple(max(0, c - 75) for c in color)
+
+            th = float(thetas[i])
+            dirx, diry = math.cos(th), math.sin(th)
+            perp_x, perp_y = -diry, dirx
+
+            abdomen_r = max(1, int(r * 1.05))
+            thorax_r = max(1, int(r * 0.6))
+            head_r = max(1, int(r * (0.8 if major else 0.6)))  # lính: đầu to/bạnh hơn hẳn
+
+            abd_x, abd_y = sx - dirx * r * 0.95, sy - diry * r * 0.95
+            hd_x, hd_y = sx + dirx * r * 1.0, sy + diry * r * 1.0
+
+            pygame.draw.circle(surf, color, (int(abd_x), int(abd_y)), abdomen_r)
+            pygame.draw.circle(surf, color, (int(sx), int(sy)), thorax_r)
+            pygame.draw.circle(surf, head_color, (int(hd_x), int(hd_y)), head_r)
+
+            if is_guard[i]:  # lính gác: 1 chấm sáng nhỏ trên bụng để phân biệt
+                badge_r = max(1, int(abdomen_r * 0.4))
+                pygame.draw.circle(surf, (255, 225, 90), (int(abd_x), int(abd_y)), badge_r)
+
+            if r >= 2.6:  # đủ to (zoom gần) mới vẽ thêm râu, tránh rối ở xa
+                ant_len = head_r * 0.9
+                for side in (-1, 1):
+                    ax = hd_x + dirx * ant_len + perp_x * head_r * 0.5 * side
+                    ay = hd_y + diry * ant_len + perp_y * head_r * 0.5 * side
+                    pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (int(ax), int(ay)), 1)
 
             # --- Mồi tha trên lưng: 1 miếng nhỏ đúng màu loại thức ăn thật,
             # hiện rõ ràng ngay trước đầu con kiến (theo hướng đang đi) để
             # nhìn thấy NGAY nó đang tha gì về tổ, không chỉ đổi màu thân ---
             if carrying[i]:
-                th = float(thetas[i])
-                ox = math.cos(th) * r * 1.6
-                oy = math.sin(th) * r * 1.6
-                mx, my = int(sx + ox), int(sy + oy)
+                mx = int(hd_x + dirx * r * 1.3)
+                my = int(hd_y + diry * r * 1.3)
                 morsel_r = max(2, int(r * 0.85))
                 if carry_type[i] == 2:  # nước - giọt xanh
                     pygame.draw.circle(surf, (60, 140, 230), (mx, my), morsel_r)

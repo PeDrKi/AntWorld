@@ -405,6 +405,33 @@ def main(max_frames=None):
         draw_ants(surf, colony, (25, 25, 25), (215, 120, 30))
         draw_ants(surf, rival_colony, (120, 30, 25), (230, 140, 40))
 
+    def draw_room_floor(surf, cx, cy, r_px, room_rgb, room_id):
+        """Vẽ 1 phòng ngầm như 1 KHU VỰC SÀN thật sự (không phải hình tròn
+        trang trí) - có viền tường đất bo tròn + lớp sàn sáng hơn bên trong
+        + vài chấm vân sàn để mắt nhận ra ngay đây là không gian kiến có
+        thể đi lại/hoạt động bên trong, khác hẳn đường hành lang mảnh."""
+        # viền tường đất (đậm, dày) rồi lớp sàn (nhạt hơn, mờ dịu ở giữa)
+        wall_color = tuple(max(0, c - 60) for c in room_rgb)
+        floor_color = tuple(min(255, c + 45) for c in room_rgb)
+        pygame.draw.circle(surf, wall_color, (cx, cy), r_px + max(2, int(r_px * 0.12)))
+        pygame.draw.circle(surf, floor_color, (cx, cy), r_px)
+        pygame.draw.circle(surf, room_rgb, (cx, cy), max(1, int(r_px * 0.78)))
+
+        # vân sàn: vài chấm cố định (không đổi mỗi khung hình) để trông có
+        # kết cấu, không phẳng lì
+        rng_local = np.random.RandomState(room_id * 97 + 13)
+        n_dots = int(np.clip(r_px * r_px / 90, 5, 26))
+        ang = rng_local.uniform(0, 2 * np.pi, n_dots)
+        rad = np.sqrt(rng_local.uniform(0, 1, n_dots)) * r_px * 0.82
+        dot_color = tuple(max(0, c - 35) for c in room_rgb)
+        for a, rr in zip(ang, rad):
+            dx = int(math.cos(a) * rr)
+            dy = int(math.sin(a) * rr)
+            dr = max(1, int(r_px * 0.05))
+            pygame.draw.circle(surf, dot_color, (cx + dx, cy + dy), dr)
+
+        pygame.draw.circle(surf, (0, 0, 0), (cx, cy), r_px + max(2, int(r_px * 0.12)), 2)
+
     def draw_underground_layer(surf, depth):
         pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, cfg.SCREEN_W, CANVAS_H))
         cell = camera.cell_px()
@@ -425,19 +452,22 @@ def main(max_frames=None):
                 if room_depth != depth:
                     continue
                 cx, cy = camera.world_to_screen(float(center[0]), float(center[1]), CENTER_X, CENTER_Y)
-                # hành lang nối giếng <-> phòng (cùng tầng)
+                # hành lang nối giếng <-> phòng (cùng tầng) - vẽ TRƯỚC, mảnh
+                # và mờ hơn, để rõ ràng đây chỉ là đường DI CHUYỂN, không
+                # phải nơi kiến "ở lại hoạt động"
                 sx, sy = camera.world_to_screen(float(uworld.shaft_xy[0]), float(uworld.shaft_xy[1]), CENTER_X, CENTER_Y)
-                pygame.draw.line(surf, (110, 100, 90), (int(sx), int(sy)), (int(cx), int(cy)), max(1, int(cell * 0.12)))
-                r_px = max(4, int(radius * cell))
-                pygame.draw.circle(surf, room_rgb, (int(cx), int(cy)), r_px)
-                pygame.draw.circle(surf, (0, 0, 0), (int(cx), int(cy)), r_px, 2)
+                pygame.draw.line(surf, (95, 85, 78), (int(sx), int(sy)), (int(cx), int(cy)), max(1, int(cell * 0.09)))
+
+                r_px = max(10, int(radius * cell))
+                draw_room_floor(surf, int(cx), int(cy), r_px, room_rgb, room_id)
+
                 if room_id == 2:  # phòng chúa - vẽ thêm biểu tượng chúa (bụng to)
                     pygame.draw.ellipse(
                         surf, tuple(max(0, c - 25) for c in room_rgb),
                         (cx - r_px * 0.5, cy - r_px * 0.3, r_px * 1.0, r_px * 0.6)
                     )
                 label = font_small.render(name, True, (235, 235, 235))
-                surf.blit(label, label.get_rect(center=(cx, cy - r_px - 10)))
+                surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
 
         draw_ants(surf, colony, (220, 220, 220), (235, 190, 70), depth_filter=depth)
         draw_ants(surf, rival_colony, (200, 160, 155), (240, 170, 60), depth_filter=depth)

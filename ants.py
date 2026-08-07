@@ -39,6 +39,12 @@ class AntColony:
         self.theta = rng.uniform(0, 2 * np.pi, n_ants).astype(np.float32)
         self.layer = np.zeros(n_ants, dtype=np.int8)          # 0=mặt đất, 1=dưới hầm (nhị phân, dùng cho state machine)
         self.state = np.zeros(n_ants, dtype=np.int8)          # STATE_SEARCHING
+        # Dùng cho STATE_DWELL (lượn trong phòng): dwell_ticks = số tick còn
+        # lại trước khi tiếp tục hành trình; next_state = trạng thái sẽ
+        # chuyển sang ngay khi hết giờ lượn (đã được quyết định từ lúc vừa
+        # ĐẾN phòng, ví dụ có trở thành "nurse" hay không)
+        self.dwell_ticks = np.zeros(n_ants, dtype=np.int16)
+        self.next_state = np.zeros(n_ants, dtype=np.int8)
         self.carrying = np.zeros(n_ants, dtype=bool)
         self.carry_type = np.zeros(n_ants, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
         self.carry_amount = np.zeros(n_ants, dtype=np.float32)
@@ -247,23 +253,20 @@ class AntColony:
                     rng_vals = np.random.uniform(0, 1, len(food_idx))
                     become_nurse = food_idx[rng_vals < cfg.NURSE_PROBABILITY]
                     go_back = food_idx[rng_vals >= cfg.NURSE_PROBABILITY]
-                    # Nurse đi thang máy sang tầng ấu trùng ngay tại điểm
-                    # giếng (depth đổi tức thời), rồi đi bộ 2D tới phòng.
-                    self.depth[become_nurse] = self.underground.nursery_depth
-                    self.x[become_nurse] = self.underground.shaft_xy[0]
-                    self.y[become_nurse] = self.underground.shaft_xy[1]
-                    self.state[become_nurse] = cfg.STATE_UG_TO_NURSERY
                     self.carrying[become_nurse] = True
                     self.carry_type[become_nurse] = 1
                     self.carry_type[go_back] = 0
-                    self.state[go_back] = cfg.STATE_UG_TO_SHAFT
+                    # Không rời phòng ngay - LƯỢN trong kho 1 lúc (như đang
+                    # sắp xếp/kiểm tra đồ) rồi mới quyết định đi đâu tiếp.
+                    self._start_dwell(become_nurse, cfg.STATE_UG_TO_NURSERY)
+                    self._start_dwell(go_back, cfg.STATE_UG_TO_SHAFT)
 
                 if len(water_idx) > 0:
                     self.underground.deposit_water(float(self.carry_amount[water_idx].sum()))
                     self.carry_amount[water_idx] = 0.0
                     self.carry_type[water_idx] = 0
                     self.carrying[water_idx] = False
-                    self.state[water_idx] = cfg.STATE_UG_TO_SHAFT
+                    self._start_dwell(water_idx, cfg.STATE_UG_TO_SHAFT)
 
         # --- nurse mang đồ tới phòng ấu trùng ---
         mask = ug & (self.state == cfg.STATE_UG_TO_NURSERY)
@@ -275,7 +278,8 @@ class AntColony:
                 self.underground.deposit_to_nursery(len(arrived))
                 self.carrying[arrived] = False
                 self.carry_type[arrived] = 0
-                self.state[arrived] = cfg.STATE_UG_TO_SHAFT
+                # Lượn trong phòng ấu trùng 1 lúc (đang chăm ấu trùng) rồi mới về
+                self._start_dwell(arrived, cfg.STATE_UG_TO_SHAFT)
 
         # --- quay lại giếng (vị trí lỗ tổ, TRÊN TẦNG HIỆN TẠI) để lên mặt đất ---
         mask = ug & (self.state == cfg.STATE_UG_TO_SHAFT)
@@ -290,6 +294,78 @@ class AntColony:
                 self.y[arrived] = self.nest_pos[1]
                 self.state[arrived] = cfg.STATE_SEARCHING
                 self.theta[arrived] = np.random.uniform(0, 2 * np.pi, len(arrived))
+
+        self._update_dwelling_ants()
+
+    # ------------------------------------------------------------------
+    def _start_dwell(self, idx, next_state):
+        """Cho 1 nhóm kiến bắt đầu LƯỢN trong phòng hiện tại (self.depth
+        của chúng) một khoảng thời gian ngẫu nhiên trước khi tiếp tục hành
+        trình sang next_state - để phòng ngầm có hoạt động thật sự thay vì
+        kiến chỉ chạm tâm phòng rồi quay đầu ngay."""
+        if len(idx) == 0:
+            return
+        self.state[idx] = cfg.STATE_DWELL
+        self.next_state[idx] = next_state
+        self.dwell_ticks[idx] = np.random.randint(
+            cfg.DWELL_MIN_TICKS, cfg.DWELL_MAX_TICKS + 1, size=len(idx)
+        ).astype(np.int16)
+
+    def _room_center_and_radius(self, depth):
+        if depth == self.underground.storage_depth:
+            return self.underground.storage, cfg.ROOM_RADIUS
+        if depth == self.underground.nursery_depth:
+            return self.underground.nursery, cfg.ROOM_RADIUS
+        if depth == self.underground.queen_depth:
+            return self.underground.queen_room, cfg.ROOM_RADIUS * 1.1
+        return None, None
+
+    def _update_dwelling_ants(self):
+        mask = self.alive & (self.state == cfg.STATE_DWELL)
+        if not np.any(mask):
+            return
+        idx = np.where(mask)[0]
+        self.dwell_ticks[idx] -= 1
+
+        # Đi lại ngẫu nhiên, chậm, quanh tâm phòng - tách riêng theo từng
+        # loại phòng (kho / ấu trùng / phòng chúa) vì mỗi phòng ở 1 tầng
+        # (depth) và có tâm khác nhau.
+        for depth_val in np.unique(self.depth[idx]):
+            center, radius = self._room_center_and_radius(int(depth_val))
+            if center is None:
+                continue
+            sub = idx[self.depth[idx] == depth_val]
+            self.theta[sub] += np.random.uniform(-0.6, 0.6, len(sub)).astype(np.float32)
+            self.x[sub] += np.cos(self.theta[sub]) * cfg.DWELL_SPEED
+            self.y[sub] += np.sin(self.theta[sub]) * cfg.DWELL_SPEED
+
+            dx = self.x[sub] - center[0]
+            dy = self.y[sub] - center[1]
+            dist = np.hypot(dx, dy)
+            max_r = radius * cfg.ROOM_WANDER_FACTOR
+            over = dist > max_r
+            if np.any(over):
+                safe_dist = np.where(dist[over] < 1e-6, 1.0, dist[over])
+                scale = max_r / safe_dist
+                self.x[sub[over]] = center[0] + dx[over] * scale
+                self.y[sub[over]] = center[1] + dy[over] * scale
+                self.theta[sub[over]] = np.arctan2(-dy[over], -dx[over])  # bật ngược lại vào trong phòng
+
+        # Hết giờ lượn -> tiếp tục hành trình. Nếu điểm đến kế tiếp là phòng
+        # ấu trùng (khác tầng với kho), cần "đi thang máy" (đổi depth) trước
+        # khi tiếp tục đi bộ 2D; các trường hợp còn lại (về giếng) tiếp tục
+        # ngay từ vị trí đang lượn tới, không cần dịch chuyển tức thời.
+        done = idx[self.dwell_ticks[idx] <= 0]
+        if len(done) > 0:
+            to_nursery = done[self.next_state[done] == cfg.STATE_UG_TO_NURSERY]
+            others = done[self.next_state[done] != cfg.STATE_UG_TO_NURSERY]
+            if len(to_nursery) > 0:
+                self.depth[to_nursery] = self.underground.nursery_depth
+                self.x[to_nursery] = self.underground.shaft_xy[0]
+                self.y[to_nursery] = self.underground.shaft_xy[1]
+                self.state[to_nursery] = cfg.STATE_UG_TO_NURSERY
+            if len(others) > 0:
+                self.state[others] = self.next_state[others]
 
     # ------------------------------------------------------------------
     def _update_lifecycle(self):
@@ -338,12 +414,12 @@ class AntColony:
 
     def _spawn_new_ants(self, idx):
         """Tái sử dụng các ô đã chết để tạo kiến mới, xuất hiện tại phòng
-        chúa rồi tự đi lên mặt đất qua giếng."""
+        chúa, lượn 1 lúc (mới sinh, còn quây quần quanh chúa) rồi tự đi lên
+        mặt đất qua giếng."""
         self.alive[idx] = True
         self.age[idx] = 0.0
         self.layer[idx] = cfg.LAYER_UNDERGROUND
         self.depth[idx] = self.underground.queen_depth
-        self.state[idx] = cfg.STATE_UG_TO_SHAFT
         self.carrying[idx] = False
         self.carry_type[idx] = 0
         self.carry_amount[idx] = 0.0
@@ -352,6 +428,7 @@ class AntColony:
         self.x[idx] = qx
         self.y[idx] = qy
         self.theta[idx] = np.random.uniform(0, 2 * np.pi, len(idx))
+        self._start_dwell(idx, cfg.STATE_UG_TO_SHAFT)
 
     # ------------------------------------------------------------------
     def counts(self):

@@ -154,7 +154,7 @@ NUM_RIVAL_ANTS = 100        # CÙNG quy mô với tổ chính - đã kiểm th�
                             # nếu ít quân hơn, tổ đối thủ gần như luôn thua
                             # cuộc cạnh tranh thức ăn (đàn đông hơn có diện
                             # bao phủ tìm kiếm lớn hơn, chiếm thức ăn trước)
-ROOM_RADIUS = 2.6
+ROOM_RADIUS = 3.4
 
 # Xác suất 1 con kiến sau khi giao thức ăn ở kho sẽ trở thành "nurse"
 # (mang thức ăn tiếp sang phòng ấu trùng) thay vì quay lại mặt đất ngay
@@ -166,6 +166,18 @@ STATE_RETURNING = 1        # trên mặt đất, đang tha thức ăn về tổ
 STATE_UG_TO_STORAGE = 2    # dưới hầm, đang đi tới kho
 STATE_UG_TO_NURSERY = 3    # dưới hầm, nurse đang mang đồ tới phòng ấu trùng
 STATE_UG_TO_SHAFT = 4      # dưới hầm, đang quay lại giếng để lên mặt đất
+STATE_DWELL = 5            # dưới hầm, đang LƯỢN/HOẠT ĐỘNG trong phạm vi 1
+                           # phòng (kho/ấu trùng/phòng chúa) 1 lúc trước khi
+                           # rời đi - để phòng ngầm có "sự sống" thật sự
+                           # thay vì kiến chỉ chạm tâm phòng rồi quay đầu
+
+# Kiến "lượn" trong phòng bao lâu trước khi tiếp tục hành trình (tick mô
+# phỏng), và di chuyển nhẹ/chậm ra sao trong lúc đó
+DWELL_MIN_TICKS = 40
+DWELL_MAX_TICKS = 140
+DWELL_SPEED = 0.045         # chậm hơn nhiều so với UG_SPEED - dáng "làm việc"
+ROOM_WANDER_FACTOR = 0.82   # chỉ lượn trong phạm vi bấy nhiêu % bán kính
+                            # phòng, để không đi lấn ra ngoài rìa hiển thị
 
 LAYER_SURFACE = 0     # dùng cho self.layer của kiến: 0 = đang ở mặt đất
 LAYER_UNDERGROUND = 1 # 1 = đang ở dưới hầm (bất kể đang ở tầng ngầm nào -

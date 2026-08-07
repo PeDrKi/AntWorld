@@ -126,7 +126,7 @@ def draw_surface_layer(state, surf):
     draw_ants(state, surf, state.rival_colony, (120, 30, 25), (230, 140, 40))
 
 
-def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0):
+def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0, underground=False):
     """Vẽ kiến thành 1 HÌNH DÁNG CON KIẾN THẬT (đầu-ngực-bụng nối theo
     đúng hướng đang di chuyển) thay vì 1 chấm tròn đơn giản - để không
     bị lẫn với các chấm khác trong phòng (thức ăn, ấu trùng, trứng, xác,
@@ -134,7 +134,14 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     khỏe). Mỗi CHỨC NĂNG của thợ nhỏ có 1 chấm huy hiệu màu riêng trên
     bụng để phân biệt ngay cả khi đứng lẫn nhau: lính gác = vàng, chuyên
     chăm ấu trùng (nurse) = hồng, chuyên chăm trứng+chúa (attendant) =
-    tím - thợ kiếm ăn (forager, đa số) không có huy hiệu."""
+    tím - thợ kiếm ăn (forager, đa số) không có huy hiệu.
+
+    `underground=True`: vẽ thêm 1 VIỀN SÁNG MỎNG quanh thân để vẫn nhìn rõ
+    trong hành lang rất tối, THAY VÌ đổi hẳn sang màu khác hẳn (trước đây
+    dưới hầm dùng cả bộ màu xám trắng riêng, khiến cùng 1 con kiến trông
+    như đổi loài giữa mặt đất và dưới hầm - gây cảm giác "đổi màu loạn").
+    Giờ màu thân dưới hầm GẦN GIỐNG màu thật trên mặt đất, chỉ viền thêm
+    cho nổi lên nền hành lang tối."""
     mask = colony_obj.alive & (colony_obj.depth == depth_filter)
     if not np.any(mask):
         return
@@ -173,6 +180,15 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
 
         abd_x, abd_y = sx - dirx * r * 0.95, sy - diry * r * 0.95
         hd_x, hd_y = sx + dirx * r * 1.0, sy + diry * r * 1.0
+
+        if underground:
+            # Viền sáng mỏng quanh cả 3 đốt thân để vẫn nổi rõ trên nền
+            # hành lang rất tối, KHÔNG cần đổi hẳn màu thân (giữ đúng màu
+            # thật của loài, chỉ mượn thêm viền để dễ nhìn trong bóng tối)
+            rim = (150, 140, 125)
+            pygame.draw.circle(surf, rim, (int(abd_x), int(abd_y)), abdomen_r + 1)
+            pygame.draw.circle(surf, rim, (int(sx), int(sy)), thorax_r + 1)
+            pygame.draw.circle(surf, rim, (int(hd_x), int(hd_y)), head_r + 1)
 
         pygame.draw.circle(surf, color, (int(abd_x), int(abd_y)), abdomen_r)
         pygame.draw.circle(surf, color, (int(sx), int(sy)), thorax_r)

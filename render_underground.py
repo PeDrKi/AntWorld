@@ -231,5 +231,10 @@ def draw_underground_layer(state, surf, depth):
             label = state.font_small.render(name, True, (235, 235, 235))
             surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
 
-    draw_ants(state, surf, state.colony, (220, 220, 220), (235, 190, 70), depth_filter=depth)
-    draw_ants(state, surf, state.rival_colony, (200, 160, 155), (240, 170, 60), depth_filter=depth)
+    # Màu kiến dưới hầm GẦN GIỐNG HỆT màu thật trên mặt đất (chỉ nhỉnh sáng
+    # hơn 1 chút để vẫn có hình khối trên nền hành lang rất tối) - trước
+    # đây dùng hẳn 1 bộ màu khác (xám trắng) khiến cùng 1 con kiến trông
+    # như đổi loài giữa 2 khu vực. Viền sáng (underground=True) đã đủ để
+    # nổi trên nền tối, không cần đổi màu thân nữa.
+    draw_ants(state, surf, state.colony, (45, 40, 36), (215, 120, 30), depth_filter=depth, underground=True)
+    draw_ants(state, surf, state.rival_colony, (110, 40, 33), (230, 140, 40), depth_filter=depth, underground=True)

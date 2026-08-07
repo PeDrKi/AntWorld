@@ -77,7 +77,10 @@ def draw_surface_layer(state, surf):
 
     surface_world = state.surface_world
 
-    # --- địa hình: đá + nước (lấy mẫu thưa theo bước lưới cho nhanh) ---
+    # --- địa hình: đá + nước (lấy mẫu thưa theo bước lưới cho nhanh) -
+    # vẽ Ở GIỮA từng Ô LƯỚI (gx+0.5, gy+0.5), KHÔNG phải tại điểm giao 2
+    # đường lưới (gx, gy) - để trông như 1 viên gạch/tường nằm gọn TRONG 1
+    # ô, thay vì bị 4 đường lưới cắt ngang qua giữa ---
     terrain = surface_world.terrain
     step = max(1, int(1 / max(cell / cfg.BASE_CELL_PX, 0.05)))
     for gx in range(0, cfg.GRID_SIZE, step):
@@ -85,19 +88,18 @@ def draw_surface_layer(state, surf):
             t = terrain[gx, gy]
             if t == cfg.TERRAIN_EMPTY:
                 continue
-            sx, sy = camera.world_to_screen(gx, gy, state.CENTER_X, state.CENTER_Y)
+            sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
             color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
-            r = max(1, int(cell * step * 0.55))
+            r = max(1, int(cell * step * 0.7))
             pygame.draw.rect(surf, color, (sx - r / 2, sy - r / 2, r, r))
 
     # --- đường mùi (pheromone) - vẽ TRƯỚC thức ăn/kiến để nằm dưới, như
     # dấu vết in trên mặt đất ---
     draw_pheromone_trails(state, surf)
 
-    # --- thức ăn (lấy mẫu thưa) - vẽ HÌNH VUÔNG chiếm 1 phần ô lưới,
-    # ĐỒNG NHẤT với cách vẽ đá/nước ở trên (thay vì hình tròn nằm ngay tại
-    # điểm giao 2 đường lưới như trước - trông tách biệt hẳn với các ô đá/
-    # nước hình vuông, không đồng bộ) ---
+    # --- thức ăn (lấy mẫu thưa) - vẽ HÌNH VUÔNG Ở GIỮA từng ô lưới, ĐỒNG
+    # NHẤT với cách vẽ đá/nước ở trên (không còn nằm tại điểm giao 2 đường
+    # lưới như trước - trông như bị đường lưới cắt ngang qua giữa) ---
     food = surface_world.food
     food_type = surface_world.food_type
     fstep = 1 if cell > 10 else 2
@@ -106,8 +108,8 @@ def draw_surface_layer(state, surf):
             if food[gx, gy] > 0.5:
                 ftype = int(food_type[gx, gy])
                 fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
-                sx, sy = camera.world_to_screen(gx, gy, state.CENTER_X, state.CENTER_Y)
-                size = max(3, int(cell * 0.5))
+                sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
+                size = max(3, int(cell * 0.6))
                 pygame.draw.rect(surf, fc, (sx - size / 2, sy - size / 2, size, size))
 
     # --- lỗ tổ 2 bên ---

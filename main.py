@@ -102,12 +102,13 @@ if SHOW_GLASS_BOX:
 # ---------------------------------------------------------------------
 # Mặt đất - có thể bấm phím G để chuyển giữa đục/trong suốt
 # ---------------------------------------------------------------------
-def make_grid_texture(tile_px=32, border_px=4):
+def make_grid_texture(tile_px=48, border_px=2):
     """Tạo 1 texture ô vuông TRONG SUỐT (alpha=0) trừ viền đen mảnh quanh
     mép (alpha=255) - dùng cho 1 LỚP RIÊNG nằm trên mặt đất, để đường viền
     lưới luôn hiển thị rõ ràng dù mặt đất có đang bật độ trong suốt (phím
-    G) hay không. LƯU Ý: viền 4px/32px (12.5%) đủ dày để không bị mờ biến
-    mất khi nhìn từ xa trên lưới lớn (50x50)."""
+    G) hay không. Viền 2px/48px (~4.2%) = khoảng 1/3 độ dày so với bản
+    trước (4px/32px = 12.5%) - tile_px tăng lên 48 để giữ độ nét khi viền
+    mỏng hơn, tránh bị răng cưa quá thô."""
     arr = np.zeros((tile_px, tile_px, 4), dtype=np.uint8)
     arr[:border_px, :, 3] = 255
     arr[-border_px:, :, 3] = 255
@@ -457,6 +458,27 @@ def _toggle_food_respawn():
 
 
 respawn_button.on_click = _toggle_food_respawn
+
+grid_visible = True
+grid_button = Button(
+    text="Luoi o vuong: BAT",
+    parent=camera.ui,
+    position=(-0.30, -0.485),
+    scale=(0.24, 0.055),
+    color=TOOL_BUTTON_ACTIVE_COLOR,
+    text_size=0.6,
+)
+
+
+def _toggle_grid():
+    global grid_visible
+    grid_visible = not grid_visible
+    ground_grid_lines.enabled = grid_visible
+    grid_button.text = f"Luoi o vuong: {'BAT' if grid_visible else 'TAT'}"
+    grid_button.color = TOOL_BUTTON_ACTIVE_COLOR if grid_visible else TOOL_BUTTON_COLOR
+
+
+grid_button.on_click = _toggle_grid
 
 tool_hint = Text(
     parent=camera.ui,

@@ -6,11 +6,13 @@ và zoom tự do bằng chuột để nhìn từ mọi góc, kể cả nhìn xuy
 xuống các phòng sâu dưới đất.
 
 Dùng engine **Ursina** (xây trên nền **Panda3D**) để dựng 3D.
+
 ## Chạy
 
 ```powershell
 python main.py
 ```
+
 ## Điều khiển
 
 - **Giữ CHUỘT PHẢI + di chuột**: xoay camera quanh khối thế giới

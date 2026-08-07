@@ -20,9 +20,9 @@ import config as cfg
 from world import SurfaceWorld, UndergroundWorld
 from ants import AntColony
 
-app = Ursina(title="Ant World 3D", borderless=False)
+app = Ursina(title="Ant World 3D", borderless=False, size=(cfg.SCREEN_W, cfg.SCREEN_H))
 window.color = color.rgb(18, 18, 24)
-window.size = (cfg.SCREEN_W, cfg.SCREEN_H)
+Sky()
 
 # ---------------------------------------------------------------------
 # Ánh sáng cơ bản để khối 3D có chiều sâu, đổ bóng nhẹ

@@ -1,9 +1,16 @@
 """HUD: biểu đồ dân số, bảng thống kê, thanh công cụ - đều là các "cửa sổ"
 (Panel) NỔI TRÊN màn hình mô phỏng: KÉO DI CHUYỂN được và THU GỌN được, để
 người chơi tự sắp xếp sao cho không bị che mất khung nhìn đàn kiến (xem
-ui_widgets.Panel). Bố cục/màu sắc được thiết kế để DỄ ĐỌC: mỗi nhóm chức
-năng 1 màu riêng, nhãn/giá trị tách màu rõ, các dòng số liệu chia nhỏ theo
-chủ đề thay vì dồn hết vào 1 dòng dài."""
+ui_widgets.Panel).
+
+Thanh công cụ trình bày dạng SIDEBAR (bảng cạnh) - các nút xếp DỌC thành 1
+cột duy nhất, chia theo từng NHÓM có nhãn tiêu đề riêng, thay vì xếp thành
+2 hàng ngang như bản trước - dễ đọc/dễ quét mắt hơn khi số lượng nút nhiều.
+
+Bảng thống kê hiển thị ĐẦY ĐỦ số liệu cho CẢ 2 TỔ (chính lẫn đối thủ) với
+cấu trúc HOÀN TOÀN GIỐNG NHAU (dân số/quân số, tài nguyên, tổn thất) để so
+sánh trực tiếp 2 tổ, thay vì trước đây chỉ tổ chính có đủ số liệu tài
+nguyên/tổn thất còn tổ đối thủ chỉ có mỗi dòng dân số."""
 import numpy as np
 import pygame
 
@@ -24,13 +31,14 @@ COL_FOOD = (225, 190, 110)       # màu kho thức ăn
 COL_WATER = (110, 190, 255)      # màu nước
 COL_WARN_BG = (70, 20, 20, 130)  # nền mờ phía sau dòng cảnh báo
 COL_FOLLOW_BG = (18, 55, 28, 140)  # nền mờ phía sau dòng "đang theo dõi"
+COL_SECTION = (150, 155, 165)    # nhãn tiêu đề nhóm trong sidebar công cụ
 
 
 def build_toolbar(state):
-    """Tạo 3 Panel nổi (thanh công cụ / bảng thống kê / biểu đồ) và toàn bộ
-    nút bấm bên trong thanh công cụ, nối callback vào state. Nếu state đã
-    có sẵn panel từ trước (vd đang resize cửa sổ), GIỮ NGUYÊN vị trí/trạng
-    thái thu gọn người chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
+    """Tạo 3 Panel nổi: SIDEBAR công cụ (dọc, bên phải), bảng thống kê
+    (trên-trái), biểu đồ (dưới-trái). Nếu state đã có sẵn panel từ trước
+    (vd đang resize cửa sổ), GIỮ NGUYÊN vị trí/trạng thái thu gọn người
+    chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
     old_positions = {}
     for key in ("toolbar_panel", "stats_panel", "graph_panel"):
         p = getattr(state, key, None)
@@ -40,59 +48,78 @@ def build_toolbar(state):
     state.buttons = []
     state.tool_buttons = []
 
-    toolbar_panel = Panel(10, state.SCREEN_H - 150, 950, 104, "Dieu khien / Cong cu")
-    stats_panel = Panel(8, 8, 940, 150, "Thong tin dan kien")
-    graph_panel = Panel(state.SCREEN_W - 332, 54, 310, 178, "Dan so theo thoi gian")
+    SIDEBAR_W = 232
+    toolbar_panel = Panel(state.SCREEN_W - SIDEBAR_W - 10, 8, SIDEBAR_W, 10, "Cong cu")
+    stats_panel = Panel(8, 8, 700, 150, "Thong tin dan kien (2 to)")
+    graph_panel = Panel(8, state.SCREEN_H - 214 - 10, 310, 178, "Dan so theo thoi gian")
 
-    def make_tool_button(label, tool_name, rel_x, rel_y, style, w=96, h=30):
-        b = Button((0, 0, w, h), label, on_click=lambda: state.set_tool(tool_name), style=style)
-        b.text_tool = tool_name
-        state.tool_buttons.append(b)
+    # --- Xây SIDEBAR bằng 1 "con trỏ dọc" (cursor_y) - mỗi phần tử thêm
+    # vào tự cộng dồn xuống dưới, không cần tính tay từng tọa độ pixel ---
+    inner_w = SIDEBAR_W - 20
+    cursor = {"y": 10}
+    section_labels = []  # (text, rel_y) - hud vẽ riêng trong draw_toolbar
+
+    def add_section(text):
+        section_labels.append((text, cursor["y"]))
+        cursor["y"] += 20
+
+    def add_full_button(label, on_click, style, active=False, h=30, tool_name=None):
+        b = Button((0, 0, inner_w, h), label, on_click=on_click, style=style, active=active)
+        if tool_name is not None:
+            b.text_tool = tool_name
+            state.tool_buttons.append(b)
         state.buttons.append(b)
-        b.bind_to_panel(toolbar_panel, rel_x, rel_y)
+        b.bind_to_panel(toolbar_panel, 10, cursor["y"])
+        cursor["y"] += h + 6
         return b
 
-    rx = 6
+    def add_half_buttons(label_a, cb_a, style_a, label_b, cb_b, style_b, h=30):
+        half_w = (inner_w - 8) / 2
+        ba = Button((0, 0, half_w, h), label_a, on_click=cb_a, style=style_a)
+        ba.bind_to_panel(toolbar_panel, 10, cursor["y"])
+        bb = Button((0, 0, half_w, h), label_b, on_click=cb_b, style=style_b)
+        bb.bind_to_panel(toolbar_panel, 10 + half_w + 8, cursor["y"])
+        state.buttons += [ba, bb]
+        cursor["y"] += h + 6
+        return ba, bb
+
+    add_section("CONG CU DAT / CHINH SUA")
     for label, tool_name, style in [
         ("Dat thuc an", "food", "place"), ("Tha ke thu", "enemy", "danger"),
-        ("Dao phong", "dig", "place"), ("Dat da", "rock", "place"),
-        ("Dat nuoc", "water", "place"), ("Xoa", "erase", "tool"),
-        ("Theo doi", "follow", "tool"),
+        ("Dat da", "rock", "place"), ("Dat nuoc", "water", "place"),
+        ("Xoa", "erase", "tool"), ("Theo doi", "follow", "tool"),
     ]:
-        make_tool_button(label, tool_name, rx, 6, style)
-        rx += 100
+        add_full_button(label, lambda t=tool_name: state.set_tool(t), style, tool_name=tool_name)
 
-    pause_btn = Button((0, 0, 90, 30), "Tam dung", style="time")
-    speed_btn = Button((0, 0, 90, 30), "Toc do: x1", style="time")
+    cursor["y"] += 4
+    add_section("THOI GIAN")
+    pause_btn, speed_btn = add_half_buttons(
+        "Tam dung", None, "time", "Toc do: x1", None, "time")
     pause_btn.on_click = lambda: state.toggle_pause(pause_btn)
     speed_btn.on_click = lambda: state.cycle_speed(speed_btn)
-    pause_btn.bind_to_panel(toolbar_panel, rx + 14, 6)
-    speed_btn.bind_to_panel(toolbar_panel, rx + 112, 6)
-    state.buttons += [pause_btn, speed_btn]
 
-    respawn_btn = Button((0, 0, 190, 26), "Tai sinh thuc an: BAT", active=True, style="toggle")
-    grid_btn = Button((0, 0, 150, 26), "Luoi o vuong: BAT", active=True, style="toggle")
-    graph_btn = Button((0, 0, 130, 26), "Bieu do: HIEN", active=True, style="toggle")
-    enemy_spawn_btn = Button((0, 0, 200, 26), "Ke thu tu nhien: BAT", active=True, style="toggle")
-    layer_up_btn = Button((0, 0, 60, 26), "Tang ^", style="nav")
-    layer_down_btn = Button((0, 0, 60, 26), "Tang v", style="nav")
-
+    cursor["y"] += 4
+    add_section("CONG TAC BAT/TAT")
+    respawn_btn = add_full_button("Tai sinh thuc an: BAT", None, "toggle", active=True, h=26)
+    grid_btn = add_full_button("Luoi o vuong: BAT", None, "toggle", active=True, h=26)
+    graph_btn = add_full_button("Bieu do: HIEN", None, "toggle", active=True, h=26)
+    enemy_spawn_btn = add_full_button("Ke thu tu nhien: BAT", None, "toggle", active=True, h=26)
     respawn_btn.on_click = lambda: state.toggle_respawn(respawn_btn)
     grid_btn.on_click = lambda: state.toggle_grid(grid_btn)
     graph_btn.on_click = lambda: state.toggle_graph(graph_btn)
     enemy_spawn_btn.on_click = lambda: state.toggle_enemy_spawn(enemy_spawn_btn)
-    layer_up_btn.on_click = lambda: (state.stop_follow(), state.change_layer(-1))
-    layer_down_btn.on_click = lambda: (state.stop_follow(), state.change_layer(1))
 
-    respawn_btn.bind_to_panel(toolbar_panel, 6, 46)
-    grid_btn.bind_to_panel(toolbar_panel, 204, 46)
-    graph_btn.bind_to_panel(toolbar_panel, 362, 46)
-    enemy_spawn_btn.bind_to_panel(toolbar_panel, 500, 46)
-    layer_up_btn.bind_to_panel(toolbar_panel, 724, 46)
-    layer_down_btn.bind_to_panel(toolbar_panel, 792, 46)
-    state.buttons += [respawn_btn, grid_btn, graph_btn, enemy_spawn_btn, layer_up_btn, layer_down_btn]
+    cursor["y"] += 4
+    add_section("DI CHUYEN TANG")
+    layer_up_btn, layer_down_btn = add_half_buttons(
+        "Tang ^", lambda: (state.stop_follow(), state.change_layer(-1)), "nav",
+        "Tang v", lambda: (state.stop_follow(), state.change_layer(1)), "nav")
+
+    cursor["y"] += 6  # chỗ cho dòng gợi ý cuối cùng (vẽ trong draw_toolbar)
+    toolbar_panel.h = cursor["y"] + 18
 
     state.toolbar_panel = toolbar_panel
+    state.toolbar_section_labels = section_labels
     state.stats_panel = stats_panel
     state.graph_panel = graph_panel
     state.panels = [toolbar_panel, stats_panel, graph_panel]
@@ -131,7 +158,6 @@ def draw_graph(state, surf):
             pts.append((x, y))
         return pts
 
-    # Chú giải màu (2 chấm nhỏ + nhãn) để không cần đoán đường nào là tổ nào
     legend_y = cy + 4
     pygame.draw.circle(surf, COL_MAIN, (cx + 10, legend_y + 5), 4)
     surf.blit(state.font_small.render("To chinh", True, COL_MAIN), (cx + 18, legend_y))
@@ -148,9 +174,8 @@ def draw_graph(state, surf):
 # Bảng thống kê (Panel nổi) + nhãn tầng hiện tại (nhỏ, cố định góc trên phải)
 # ---------------------------------------------------------------------
 def _blit_row(surf, font, x, y, segments):
-    """Vẽ 1 dòng gồm nhiều đoạn (text, color) NỐI TIẾP NHAU trên cùng 1
-    dòng - dùng để nhãn mờ + giá trị sáng xen kẽ, dễ đọc hơn hẳn 1 màu
-    trắng đồng nhất cho tất cả (không phân biệt được đâu là nhãn/giá trị)."""
+    """Vẽ 1 dòng gồm nhiều đoạn (text, color) NỐI TIẾP NHAU - nhãn mờ + giá
+    trị sáng xen kẽ, dễ đọc hơn hẳn 1 màu trắng đồng nhất."""
     cur_x = x
     for text, color in segments:
         img = font.render(text, True, color)
@@ -172,6 +197,10 @@ def draw_hud(state, surf):
         warnings.append(("*** DAN KIEN TO CHINH DANG DOI ***", COL_BAD))
     if c["is_dehydrated"]:
         warnings.append(("*** DAN KIEN TO CHINH DANG KHAT NUOC ***", (255, 175, 70)))
+    if r["is_starving"]:
+        warnings.append(("*** DAN KIEN TO DOI THU DANG DOI ***", COL_BAD))
+    if r["is_dehydrated"]:
+        warnings.append(("*** DAN KIEN TO DOI THU DANG KHAT NUOC ***", (255, 175, 70)))
     if enemy.active:
         warnings.append(("*** CO KE THU TREN MAT DAT ***", (255, 210, 70)))
     if main_invaded:
@@ -179,83 +208,87 @@ def draw_hud(state, surf):
     if rival_invaded:
         warnings.append(("*** TO DOI THU DANG BI XAM CHIEM! ***", (255, 165, 90)))
     if c["raiders_out"] > 0:
-        warnings.append((f"Dang cu {c['raiders_out']} quan xam chiem to doi thu", (255, 220, 120)))
+        warnings.append((f"To chinh dang cu {c['raiders_out']} quan di xam chiem", (255, 220, 120)))
+    if r["raiders_out"] > 0:
+        warnings.append((f"To doi thu dang cu {r['raiders_out']} quan di xam chiem", (255, 220, 120)))
 
     follow_text = state.follow_status_text()
 
     LINE_H = 22
-    n_lines = 4 + len(warnings) + (1 if follow_text else 0) + 1  # +1 dong huong dan cuoi
+    # 3 dong/to (dan so, tai nguyen, ton that) x 2 to + 1 dong ke thu chung
+    n_lines = 3 + 3 + 1 + len(warnings) + (1 if follow_text else 0) + 1
     panel = state.stats_panel
-    panel.h = max(90, LINE_H * n_lines + 14)
+    panel.h = max(90, LINE_H * n_lines + 20)
     panel.draw_frame(surf, state.font)
     if not panel.collapsed:
         cx, cy = panel.content_pos()
         LX = 10
-        y = cy + 6
+        y = [cy + 6]  # dùng list để sửa được trong hàm lồng bên dưới
 
-        # Dòng 1: TỔ CHÍNH
-        _blit_row(surf, state.font_hud, cx + LX, y, [
-            ("TO CHINH   ", COL_MAIN),
-            ("Dan so ", COL_LABEL), (f"{c['population']}/{colony.n}    ", COL_VALUE),
-            ("Linh ", COL_LABEL), (f"{c['soldiers']}    ", COL_VALUE),
-            ("Gac ", COL_LABEL), (f"{c['guards_on_duty']}/{c['guards_total']}    ", COL_VALUE),
-            ("Sinh ", COL_LABEL), (f"{c['total_births']}    ", COL_GOOD),
-            ("Chet ", COL_LABEL), (f"{c['total_deaths']}", COL_BAD),
-        ])
-        y += LINE_H
+        def colony_block(label, accent, cdata, cobj):
+            _blit_row(surf, state.font_hud, cx + LX, y[0], [
+                (f"{label}   ", accent),
+                ("Dan so ", COL_LABEL), (f"{cdata['population']}/{cobj.n}    ", COL_VALUE),
+                ("Linh ", COL_LABEL), (f"{cdata['soldiers']}    ", COL_VALUE),
+                ("Gac ", COL_LABEL), (f"{cdata['guards_on_duty']}/{cdata['guards_total']}    ", COL_VALUE),
+                ("Sinh ", COL_LABEL), (f"{cdata['total_births']}    ", COL_GOOD),
+                ("Chet ", COL_LABEL), (f"{cdata['total_deaths']}", COL_BAD),
+            ])
+            y[0] += LINE_H
+            _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [
+                ("Kho ", COL_LABEL), (f"{cdata['food_in_storage']:.0f}    ", COL_FOOD),
+                ("Nuoc ", COL_LABEL), (f"{cdata['water_in_storage']:.0f}    ", COL_WATER),
+                ("Trung ", COL_LABEL), (f"{cdata['egg_count']} qua    ", COL_VALUE),
+                ("Au trung ", COL_LABEL), (f"{cdata['larva_count']} con", COL_VALUE),
+            ])
+            y[0] += LINE_H
+            _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [
+                ("Nghia dia ", COL_LABEL), (f"{cdata['corpse_count']:.0f} xac    ", COL_VALUE),
+                ("Da cuop duoc ", COL_LABEL), (f"{cdata['total_food_looted']:.0f}", (255, 210, 120)),
+            ])
+            y[0] += LINE_H
 
-        # Dòng 2: TỔ ĐỐI THỦ (cùng cấu trúc, đổi màu để so sánh nhanh)
-        _blit_row(surf, state.font_hud, cx + LX, y, [
-            ("TO DOI THU ", COL_RIVAL),
-            ("Dan so ", COL_LABEL), (f"{r['population']}/{rival_colony.n}    ", COL_VALUE),
-            ("Linh ", COL_LABEL), (f"{r['soldiers']}    ", COL_VALUE),
-            ("Gac ", COL_LABEL), (f"{r['guards_on_duty']}/{r['guards_total']}    ", COL_VALUE),
-            ("Sinh ", COL_LABEL), (f"{r['total_births']}    ", COL_GOOD),
-            ("Chet ", COL_LABEL), (f"{r['total_deaths']}", COL_BAD),
-        ])
-        y += LINE_H + 4
-        pygame.draw.line(surf, (70, 70, 78), (cx + LX, y - 2), (cx + panel.w - LX, y - 2), 1)
+        colony_block("TO CHINH", COL_MAIN, c, colony)
+        y[0] += 3
+        pygame.draw.line(surf, (70, 70, 78), (cx + LX, y[0]), (cx + panel.w - LX, y[0]), 1)
+        y[0] += 5
+        colony_block("TO DOI THU", COL_RIVAL, r, rival_colony)
 
-        # Dòng 3: Tài nguyên của TỔ CHÍNH (kho/nước/trứng/ấu trùng)
-        _blit_row(surf, state.font_hud, cx + LX, y, [
-            ("Kho ", COL_LABEL), (f"{c['food_in_storage']:.0f}    ", COL_FOOD),
-            ("Nuoc ", COL_LABEL), (f"{c['water_in_storage']:.0f}    ", COL_WATER),
-            ("Trung ", COL_LABEL), (f"{c['egg_count']} qua    ", COL_VALUE),
-            ("Au trung ", COL_LABEL), (f"{c['larva_count']} con", COL_VALUE),
-        ])
-        y += LINE_H
+        y[0] += 3
+        pygame.draw.line(surf, (70, 70, 78), (cx + LX, y[0]), (cx + panel.w - LX, y[0]), 1)
+        y[0] += 5
 
-        # Dòng 4: Số liệu xung đột (nghĩa địa/cướp được/kẻ thù bị giết)
-        _blit_row(surf, state.font_hud, cx + LX, y, [
-            ("Nghia dia ", COL_LABEL), (f"{c['corpse_count']:.0f} xac    ", COL_VALUE),
-            ("Da cuop duoc ", COL_LABEL), (f"{c['total_food_looted']:.0f}    ", (255, 210, 120)),
-            ("Ke thu da bi giet ", COL_LABEL), (f"{enemy.total_kills}", (255, 150, 150)),
+        # Kẻ thù ngoài tự nhiên là 1 thực thể DUY NHẤT DÙNG CHUNG cho cả
+        # bản đồ (không thuộc riêng tổ nào) nên hiển thị 1 dòng riêng
+        _blit_row(surf, state.font_hud, cx + LX, y[0], [
+            ("Ke thu tren mat dat ", COL_LABEL),
+            ("CO" if enemy.active else "KHONG", (255, 210, 70) if enemy.active else COL_VALUE),
+            ("    Tong so da bi kien giet ", COL_LABEL), (f"{enemy.total_kills}", (255, 150, 150)),
         ])
-        y += LINE_H
+        y[0] += LINE_H
 
         for wtext, wcolor in warnings:
             bg = pygame.Surface((panel.w - 2 * LX, LINE_H - 2), pygame.SRCALPHA)
             bg.fill(COL_WARN_BG)
-            surf.blit(bg, (cx + LX, y - 1))
+            surf.blit(bg, (cx + LX, y[0] - 1))
             img = state.font_hud.render(wtext, True, wcolor)
-            surf.blit(img, (cx + LX + 4, y))
-            y += LINE_H
+            surf.blit(img, (cx + LX + 4, y[0]))
+            y[0] += LINE_H
 
         if follow_text:
             bg = pygame.Surface((panel.w - 2 * LX, LINE_H - 2), pygame.SRCALPHA)
             bg.fill(COL_FOLLOW_BG)
-            surf.blit(bg, (cx + LX, y - 1))
-            img = state.font_hud.render(follow_text + "  - bam cho trong de ngung", True, COL_GOOD)
-            surf.blit(img, (cx + LX + 4, y))
-            y += LINE_H
+            surf.blit(bg, (cx + LX, y[0] - 1))
+            img = state.font_hud.render(follow_text, True, COL_GOOD)
+            surf.blit(img, (cx + LX + 4, y[0]))
+            y[0] += LINE_H
 
         hint = "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat"
         img = state.font_small.render(hint, True, (135, 135, 145))
-        surf.blit(img, (cx + LX, y + 2))
+        surf.blit(img, (cx + LX, y[0] + 2))
 
     # --- nhãn tầng hiện tại: nhỏ, LUÔN CỐ ĐỊNH góc trên-phải (không phải
-    # panel kéo được - đủ nhỏ để không thực sự che khung nhìn, và cần luôn
-    # nhìn thấy ngay để biết đang xem tầng nào dù các panel khác ở đâu) ---
+    # panel kéo được - đủ nhỏ để không thực sự che khung nhìn) ---
     name = layer_name(state.current_layer)
     label = state.font_big.render(f"Tang {state.current_layer}: {name}", True, (255, 255, 80))
     lr = label.get_rect(topright=(state.SCREEN_W - 12, 8))
@@ -266,28 +299,46 @@ def draw_hud(state, surf):
 
 
 def draw_toolbar(state, surf):
+    """Vẽ SIDEBAR công cụ: khung + nhãn từng nhóm (CONG CU/THOI GIAN/CONG
+    TAC/DI CHUYEN TANG) + toàn bộ nút (xếp dọc) + dòng gợi ý cuối cùng."""
     panel = state.toolbar_panel
     panel.draw_frame(surf, state.font)
     if panel.collapsed:
         return
+    cx, cy = panel.content_pos()
+
+    for text, rel_y in state.toolbar_section_labels:
+        img = state.font_small.render(text, True, COL_SECTION)
+        surf.blit(img, (cx + 10, cy + rel_y))
+        pygame.draw.line(
+            surf, (60, 60, 68),
+            (cx + 10 + img.get_width() + 8, cy + rel_y + 8),
+            (cx + panel.w - 20, cy + rel_y + 8), 1,
+        )
+
     for b in panel.children:
         b.draw(surf, state.font)
 
-    cx, cy = panel.content_pos()
-    # Đường phân cách dọc giữa các NHÓM chức năng, để mắt tách nhóm nhanh
-    # hơn nữa (ngoài việc đã phân biệt bằng màu) - "dat/dao/tha" | "xoa/
-    # theo doi" | "thoi gian" ở hàng 1; "cong tac BAT-TAT" | "doi tang" ở
-    # hàng 2.
-    for rel_x in (504, 704):
-        xline = cx + rel_x
-        pygame.draw.line(surf, (75, 75, 85), (xline, cy + 4), (xline, cy + 38), 1)
-    xline2 = cx + 712
-    pygame.draw.line(surf, (75, 75, 85), (xline2, cy + 44), (xline2, cy + 72), 1)
-
-    hint = "Chon cong cu, CLICK hoac GIU+KEO chuot trai de dung (tru Dao phong/Tha ke thu/Theo doi)"
+    hint = "Chon cong cu, CLICK hoac GIU+KEO chuot trai de dung"
     if state.current_tool == "follow":
-        hint = "Theo doi: bam TRUNG 1 con kien de camera bam theo no (tu doi tang theo no luon) - bam cho TRONG de ngung"
-    elif state.current_tool in ("food", "enemy", "dig", "rock", "water") and state.current_layer != 0:
-        hint = "Cong cu nay chi dung duoc o Tang 0 (Mat dat) - doi tang bang Ctrl+Lan chuot"
-    txt = state.font_small.render(hint, True, (255, 230, 90))
-    surf.blit(txt, (cx + 6, cy + panel.h - 22))
+        hint = "Theo doi: bam TRUNG 1 con kien de camera bam theo (tu doi tang theo) - bam cho TRONG de ngung"
+    elif state.current_tool in ("food", "enemy", "rock", "water") and state.current_layer != 0:
+        hint = "Cong cu nay chi dung o Tang 0 (Mat dat) - doi tang bang Ctrl+Lan chuot"
+    elif state.current_tool in ("food", "enemy", "rock", "water", "erase"):
+        hint = "Giu chuot trai va keo de rai lien tuc"
+    words = hint.split(" ")
+    lines_wrapped, cur = [], ""
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if state.font_small.size(trial)[0] > panel.w - 20:
+            lines_wrapped.append(cur)
+            cur = w
+        else:
+            cur = trial
+    if cur:
+        lines_wrapped.append(cur)
+    hy = cy + panel.h - 16 * len(lines_wrapped) - 8
+    for line in lines_wrapped:
+        img = state.font_small.render(line, True, (255, 230, 90))
+        surf.blit(img, (cx + 10, hy))
+        hy += 16

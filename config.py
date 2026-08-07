@@ -35,11 +35,10 @@ DEPTH_WATER = 2             # bể trữ nước - CHUNG TẦNG với kho thức
 DEPTH_EGG = 3               # phòng trứng - CHUNG TẦNG với phòng ấu trùng
 DEPTH_NURSERY = 3           # phòng ấu trùng - CHUNG TẦNG với phòng trứng
 DEPTH_QUEEN = 4             # phòng chúa - sâu nhất, được bảo vệ kỹ nhất
-DEPTH_GRAVEYARD = 5         # nghĩa địa/phòng rác - tách riêng 1 góc
-DUG_ROOM_FIRST_DEPTH = 6    # phòng đầu tiên người chơi tự đào -> tầng 6,
-                            # phòng đào tiếp theo -> tầng 7, 8, ... (mỗi
-                            # phòng tự đào chiếm 1 tầng riêng, càng đào
-                            # thêm càng "xuống sâu" thêm 1 tầng mới)
+DEPTH_GRAVEYARD = 5         # nghĩa địa/phòng rác - tách riêng 1 góc, cũng
+                            # là TẦNG SÂU NHẤT của tổ (chỉ có 6 tầng cố
+                            # định: 0 mặt đất + 5 tầng ngầm - không còn
+                            # chức năng tự đào thêm tầng như bản trước)
 
 # ----- Kiến -----
 NUM_ANTS = 10                # số kiến KHỞI TẠO (không còn là giới hạn tối đa -
@@ -96,31 +95,29 @@ DANGER_AVOID_WEIGHT = 0.4        # trọng số né tránh - NHẸ, chỉ là 1 
                                 # hơn nhiều sẽ làm tê liệt việc tìm ăn khi
                                 # kẻ thù ở gần tổ, gây sụp đổ dân số)
 
-# ----- Thức ăn trên mặt đất (đa dạng loại) -----
+# ----- Thức ăn trên mặt đất (1 LOẠI DUY NHẤT - đơn giản hóa: trước đây có
+# 3 loại khác màu/giá trị (hạt/côn trùng/mật hoa), nay chỉ còn 1 loại, 1
+# màu, để mỗi đơn vị thức ăn đều "nặng" như nhau - cũng giúp số liệu kho
+# thức ăn khớp CHÍNH XÁC 1:1 với số lần kiến thực sự mang thức ăn về, thay
+# vì lẫn lộn nhiều giá trị khác nhau) -----
 FOOD_CLUSTERS = 26           # tăng so với bản 1 tổ vì giờ có thêm tổ đối
                              # thủ cùng cạnh tranh nguồn thức ăn này
 FOOD_CLUSTER_RADIUS = 2
 
-# 3 loại thức ăn khác nhau về màu sắc và giá trị dinh dưỡng mỗi lần nhặt
-FOOD_TYPE_SEED = 0     # Hạt - phổ biến, giá trị thường
-FOOD_TYPE_INSECT = 1   # Côn trùng - hiếm hơn, giá trị dinh dưỡng cao (đạm)
-FOOD_TYPE_NECTAR = 2   # Mật hoa - khá phổ biến, giá trị vừa phải
+FOOD_TYPE_SEED = 0     # loại thức ăn DUY NHẤT
 
 FOOD_TYPE_VALUE = {
-    FOOD_TYPE_SEED: 1.0,
-    FOOD_TYPE_INSECT: 2.2,
-    FOOD_TYPE_NECTAR: 1.4,
+    FOOD_TYPE_SEED: 1.0,   # mỗi lần nhặt = đúng 1.0 đơn vị (không còn lẫn
+                           # nhiều giá trị khác nhau như bản 3 loại trước)
 }
 FOOD_TYPE_COLOR = {
-    FOOD_TYPE_SEED: (150, 115, 60),     # nâu hạt
-    FOOD_TYPE_INSECT: (150, 40, 40),    # đỏ sẫm
-    FOOD_TYPE_NECTAR: (230, 195, 50),   # vàng mật
+    FOOD_TYPE_SEED: (150, 115, 60),     # màu nâu hạt - MÀU DUY NHẤT
 }
-# Tỉ lệ xuất hiện mỗi loại khi 1 cụm thức ăn mới sinh ra (phải cộng lại = 1.0)
+# Tỉ lệ xuất hiện mỗi loại khi 1 cụm thức ăn mới sinh ra (phải cộng lại =
+# 1.0) - chỉ còn 1 loại nên luôn = 1.0, giữ lại cấu trúc dict để phần code
+# còn lại (chọn loại theo trọng số) không cần sửa gì thêm.
 FOOD_TYPE_WEIGHTS = {
-    FOOD_TYPE_SEED: 0.55,
-    FOOD_TYPE_INSECT: 0.20,
-    FOOD_TYPE_NECTAR: 0.25,
+    FOOD_TYPE_SEED: 1.0,
 }
 FOOD_PER_CLUSTER = 6.0  # số "đơn vị" thức ăn (không phải giá trị dinh dưỡng)
 
@@ -458,7 +455,17 @@ COLOR_SHAFT = (25, 18, 12)
 
 # Kho thức ăn: hiển thị thức ăn ĐANG LƯU TRỮ THẬT SỰ dưới dạng 1 đống nhỏ
 # các "viên" thức ăn rải trong phòng, thay vì chỉ 1 con số vô hình
-STORAGE_FOOD_PER_ICON = 8        # bấy nhiêu đơn vị thức ăn = 1 icon hiển thị
+STORAGE_FOOD_PER_ICON = 1        # 1 icon = ĐÚNG 1 đơn vị thức ăn (khớp 1:1
+                             # với số thức ăn kiến THỰC SỰ đã mang về - y
+                             # hệt cách nghĩa địa đã làm với xác kiến, xem
+                             # GRAVEYARD_MAX_CORPSES/add_corpse trong
+                             # world.py: 1 "nắm xác" = đúng 1 kiến đã chết.
+                             # Trước đây hằng số này = 8, nghĩa là phải
+                             # tích lũy đủ 8 đơn vị mới hiện thêm 1 icon -
+                             # khiến đống thức ăn trông "ít hơn hẳn" so với
+                             # số liệu kho thực tế, không khớp với cảm giác
+                             # trực quan "kiến vừa mang về 1 miếng thì kho
+                             # phải hiện thêm đúng 1 viên")
 STORAGE_MAX_ICONS = 40           # trần số icon vẽ (tránh rợp hình khi kho đầy)
 
 # Bể trữ nước: tương tự kho thức ăn nhưng vẽ dạng giọt nước lấp lánh

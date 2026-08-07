@@ -64,7 +64,6 @@ class GameState:
         )
         self.enemy = EnemyManager()
         self.ALL_COLONIES = [self.colony, self.rival_colony]
-        self.ALL_UNDERGROUNDS = [self.underground_world, self.rival_underground]
 
         self.camera = Camera2D(cfg.GRID_SIZE / 2.0, cfg.GRID_SIZE / 2.0, zoom=1.0)
 
@@ -72,7 +71,7 @@ class GameState:
         self.current_layer = 0
 
         # --- Trạng thái công cụ / thời gian mô phỏng ---
-        self.current_tool = None  # None | "food" | "enemy" | "dig" | "rock" | "water" | "erase"
+        self.current_tool = None  # None | "food" | "enemy" | "rock" | "water" | "erase" | "follow"
         self.sim_paused = False
         self.sim_speed = 1
         self.food_respawn_enabled = True
@@ -171,7 +170,7 @@ class GameState:
         return None
 
     def perform_tool_action(self, tool, sim_x, sim_y, layer):
-        if tool in ("food", "enemy", "dig", "rock", "water") and layer != 0:
+        if tool in ("food", "enemy", "rock", "water") and layer != 0:
             return  # các công cụ này chỉ có nghĩa trên mặt đất (Tầng 0)
 
         if tool == "follow":
@@ -190,8 +189,6 @@ class GameState:
             self.place_food_at(int(sim_x), int(sim_y))
         elif tool == "enemy":
             self.enemy.force_spawn_at(sim_x, sim_y)
-        elif tool == "dig":
-            self.underground_world.dig_new_room(sim_x, sim_y)
         elif tool == "rock":
             self.surface_world.add_obstacle(int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS)
         elif tool == "water":
@@ -211,10 +208,10 @@ class GameState:
                             col.underground.total_deaths += len(kill_idx)
                             col.underground.add_corpse(len(kill_idx))
             else:
-                for uworld in self.ALL_UNDERGROUNDS:
-                    dug_room = uworld.find_dug_room_near(sim_x, sim_y, layer, cfg.ERASE_RADIUS)
-                    if dug_room is not None:
-                        uworld.remove_room(dug_room[0])
+                # Ở tầng ngầm không còn phòng tự đào để xóa (đã bỏ chức
+                # năng đào phòng) - "Xóa" ở đây chỉ còn tác dụng loại bỏ
+                # kiến đang đứng gần điểm bấm (không ảnh hưởng 7 phòng gốc
+                # vì phòng gốc không phải là kiến, không bị xóa được).
                 for col in self.ALL_COLONIES:
                     on_layer = col.alive & (col.depth == layer)
                     if np.any(on_layer):

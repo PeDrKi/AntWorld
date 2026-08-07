@@ -17,11 +17,10 @@ Chạy: python main.py
   - Esc                       : thoát
 
 Thanh công cụ dưới màn hình:
-  - "Dat thuc an/Tha ke thu/Dao phong/Dat da/Dat nuoc": CHỈ dùng được khi
-    đang xem Tầng 0 (Mặt đất) - vì đây là các thao tác đặt trên mặt đất.
+  - "Dat thuc an/Tha ke thu/Dat da/Dat nuoc": CHỈ dùng được khi đang xem
+    Tầng 0 (Mặt đất) - vì đây là các thao tác đặt trên mặt đất.
   - "Xoa": dùng được ở MỌI tầng - xóa đúng nội dung của tầng đang xem
-    (mặt đất: thức ăn/đá/nước/kiến; tầng ngầm: phòng tự đào + kiến đang ở
-    tầng đó).
+    (mặt đất: thức ăn/đá/nước/kiến; tầng ngầm: kiến đang ở tầng đó).
   - "Theo doi": dùng được ở MỌI tầng - bấm trúng 1 con kiến bất kỳ (tổ
     nào cũng được) để camera TỰ ĐỘNG bám theo nó, kể cả khi nó di chuyển
     sang tầng khác (mặt đất <-> hầm). Bấm vào chỗ trống để ngừng theo dõi.

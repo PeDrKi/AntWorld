@@ -48,22 +48,29 @@ def draw_room_floor(surf, cx, cy, r_px, room_rgb, seed_key):
 def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
     """Kho thức ăn KHÔNG chỉ là 1 con số - vẽ luôn số thức ăn ĐANG LƯU
     TRỮ THẬT SỰ dưới dạng 1 đống nhỏ các viên thức ăn rải trong phòng,
-    đống to/nhỏ tùy theo lượng tồn kho hiện tại. Màu CỐ Ý chọn sáng/rực
-    hơn hẳn màu sàn đất để không bị lẫn với vân sàn (dot texture)."""
+    đống to/nhỏ tùy theo lượng tồn kho hiện tại (1 icon = ĐÚNG 1 đơn vị
+    thức ăn - xem STORAGE_FOOD_PER_ICON). Tất cả viên đều dùng chung 1 MÀU
+    THỨC ĂN DUY NHẤT (khớp với FOOD_TYPE_COLOR - chỉ còn 1 loại thức ăn),
+    chỉ ngả sáng/tối nhẹ ngẫu nhiên giữa các viên để đống trông có khối
+    thay vì phẳng lì 1 màu tuyệt đối - màu CỐ Ý chọn sáng/rực hơn hẳn màu
+    sàn đất để không bị lẫn với sàn phòng."""
     n_icons = int(np.clip(amount / cfg.STORAGE_FOOD_PER_ICON, 0, cfg.STORAGE_MAX_ICONS))
     if n_icons <= 0:
         return
     rng_local = np.random.RandomState(seed_key * 733 + 5)
     ang = rng_local.uniform(0, 2 * np.pi, n_icons)
     rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.72
-    colors = [(255, 210, 40), (235, 130, 35), (150, 210, 60), (230, 90, 70)]
+    shade_jitter = rng_local.uniform(-22, 22, n_icons)
+    base = cfg.FOOD_TYPE_COLOR[cfg.FOOD_TYPE_SEED]
     for i in range(n_icons):
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
         r = max(3, int(r_px * 0.14))
         px, py = cx + dx, cy + dy
+        j = shade_jitter[i]
+        color = tuple(int(np.clip(c + j, 20, 255)) for c in base)
         pygame.draw.circle(surf, (35, 25, 15), (px, py), r + 1)  # viền tối cho nổi khối
-        pygame.draw.circle(surf, colors[i % len(colors)], (px, py), r)
+        pygame.draw.circle(surf, color, (px, py), r)
         hi = max(1, int(r * 0.4))
         pygame.draw.circle(surf, (255, 255, 230), (px - r // 3, py - r // 3), hi)  # điểm sáng
 

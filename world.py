@@ -121,3 +121,25 @@ class UndergroundWorld:
             self.food_in_storage -= cost
             return True
         return False
+
+    def dig_new_room(self, x, y):
+        """Đào 1 phòng mới do người chơi chỉ định vị trí (x, y) trên mặt
+        đất - độ sâu tự động tăng dần theo số phòng đã đào, nối hành lang
+        tới phòng/giếng gần nhất. Trả về (name, center, radius, rgb) vừa
+        tạo để main.py vẽ thêm lên màn hình 3D."""
+        dug_count = len(self.rooms) - 3  # 3 phòng gốc: kho, ấu trùng, chúa
+        depth = -6.0 - dug_count * 3.0
+        depth = max(depth, -cfg.WORLD_DEPTH + 2.0)  # không đào vượt đáy khối kính
+        center = np.array([x, y, depth], dtype=np.float32)
+
+        # Nối tới phòng/giếng gần nhất (theo khoảng cách ngang x,y)
+        candidates = [self.shaft] + [r[1] for r in self.rooms]
+        dists = [np.hypot(c[0] - x, c[1] - y) for c in candidates]
+        nearest = candidates[int(np.argmin(dists))]
+
+        name = f"Phong dao #{dug_count + 1}"
+        rgb = (140, 150, 175)
+        radius = cfg.ROOM_RADIUS * 0.8
+        self.rooms.append((name, center, radius, rgb))
+        self.corridors.append((nearest, center))
+        return name, center, radius, rgb

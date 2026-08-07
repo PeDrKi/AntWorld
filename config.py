@@ -12,9 +12,9 @@ FPS = 60
 # ----- Trục Z (độ sâu, 0 = mặt đất, càng âm càng sâu) -----
 SURFACE_Z = 0.0
 SHAFT_TOP_Z = -0.6          # miệng giếng, ngay dưới mặt đất
-ROOM_Z_STORAGE = -8.0
-ROOM_Z_NURSERY = -8.0
-ROOM_Z_QUEEN = -15.0
+ROOM_Z_STORAGE = -6.0       # tầng nông nhất - kho gần cửa để tha đồ nhanh
+ROOM_Z_NURSERY = -11.0      # tầng giữa - ấu trùng cần được bảo vệ hơn kho
+ROOM_Z_QUEEN = -17.0        # tầng sâu nhất - chúa được bảo vệ kỹ nhất
 WORLD_DEPTH = 20.0          # độ sâu tối đa của khối hộp hiển thị (để vẽ khung kính)
 
 # ----- Kiến -----

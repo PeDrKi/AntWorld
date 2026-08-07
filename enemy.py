@@ -43,6 +43,16 @@ class EnemyManager:
         self.life_left = cfg.ENEMY_LIFETIME_TICKS
         self.kills_this_visit = 0
 
+    def force_spawn_at(self, x, y):
+        """Người chơi chủ động thả kẻ thù tại vị trí (x, y) chỉ định -
+        dùng cho công cụ can thiệp bằng chuột."""
+        self.active = True
+        self.x = float(x)
+        self.y = float(y)
+        self.theta = float(np.random.uniform(0, 2 * np.pi))
+        self.life_left = cfg.ENEMY_LIFETIME_TICKS
+        self.kills_this_visit = 0
+
     def _despawn(self):
         self.active = False
         self.spawn_cooldown = np.random.randint(

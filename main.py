@@ -5,13 +5,18 @@ suốt kiểu "bể nuôi kiến" (formicarium bằng kính) mà bạn xoay/zoom
 
 Chạy: python main.py
 
-Điều khiển (mặc định của Ursina EditorCamera):
+Điều khiển camera (mặc định của Ursina EditorCamera):
   - Giữ CHUỘT PHẢI + di chuột : xoay camera quanh thế giới
   - Lăn chuột                 : zoom vào/ra
   - Giữ CHUỘT PHẢI + W/A/S/D  : bay ngang trong lúc xoay
   - Phím G                    : bật/tắt độ trong suốt của mặt đất
-                                  (để nhìn xuyên xuống hầm dễ hơn)
   - Esc                       : thoát
+
+Can thiệp vào thế giới (thanh công cụ dưới màn hình):
+  - "Dat thuc an" : chọn rồi CLICK CHUỘT TRÁI lên mặt đất để rải thức ăn
+  - "Tha ke thu"  : chọn rồi click để thả kẻ thù ngay tại điểm đó
+  - "Dao phong"   : chọn rồi click để đào 1 phòng hầm mới tại điểm đó
+  - "Tam dung" / "Toc do xN": điều khiển thời gian mô phỏng
 """
 from ursina import *
 import numpy as np
@@ -54,6 +59,12 @@ def sim_to_world(x, y, z):
     return (float(x) - CENTER, float(z), float(y) - CENTER)
 
 
+def world_to_sim(wx, wy, wz):
+    """Chiều ngược lại của sim_to_world - dùng để đổi điểm click chuột
+    (tọa độ Ursina) về tọa độ lưới mô phỏng (x, y)."""
+    return (wx + CENTER, wz + CENTER, wy)
+
+
 # ---------------------------------------------------------------------
 # Khối kính bao quanh toàn bộ thế giới (như bể nuôi kiến)
 # ---------------------------------------------------------------------
@@ -85,6 +96,7 @@ ground = Entity(
     position=(0, 0, 0),
     color=rgb255(205, 178, 132, 235),
     double_sided=True,
+    collider="box",
 )
 GROUND_OPAQUE_ALPHA = 235
 GROUND_TRANSPARENT_ALPHA = 55
@@ -98,9 +110,10 @@ nest_hole = Entity(
 )
 
 # ---------------------------------------------------------------------
-# Các phòng dưới hầm
+# Các phòng dưới hầm - vẽ bằng hàm dùng lại được (cho cả lúc khởi tạo lẫn
+# lúc người chơi đào thêm phòng mới bằng công cụ)
 # ---------------------------------------------------------------------
-for name, center, radius, rgb in underground_world.rooms:
+def create_room_entity(name, center, radius, rgb):
     room_ent = Entity(
         model="sphere",
         scale=radius * 2,
@@ -121,15 +134,23 @@ for name, center, radius, rgb in underground_world.rooms:
         origin=(0, 0),
         color=color.white,
     )
+    return room_ent
 
-# Hành lang nối giếng <-> các phòng (vẽ dạng đường/ống mỏng)
-for a, b in underground_world.corridors:
+
+def create_corridor_entity(a, b):
     p1 = sim_to_world(*a)
     p2 = sim_to_world(*b)
-    Entity(
+    return Entity(
         model=Mesh(vertices=[p1, p2], mode="line", thickness=6),
         color=rgb255(160, 128, 92, 230),
     )
+
+
+for name, center, radius, rgb in underground_world.rooms:
+    create_room_entity(name, center, radius, rgb)
+
+for a, b in underground_world.corridors:
+    create_corridor_entity(a, b)
 
 # ---------------------------------------------------------------------
 # Thức ăn trên mặt đất (lấy mẫu thưa để không tạo quá nhiều entity)
@@ -146,6 +167,23 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
                 color=rgb255(60, 150, 60),
             )
             food_entities[(gx, gy)] = ent
+
+
+def place_food_at(gx, gy, amount=8.0):
+    """Đặt thức ăn tại 1 ô lưới cụ thể (dùng cho công cụ click chuột) -
+    tạo entity hiển thị nếu ô đó chưa có sẵn."""
+    gx = int(np.clip(gx, 0, cfg.GRID_SIZE - 1))
+    gy = int(np.clip(gy, 0, cfg.GRID_SIZE - 1))
+    surface_world.food[gx, gy] += amount
+    if (gx, gy) not in food_entities:
+        food_entities[(gx, gy)] = Entity(
+            model="sphere",
+            scale=0.55,
+            position=sim_to_world(gx, gy, 0.2),
+            color=rgb255(60, 150, 60),
+        )
+    else:
+        food_entities[(gx, gy)].enabled = True
 
 # ---------------------------------------------------------------------
 # Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu
@@ -167,6 +205,87 @@ enemy_entity = Entity(
     scale=1.4,
     color=rgb255(220, 30, 30),
     enabled=False,
+)
+
+# ---------------------------------------------------------------------
+# Thanh công cụ can thiệp (đặt thức ăn / thả kẻ thù / đào phòng) +
+# điều khiển thời gian (tạm dừng / tăng tốc)
+# ---------------------------------------------------------------------
+current_tool = None   # None | "food" | "enemy" | "dig"
+sim_paused = False
+sim_speed = 1          # 1, 2, hoặc 4 lần tốc độ mỗi khung hình
+
+TOOL_BUTTON_COLOR = rgb255(40, 40, 45, 235)
+TOOL_BUTTON_ACTIVE_COLOR = rgb255(70, 130, 180, 235)
+
+tool_buttons = {}
+
+
+def _set_tool(name):
+    global current_tool
+    current_tool = None if current_tool == name else name
+    for key, btn in tool_buttons.items():
+        btn.color = TOOL_BUTTON_ACTIVE_COLOR if key == current_tool else TOOL_BUTTON_COLOR
+
+
+def make_tool_button(label, tool_name, x):
+    btn = Button(
+        text=label,
+        parent=camera.ui,
+        position=(x, -0.45),
+        scale=(0.15, 0.06),
+        color=TOOL_BUTTON_COLOR,
+        text_size=0.7,
+    )
+    btn.on_click = Func(_set_tool, tool_name)
+    tool_buttons[tool_name] = btn
+    return btn
+
+
+make_tool_button("Dat thuc an", "food", -0.55)
+make_tool_button("Tha ke thu", "enemy", -0.37)
+make_tool_button("Dao phong", "dig", -0.19)
+
+pause_button = Button(
+    text="Tam dung",
+    parent=camera.ui,
+    position=(0.30, -0.45),
+    scale=(0.13, 0.06),
+    color=TOOL_BUTTON_COLOR,
+    text_size=0.7,
+)
+speed_button = Button(
+    text="Toc do: x1",
+    parent=camera.ui,
+    position=(0.46, -0.45),
+    scale=(0.15, 0.06),
+    color=TOOL_BUTTON_COLOR,
+    text_size=0.7,
+)
+
+
+def _toggle_pause():
+    global sim_paused
+    sim_paused = not sim_paused
+    pause_button.text = "Tiep tuc" if sim_paused else "Tam dung"
+    pause_button.color = TOOL_BUTTON_ACTIVE_COLOR if sim_paused else TOOL_BUTTON_COLOR
+
+
+def _cycle_speed():
+    global sim_speed
+    sim_speed = {1: 2, 2: 4, 4: 1}[sim_speed]
+    speed_button.text = f"Toc do: x{sim_speed}"
+
+
+pause_button.on_click = _toggle_pause
+speed_button.on_click = _cycle_speed
+
+tool_hint = Text(
+    parent=camera.ui,
+    text="Chon 1 cong cu roi CLICK CHUOT TRAI len mat dat de dung",
+    position=(-0.55, -0.38),
+    scale=0.7,
+    color=color.yellow,
 )
 
 # ---------------------------------------------------------------------
@@ -198,8 +317,10 @@ STATS_EVERY_N_FRAMES = 15
 
 def update():
     global frame_counter
-    colony.update()
-    enemy.update(colony)
+    if not sim_paused:
+        for _ in range(sim_speed):
+            colony.update()
+            enemy.update(colony)
 
     xs, ys, zs = colony.x, colony.y, colony.z
     carrying = colony.carrying
@@ -248,6 +369,22 @@ def input(key):
         ground_transparent = not ground_transparent
         alpha = GROUND_TRANSPARENT_ALPHA if ground_transparent else GROUND_OPAQUE_ALPHA
         ground.color = rgb255(205, 178, 132, alpha)
+    elif key == "left mouse down" and current_tool is not None:
+        # Chỉ xử lý khi thực sự đang trỏ vào MẶT ĐẤT (không phải bấm
+        # nhầm vào nút toolbar - mouse.hovered_entity sẽ là ground lúc đó)
+        if mouse.hovered_entity == ground and mouse.world_point is not None:
+            sim_x, sim_y, _ = world_to_sim(*mouse.world_point)
+            sim_x = float(np.clip(sim_x, 1, cfg.GRID_SIZE - 2))
+            sim_y = float(np.clip(sim_y, 1, cfg.GRID_SIZE - 2))
+
+            if current_tool == "food":
+                place_food_at(int(sim_x), int(sim_y))
+            elif current_tool == "enemy":
+                enemy.force_spawn_at(sim_x, sim_y)
+            elif current_tool == "dig":
+                name, center, radius, rgb = underground_world.dig_new_room(sim_x, sim_y)
+                create_room_entity(name, center, radius, rgb)
+                create_corridor_entity(underground_world.corridors[-1][0], center)
 
 
 app.run()

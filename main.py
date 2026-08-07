@@ -160,7 +160,8 @@ rival_nest_hole = Entity(
 # Các phòng dưới hầm - vẽ bằng hàm dùng lại được (cho cả lúc khởi tạo lẫn
 # lúc người chơi đào thêm phòng mới bằng công cụ)
 # ---------------------------------------------------------------------
-def create_room_entity(name, center, radius, rgb):
+def create_room_entity(room):
+    room_id, name, center, radius, rgb = room
     room_ent = Entity(
         model="sphere",
         scale=radius * 2,
@@ -172,7 +173,7 @@ def create_room_entity(name, center, radius, rgb):
     # khổng lồ che kín màn hình. Gắn thẳng vào 'scene' và tự tính vị trí.
     label_pos = sim_to_world(center[0], center[1], center[2])
     label_pos = (label_pos[0], label_pos[1] + radius + 1.2, label_pos[2])
-    Text(
+    label_ent = Text(
         parent=scene,
         text=name,
         position=label_pos,
@@ -181,7 +182,7 @@ def create_room_entity(name, center, radius, rgb):
         origin=(0, 0),
         color=color.white,
     )
-    return room_ent
+    return room_ent, label_ent
 
 
 def create_corridor_entity(a, b):
@@ -212,24 +213,43 @@ def create_queen_visual(underground, rgb):
     )
 
 
-for name, center, radius, rgb in underground_world.rooms:
-    create_room_entity(name, center, radius, rgb)
+room_entities = {}       # room_id -> (room_ent, label_ent)
+corridor_entities = {}   # id(center của đầu B) -> Entity hành lang
+
+
+def register_room(room):
+    room_ent, label_ent = create_room_entity(room)
+    room_entities[room[0]] = (room_ent, label_ent)
+
+
+def register_corridor(a, b):
+    ent = create_corridor_entity(a, b)
+    corridor_entities[id(b)] = ent
+
+
+for room in underground_world.rooms:
+    register_room(room)
 for a, b in underground_world.corridors:
-    create_corridor_entity(a, b)
+    register_corridor(a, b)
 create_queen_visual(underground_world, (150, 70, 160))
 
-for name, center, radius, rgb in rival_underground.rooms:
-    create_room_entity(name, center, radius, rgb)
+for room in rival_underground.rooms:
+    register_room(room)
 for a, b in rival_underground.corridors:
-    create_corridor_entity(a, b)
+    register_corridor(a, b)
 create_queen_visual(rival_underground, (170, 60, 60))
 
 # ---------------------------------------------------------------------
 # Địa hình: đá (chặn đường) và nước (chặn đường, màu xanh trong suốt) -
 # vẽ bằng hàm dùng lại được cho cả lúc khởi tạo lẫn khi người chơi tự đặt
-# thêm bằng công cụ
-# ---------------------------------------------------------------------
-def create_terrain_entity(terrain_type, cx, cy, radius):
+# thêm bằng công cụ. terrain_entities: {feature_id: [list Entity]} - để
+# công cụ "Xóa" có thể hủy đúng các entity 3D khi xóa 1 vùng địa hình.
+terrain_entities = {}
+
+
+def create_terrain_entity(feature):
+    fid, terrain_type, cx, cy, radius = feature
+    created = []
     if terrain_type == cfg.TERRAIN_ROCK:
         # vài khối đá nhỏ xếp lệch nhau cho tự nhiên, thay vì 1 khối tròn đều
         rng_local = np.random.default_rng(int(cx * 1000 + cy))
@@ -238,23 +258,25 @@ def create_terrain_entity(terrain_type, cx, cy, radius):
             ox = rng_local.uniform(-radius * 0.6, radius * 0.6)
             oy = rng_local.uniform(-radius * 0.6, radius * 0.6)
             s = rng_local.uniform(0.7, 1.5)
-            Entity(
+            created.append(Entity(
                 model="cube",
                 scale=(s, s * rng_local.uniform(0.6, 1.1), s),
                 position=sim_to_world(cx + ox, cy + oy, 0.0),
                 rotation=(0, rng_local.uniform(0, 360), 0),
                 color=rgb255(120, 118, 112, 255),
-            )
+            ))
     else:  # TERRAIN_WATER
-        Entity(
+        created.append(Entity(
             model=Cylinder(resolution=16, radius=radius, height=0.06),
             position=sim_to_world(cx, cy, 0.05),
             color=rgb255(70, 140, 200, 175),
-        )
+        ))
+    terrain_entities[fid] = created
+    return created
 
 
-for terrain_type, cx, cy, radius in surface_world.terrain_features:
-    create_terrain_entity(terrain_type, cx, cy, radius)
+for feature in surface_world.terrain_features:
+    create_terrain_entity(feature)
 
 # ---------------------------------------------------------------------
 # Thức ăn trên mặt đất (lấy mẫu thưa để không tạo quá nhiều entity)
@@ -403,11 +425,12 @@ make_tool_button("Tha ke thu", "enemy", -0.465)
 make_tool_button("Dao phong", "dig", -0.31)
 make_tool_button("Dat da", "rock", -0.155)
 make_tool_button("Dat nuoc", "water", 0.0)
+make_tool_button("Xoa", "erase", 0.155)
 
 pause_button = Button(
     text="Tam dung",
     parent=camera.ui,
-    position=(0.30, -0.42),
+    position=(0.32, -0.42),
     scale=(0.13, 0.06),
     color=TOOL_BUTTON_COLOR,
     text_size=0.7,
@@ -415,7 +438,7 @@ pause_button = Button(
 speed_button = Button(
     text="Toc do: x1",
     parent=camera.ui,
-    position=(0.46, -0.42),
+    position=(0.48, -0.42),
     scale=(0.15, 0.06),
     color=TOOL_BUTTON_COLOR,
     text_size=0.7,
@@ -614,19 +637,55 @@ def input(key):
             elif current_tool == "enemy":
                 enemy.force_spawn_at(sim_x, sim_y)
             elif current_tool == "dig":
-                name, center, radius, rgb = underground_world.dig_new_room(sim_x, sim_y)
-                create_room_entity(name, center, radius, rgb)
-                create_corridor_entity(underground_world.corridors[-1][0], center)
+                room = underground_world.dig_new_room(sim_x, sim_y)
+                register_room(room)
+                new_center = room[2]
+                register_corridor(underground_world.corridors[-1][0], new_center)
             elif current_tool == "rock":
                 feature = surface_world.add_obstacle(
                     int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS
                 )
-                create_terrain_entity(*feature)
+                create_terrain_entity(feature)
             elif current_tool == "water":
                 feature = surface_world.add_obstacle(
                     int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS
                 )
-                create_terrain_entity(*feature)
+                create_terrain_entity(feature)
+            elif current_tool == "erase":
+                # Xóa thức ăn quanh điểm click
+                surface_world.clear_food_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+                for (fx, fy), ent in food_entities.items():
+                    if (fx - sim_x) ** 2 + (fy - sim_y) ** 2 <= cfg.ERASE_RADIUS ** 2:
+                        ent.enabled = False
+                # Xóa đá/nước có tâm nằm trong bán kính xóa
+                removed = surface_world.remove_features_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+                for feature in removed:
+                    fid = feature[0]
+                    for ent in terrain_entities.pop(fid, []):
+                        destroy(ent)
+                # Xóa 1 phòng do người chơi tự đào (KHÔNG bao giờ xóa được
+                # 3 phòng gốc: kho/ấu trùng/chúa - kiến cần chúng để sống)
+                for uworld in (underground_world, rival_underground):
+                    dug_room = uworld.find_dug_room_near(sim_x, sim_y, cfg.ERASE_RADIUS)
+                    if dug_room is not None:
+                        removed_room = uworld.remove_room(dug_room[0])
+                        if removed_room is not None:
+                            for ent in room_entities.pop(removed_room[0], ()):
+                                destroy(ent)
+                            corridor_ent = corridor_entities.pop(id(removed_room[2]), None)
+                            if corridor_ent is not None:
+                                destroy(corridor_ent)
+                # Xóa kiến (của bất kỳ tổ nào) trong bán kính xóa
+                for col in ALL_COLONIES:
+                    on_surface = col.alive & (col.layer == cfg.LAYER_SURFACE)
+                    if np.any(on_surface):
+                        idx = np.where(on_surface)[0]
+                        dist2 = (col.x[idx] - sim_x) ** 2 + (col.y[idx] - sim_y) ** 2
+                        kill_idx = idx[dist2 <= cfg.ERASE_RADIUS ** 2]
+                        if len(kill_idx) > 0:
+                            col.alive[kill_idx] = False
+                            col.underground.total_deaths += len(kill_idx)
+
 
 
 app.run()

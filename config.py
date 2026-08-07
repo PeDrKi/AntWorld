@@ -77,6 +77,8 @@ TERRAIN_SAFE_RADIUS_FROM_NEST = 6  # không đặt địa hình quá gần lỗ 
 # Kiến không đi được VÀO nước (vẫn chặn đường như trước), nhưng nếu đứng
 # đủ GẦN mép nước có thể "uống" mang về - đàn kiến cần nước như cần ăn.
 WATER_COLLECT_RADIUS = 2.0     # khoảng cách tới mép nước để có thể "uống"
+ERASE_RADIUS = 3.0             # bán kính xóa vật thể (thức ăn/đá/nước)
+                               # quanh điểm click của công cụ "Xóa"
 WATER_BASE_INCOME_PER_TICK = 0.45  # tổ tự động thu được bấy nhiêu nước mỗi
                                # tick MIỄN LÀ còn ít nhất 1 vũng nước trên
                                # bản đồ (đại diện cho việc kiến đi lấy nước

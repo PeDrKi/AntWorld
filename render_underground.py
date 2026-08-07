@@ -65,7 +65,7 @@ def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
     for i in range(n_icons):
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
-        r = max(3, int(r_px * 0.14))
+        r = max(2, int(r_px * 0.085))
         px, py = cx + dx, cy + dy
         j = shade_jitter[i]
         color = tuple(int(np.clip(c + j, 20, 255)) for c in base)

@@ -131,8 +131,10 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     đúng hướng đang di chuyển) thay vì 1 chấm tròn đơn giản - để không
     bị lẫn với các chấm khác trong phòng (thức ăn, ấu trùng, trứng, xác,
     vân sàn...). Lính (ROLE_MAJOR) có đầu to/bạnh hơn hẳn (như có hàm
-    khỏe); lính gác (is_guard) có thêm 1 chấm sáng nhỏ trên bụng để
-    phân biệt với lính thường ngay cả khi đứng lẫn nhau trên mặt đất."""
+    khỏe). Mỗi CHỨC NĂNG của thợ nhỏ có 1 chấm huy hiệu màu riêng trên
+    bụng để phân biệt ngay cả khi đứng lẫn nhau: lính gác = vàng, chuyên
+    chăm ấu trùng (nurse) = hồng, chuyên chăm trứng+chúa (attendant) =
+    tím - thợ kiếm ăn (forager, đa số) không có huy hiệu."""
     mask = colony_obj.alive & (colony_obj.depth == depth_filter)
     if not np.any(mask):
         return
@@ -147,6 +149,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     carry_food_type = colony_obj.carry_food_type[idx]
     is_major = colony_obj.role[idx] == cfg.ROLE_MAJOR
     is_guard = colony_obj.is_guard[idx]
+    job = colony_obj.job[idx]
     is_working = colony_obj.state[idx] == cfg.STATE_DWELL
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
@@ -178,6 +181,12 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         if is_guard[i]:  # lính gác: 1 chấm sáng nhỏ trên bụng để phân biệt
             badge_r = max(1, int(abdomen_r * 0.4))
             pygame.draw.circle(surf, (255, 225, 90), (int(abd_x), int(abd_y)), badge_r)
+        elif job[i] == cfg.JOB_NURSE:  # chuyên chăm ấu trùng: chấm hồng
+            badge_r = max(1, int(abdomen_r * 0.4))
+            pygame.draw.circle(surf, (255, 175, 205), (int(abd_x), int(abd_y)), badge_r)
+        elif job[i] == cfg.JOB_ATTENDANT:  # chuyên chăm trứng+chúa: chấm tím
+            badge_r = max(1, int(abdomen_r * 0.4))
+            pygame.draw.circle(surf, (200, 150, 240), (int(abd_x), int(abd_y)), badge_r)
 
         # --- Đang LÀM VIỆC (STATE_DWELL - lượn trong phòng): 1 vòng sáng
         # nhấp nháy nhẹ quanh con kiến, để phân biệt rõ ràng với kiến chỉ
@@ -210,16 +219,31 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
                 pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (int(ax), int(ay)), 1)
 
         # --- Mồi tha trên lưng: 1 miếng nhỏ đúng màu loại thức ăn thật,
-        # hiện rõ ràng ngay trước đầu con kiến (theo hướng đang đi) để
-        # nhìn thấy NGAY nó đang tha gì về tổ, không chỉ đổi màu thân ---
+        # hiện rõ ràng ngay TRƯỚC ĐẦU con kiến (theo hướng đang đi), có
+        # DÂY NỐI mảnh từ hàm tới mồi (như đang thực sự ngoạm) và LẮC LƯ
+        # nhẹ theo nhịp bước để rõ ràng đây là vật đang được THA ĐI, không
+        # phải chỉ đổi màu thân là xong ---
         if carrying[i]:
-            mx = int(hd_x + dirx * r * 1.3)
-            my = int(hd_y + diry * r * 1.3)
-            morsel_r = max(2, int(r * 0.85))
+            bob = math.sin(state.frame_counter * 0.35 + i) * r * 0.22
+            mx = int(hd_x + dirx * r * 1.35 + perp_x * bob)
+            my = int(hd_y + diry * r * 1.35 + perp_y * bob)
+            morsel_r = max(3, int(r * 0.95))
+            # Dây/hàm nối đầu tới mồi - cho thấy đang NGOẠM chứ không phải
+            # vật trôi nổi cạnh đầu
+            pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (mx, my), max(1, int(r * 0.22)))
             if carry_type[i] == 2:  # nước - giọt xanh
-                pygame.draw.circle(surf, (60, 140, 230), (mx, my), morsel_r)
-                pygame.draw.circle(surf, (200, 230, 255), (mx, my), max(1, morsel_r // 2))
-            else:  # thức ăn - đúng màu loại thức ăn thật đã nhặt
-                fc = cfg.FOOD_TYPE_COLOR.get(int(carry_food_type[i]), (150, 115, 60))
-                pygame.draw.circle(surf, fc, (mx, my), morsel_r)
+                base_c, hi_c = (60, 140, 230), (200, 230, 255)
+            else:  # thức ăn - đúng màu duy nhất
+                base_c = cfg.FOOD_TYPE_COLOR.get(int(carry_food_type[i]), (150, 115, 60))
+                hi_c = tuple(min(255, c + 70) for c in base_c)
+            # Viền sáng nhấp nháy nhẹ quanh mồi để "nổi" hẳn lên so với thân
+            # kiến và nền đất - khỏi phải nhìn kỹ mới nhận ra đang tha gì
+            glow_pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.3 + i * 1.7)
+            glow_r = morsel_r + 2 + int(glow_pulse * 1.5)
+            glow_surf = pygame.Surface((glow_r * 2 + 2, glow_r * 2 + 2), pygame.SRCALPHA)
+            glow_alpha = int(90 + glow_pulse * 90)
+            pygame.draw.circle(glow_surf, (*hi_c, glow_alpha), (glow_r + 1, glow_r + 1), glow_r, 2)
+            surf.blit(glow_surf, (mx - glow_r - 1, my - glow_r - 1))
+            pygame.draw.circle(surf, base_c, (mx, my), morsel_r)
+            pygame.draw.circle(surf, hi_c, (mx, my), max(1, morsel_r // 2))
             pygame.draw.circle(surf, (20, 15, 10), (mx, my), morsel_r, 1)

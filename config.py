@@ -222,6 +222,65 @@ GUARD_ALERT_RADIUS = 16     # kẻ thù vào trong bán kính này (tính từ l
                             # thì lính gác lao lên mặt đất nghênh chiến
 GUARD_SPEED = 0.22          # lính gác lao lên nhanh hơn tốc độ đi thường
 
+# ----- Chức năng riêng biệt của THỢ NHỎ (ROLE_MINOR) - mỗi con MỘT chức
+# năng CỐ ĐỊNH suốt đời (gán lúc sinh ra, không đổi), để đàn kiến trông
+# thật sự có PHÂN CÔNG LAO ĐỘNG rõ ràng thay vì ai cũng làm mọi việc:
+#   - JOB_FORAGER : ra mặt đất kiếm thức ăn + lấy nước mang về (đa số)
+#   - JOB_NURSE   : KHÔNG BAO GIỜ lên mặt đất - cả đời quanh quẩn giữa Kho
+#                   thức ăn và Phòng ấu trùng, tự lấy thức ăn mang qua cho
+#                   ấu trùng ăn (xem _update_nurses trong ants.py)
+#   - JOB_ATTENDANT: KHÔNG BAO GIỜ lên mặt đất - túc trực luân phiên giữa
+#                   Phòng chúa và Phòng trứng, hầu chúa + trông trứng (xem
+#                   _update_attendants trong ants.py)
+# Lính (ROLE_MAJOR) KHÔNG thuộc hệ thống này - lính hoặc là "lính gác"
+# (is_guard, đã có sẵn cơ chế riêng) hoặc vẫn tha đồ/chiến đấu như thợ
+# thường, không chăm ấu trùng/trứng/chúa (đúng theo đúng đặc tính CANH GÁC
+# là trách nhiệm chính của lính).
+JOB_FORAGER = 0
+JOB_NURSE = 1
+JOB_ATTENDANT = 2
+JOB_NURSE_RATIO = 0.10       # trong số thợ nhỏ, bấy nhiêu % chuyên chăm ấu trùng
+JOB_ATTENDANT_RATIO = 0.06   # ... bấy nhiêu % chuyên chăm trứng + chúa
+                             # (phần còn lại ~84% là JOB_FORAGER - ĐÃ KIỂM
+                             # THỬ: để tỉ lệ nurse/attendant cao (22%/13%)
+                             # làm giảm gần 1/3 lực lượng kiếm ăn so với
+                             # trước (khi mọi thợ đều kiếm ăn), khiến kho
+                             # không bao giờ tích lũy đủ để chúa đẻ trứng
+                             # -> CẢ ĐÀN TUYỆT CHỦNG dần. Tỉ lệ thấp hơn vẫn
+                             # đủ để thấy rõ có kiến chuyên trách 2 việc
+                             # này, mà không bóp nghẹt kinh tế cả đàn.
+JOB_SPECIALIZATION_MIN_POPULATION = 25  # đàn phải đạt ÍT NHẤT bấy nhiêu con
+                             # thì thợ mới bắt đầu CÓ chuyên môn (nurse/
+                             # attendant) - dưới mức này, MỌI thợ nhỏ đều
+                             # là forager (đúng thực tế: 1 đàn kiến mới lập
+                             # chỉ có vài thợ đa năng, ai cũng phải ra ngoài
+                             # kiếm ăn, chưa đủ người để "cắt cử" ai đó ở
+                             # nhà chuyên trách - đã kiểm thử: nếu chuyên
+                             # môn hóa ngay từ đầu lúc đàn còn 10 con, rủi
+                             # ro tuyệt chủng giai đoạn đầu rất cao vì mất
+                             # luôn 1-2 thợ kiếm ăn ngay khi đàn còn quá yếu)
+
+NURSE_TRIP_FOOD_AMOUNT = 1   # mỗi chuyến nurse mang bấy nhiêu đơn vị thức
+                             # ăn từ kho qua phòng ấu trùng (chỉ đi khi kho
+                             # còn đủ - nếu kho cạn, nurse đứng chờ tại kho
+                             # thay vì đi tay không)
+NURSE_NURSERY_TARGET_STOCK = 12.0  # nurse CHỈ đi lấy thêm 1 chuyến nếu
+                             # phòng ấu trùng đang có ÍT HƠN mức tồn kho
+                             # này - nếu không giới hạn, nurse sẽ hút sạch
+                             # MỌI thức ăn vừa về kho ngay lập tức (đã kiểm
+                             # chứng: gây tuyệt chủng thật, vì kho không
+                             # bao giờ kịp tích lũy đủ để chúa đẻ trứng -
+                             # xem EGG_MIN_STORAGE_BUFFER_PER_ANT). Ngưỡng
+                             # này khiến nurse chỉ lấy thêm khi ấu trùng
+                             # THỰC SỰ cần (nhu cầu quyết định nguồn cung),
+                             # không phải cứ kho có là lấy ngay.
+NURSE_IDLE_TICKS_MIN, NURSE_IDLE_TICKS_MAX = 50, 130  # nurse "chăm" ở
+                             # phòng ấu trùng bao lâu mỗi chuyến trước khi
+                             # quay lại kho lấy chuyến tiếp theo
+ATTENDANT_SWITCH_TICKS_MIN, ATTENDANT_SWITCH_TICKS_MAX = 160, 420  # attendant
+                             # túc trực ở 1 phòng (chúa/trứng) bao lâu
+                             # trước khi đổi sang phòng kia
+
 # ----- Xâm chiếm/phá tổ đối thủ khi khan hiếm thức ăn -----
 # Khi kho CẠN KIỆT và đàn đang thật sự đói (không chỉ tạm thời ít), tổ sẽ tự
 # cử 1 đội (ưu tiên lính) hành quân sang XÂM CHIẾM tổ đối thủ: giao chiến
@@ -303,15 +362,12 @@ ROOM_RADIUS_EGG = ROOM_RADIUS * 0.75
 ROOM_RADIUS_GUARD = ROOM_RADIUS * 0.9
 ROOM_RADIUS_GRAVEYARD = ROOM_RADIUS * 0.8
 
-# Xác suất 1 con kiến sau khi giao thức ăn ở kho sẽ trở thành "nurse"
-# (mang thức ăn tiếp sang phòng ấu trùng) thay vì quay lại mặt đất ngay
-NURSE_PROBABILITY = 0.35
-
 # ----- Trạng thái kiến (state machine) -----
 STATE_SEARCHING = 0        # trên mặt đất, đang tìm thức ăn
 STATE_RETURNING = 1        # trên mặt đất, đang tha thức ăn về tổ
 STATE_UG_TO_STORAGE = 2    # dưới hầm, đang đi tới kho
-STATE_UG_TO_NURSERY = 3    # dưới hầm, nurse đang mang đồ tới phòng ấu trùng
+STATE_UG_TO_NURSERY = 3    # (không còn dùng - giữ số hiệu để không xáo trộn
+                           # các hằng số khác; xem STATE_NURSE_* bên dưới)
 STATE_UG_TO_SHAFT = 4      # dưới hầm, đang quay lại giếng để lên mặt đất
 STATE_DWELL = 5            # dưới hầm, đang LƯỢN/HOẠT ĐỘNG trong phạm vi 1
                            # phòng (kho/ấu trùng/phòng chúa) 1 lúc trước khi
@@ -324,6 +380,18 @@ STATE_GUARD_RETURN = 8     # lính gác xong việc, đang quay về giếng đ�
                            # xuống lại phòng gác
 STATE_RAID_TO_ENEMY = 9    # đội xâm chiếm đang hành quân sang tổ đối thủ
 STATE_RAID_LOOT = 10       # đang giao chiến/cướp phá tại tổ đối thủ
+
+# --- Vòng lặp RIÊNG của JOB_NURSE (không bao giờ lên mặt đất) ---
+STATE_NURSE_AT_STORAGE = 11   # đang ở kho, chờ/lượn, sẵn sàng lấy chuyến kế
+STATE_NURSE_TO_NURSERY = 12   # đang mang thức ăn từ kho sang phòng ấu trùng
+STATE_NURSE_AT_NURSERY = 13   # đang "chăm" ở phòng ấu trùng 1 lúc
+STATE_NURSE_TO_STORAGE = 14   # đang quay lại kho để lấy chuyến tiếp theo
+
+# --- Vòng lặp RIÊNG của JOB_ATTENDANT (không bao giờ lên mặt đất) ---
+STATE_ATTENDANT_AT_QUEEN = 15   # đang túc trực cạnh chúa
+STATE_ATTENDANT_TO_EGG = 16     # đang di chuyển sang phòng trứng
+STATE_ATTENDANT_AT_EGG = 17     # đang túc trực trông trứng
+STATE_ATTENDANT_TO_QUEEN = 18   # đang quay lại phòng chúa
 
 # Kiến "lượn" trong phòng bao lâu trước khi tiếp tục hành trình (tick mô
 # phỏng), và di chuyển nhẹ/chậm ra sao trong lúc đó

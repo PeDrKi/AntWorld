@@ -215,8 +215,8 @@ def draw_hud(state, surf):
     follow_text = state.follow_status_text()
 
     LINE_H = 22
-    # 3 dong/to (dan so, tai nguyen, ton that) x 2 to + 1 dong ke thu chung
-    n_lines = 3 + 3 + 1 + len(warnings) + (1 if follow_text else 0) + 1
+    # 4 dong/to (dan so, tai nguyen, ton that, phan bo chuc nang) x 2 to + 1 dong ke thu chung
+    n_lines = 4 + 4 + 1 + len(warnings) + (1 if follow_text else 0) + 1
     panel = state.stats_panel
     panel.h = max(90, LINE_H * n_lines + 20)
     panel.draw_frame(surf, state.font)
@@ -245,6 +245,12 @@ def draw_hud(state, surf):
             _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [
                 ("Nghia dia ", COL_LABEL), (f"{cdata['corpse_count']:.0f} xac    ", COL_VALUE),
                 ("Da cuop duoc ", COL_LABEL), (f"{cdata['total_food_looted']:.0f}", (255, 210, 120)),
+            ])
+            y[0] += LINE_H
+            _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [
+                ("Kiem an ", COL_LABEL), (f"{cdata['foragers_total']}    ", COL_VALUE),
+                ("Cham au trung ", COL_LABEL), (f"{cdata['nurses_total']}    ", (255, 175, 205)),
+                ("Cham trung+chua ", COL_LABEL), (f"{cdata['attendants_total']}", (200, 150, 240)),
             ])
             y[0] += LINE_H
 

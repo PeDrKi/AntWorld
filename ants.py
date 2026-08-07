@@ -79,6 +79,20 @@ class AntColony:
             rng.uniform(0, 1, self.n) < cfg.GUARD_SHARE_OF_MAJORS
         )
 
+        # --- Chức năng CỐ ĐỊNH của THỢ NHỎ (job): mỗi con 1 việc suốt đời -
+        # kiếm ăn/nước (FORAGER, đa số), chăm ấu trùng (NURSE) hay chăm
+        # trứng+chúa (ATTENDANT) - xem JOB_* trong config.py. Lính
+        # (ROLE_MAJOR) không thuộc hệ thống này nên luôn để mặc định
+        # FORAGER (không ảnh hưởng gì - hành vi của lính do is_guard quyết
+        # định, không tra self.job)."""
+        self.job = np.full(self.n, cfg.JOB_FORAGER, dtype=np.int8)
+        if n_start >= cfg.JOB_SPECIALIZATION_MIN_POPULATION:
+            job_roll = rng.uniform(0, 1, self.n)
+            is_minor = self.role == cfg.ROLE_MINOR
+            self.job[is_minor & (job_roll < cfg.JOB_NURSE_RATIO)] = cfg.JOB_NURSE
+            self.job[is_minor & (job_roll >= cfg.JOB_NURSE_RATIO) &
+                     (job_roll < cfg.JOB_NURSE_RATIO + cfg.JOB_ATTENDANT_RATIO)] = cfg.JOB_ATTENDANT
+
         # --- Vòng đời ---
         self.alive = np.zeros(self.n, dtype=bool)
         self.alive[:n_start] = True     # chỉ n_start con đầu tiên sống ngay
@@ -97,6 +111,27 @@ class AntColony:
             self.y[guard_start] = nest_y
             self.state[guard_start] = cfg.STATE_GUARD_DUTY
 
+        # Nurse/attendant khởi đầu cũng đóng quân NGAY tại đúng phòng của
+        # mình (kho / phòng chúa) - không bao giờ đứng lẫn trên mặt đất
+        nurse_start = np.where(self.job[:n_start] == cfg.JOB_NURSE)[0]
+        if len(nurse_start) > 0:
+            self.layer[nurse_start] = cfg.LAYER_UNDERGROUND
+            self.depth[nurse_start] = underground.storage_depth
+            self.x[nurse_start] = underground.storage[0]
+            self.y[nurse_start] = underground.storage[1]
+            self.state[nurse_start] = cfg.STATE_NURSE_AT_STORAGE
+
+        attendant_start = np.where(self.job[:n_start] == cfg.JOB_ATTENDANT)[0]
+        if len(attendant_start) > 0:
+            self.layer[attendant_start] = cfg.LAYER_UNDERGROUND
+            self.depth[attendant_start] = underground.queen_depth
+            self.x[attendant_start] = underground.queen_room[0]
+            self.y[attendant_start] = underground.queen_room[1]
+            self.state[attendant_start] = cfg.STATE_ATTENDANT_AT_QUEEN
+            self.dwell_ticks[attendant_start] = np.random.randint(
+                cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1, size=len(attendant_start)
+            ).astype(np.int16)
+
         # --- Trứng (phòng trứng, ủ theo thời gian) -> Ấu trùng (phòng ấu
         # trùng, lớn nhờ ăn - xem _update_eggs / _update_larvae) ---
         self.egg_growth = np.zeros(cfg.EGG_MAX_COUNT, dtype=np.float32)
@@ -114,6 +149,8 @@ class AntColony:
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
         self._update_surface_ants()
         self._update_underground_ants()
+        self._update_nurses()
+        self._update_attendants()
         self._update_guards(enemy, rival)
         self._update_raids(rival)
         self.surface.decay_pheromone()
@@ -367,16 +404,12 @@ class AntColony:
                     self.underground.deposit_to_storage(float(self.carry_amount[food_idx].sum()))
                     self.carry_amount[food_idx] = 0.0
                     self.carrying[food_idx] = False
-                    rng_vals = np.random.uniform(0, 1, len(food_idx))
-                    become_nurse = food_idx[rng_vals < cfg.NURSE_PROBABILITY]
-                    go_back = food_idx[rng_vals >= cfg.NURSE_PROBABILITY]
-                    self.carrying[become_nurse] = True
-                    self.carry_type[become_nurse] = 1
-                    self.carry_type[go_back] = 0
+                    self.carry_type[food_idx] = 0
                     # Không rời phòng ngay - LƯỢN trong kho 1 lúc (như đang
-                    # sắp xếp/kiểm tra đồ) rồi mới quyết định đi đâu tiếp.
-                    self._start_dwell(become_nurse, cfg.STATE_UG_TO_NURSERY, room_id=0)
-                    self._start_dwell(go_back, cfg.STATE_UG_TO_SHAFT, room_id=0)
+                    # sắp xếp/kiểm tra đồ) rồi quay lại mặt đất kiếm tiếp
+                    # (không còn "thành nurse" ngẫu nhiên nữa - chăm ấu
+                    # trùng giờ là CHỨC NĂNG CỐ ĐỊNH riêng, xem _update_nurses)
+                    self._start_dwell(food_idx, cfg.STATE_UG_TO_SHAFT, room_id=0)
 
                 if len(water_idx) > 0:
                     # Đã tới ĐÚNG bể trữ nước (không phải kho) - đổ nước vào đây
@@ -385,19 +418,6 @@ class AntColony:
                     self.carry_type[water_idx] = 0
                     self.carrying[water_idx] = False
                     self._start_dwell(water_idx, cfg.STATE_UG_TO_SHAFT, room_id=3)
-
-        # --- nurse mang đồ tới phòng ấu trùng ---
-        mask = ug & (self.state == cfg.STATE_UG_TO_NURSERY)
-        if np.any(mask):
-            idx = np.where(mask)[0]
-            dist = self._move_towards_2d(idx, self.underground.nursery, cfg.UG_SPEED)
-            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
-            if len(arrived) > 0:
-                self.underground.deposit_to_nursery(len(arrived))
-                self.carrying[arrived] = False
-                self.carry_type[arrived] = 0
-                # Lượn trong phòng ấu trùng 1 lúc (đang chăm ấu trùng) rồi mới về
-                self._start_dwell(arrived, cfg.STATE_UG_TO_SHAFT, room_id=1)
 
         # --- quay lại giếng (vị trí lỗ tổ, TRÊN TẦNG HIỆN TẠI) để lên mặt đất ---
         mask = ug & (self.state == cfg.STATE_UG_TO_SHAFT)
@@ -465,21 +485,157 @@ class AntColony:
                 self.y[sub[over]] = center[1] + dy[over] * scale
                 self.theta[sub[over]] = np.arctan2(-dy[over], -dx[over])  # bật ngược lại vào trong phòng
 
-        # Hết giờ lượn -> tiếp tục hành trình. Nếu điểm đến kế tiếp là phòng
-        # ấu trùng (khác tầng với kho), cần "đi thang máy" (đổi depth) trước
-        # khi tiếp tục đi bộ 2D; các trường hợp còn lại (về giếng) tiếp tục
-        # ngay từ vị trí đang lượn tới, không cần dịch chuyển tức thời.
+        # Hết giờ lượn -> tiếp tục hành trình đã định sẵn (next_state)
         done = idx[self.dwell_ticks[idx] <= 0]
         if len(done) > 0:
-            to_nursery = done[self.next_state[done] == cfg.STATE_UG_TO_NURSERY]
-            others = done[self.next_state[done] != cfg.STATE_UG_TO_NURSERY]
-            if len(to_nursery) > 0:
-                self.depth[to_nursery] = self.underground.nursery_depth
-                self.x[to_nursery] = self.underground.shaft_xy[0]
-                self.y[to_nursery] = self.underground.shaft_xy[1]
-                self.state[to_nursery] = cfg.STATE_UG_TO_NURSERY
-            if len(others) > 0:
-                self.state[others] = self.next_state[others]
+            self.state[done] = self.next_state[done]
+
+    # ------------------------------------------------------------------
+    def _wander_in_room(self, idx, center, radius):
+        """Đi lại chậm, ngẫu nhiên quanh tâm 1 phòng, KHÔNG đổi trạng thái -
+        dùng cho các chức năng LƯU TRÚ VÔ THỜI HẠN tại 1 phòng (nurse chờ ở
+        kho, attendant túc trực cạnh chúa/trứng), khác với _start_dwell vốn
+        có hẹn giờ CỐ ĐỊNH rồi tự chuyển sang trạng thái khác."""
+        if len(idx) == 0:
+            return
+        self.theta[idx] = self.theta[idx] + np.random.uniform(-0.6, 0.6, len(idx)).astype(np.float32)
+        self.x[idx] += np.cos(self.theta[idx]) * cfg.DWELL_SPEED
+        self.y[idx] += np.sin(self.theta[idx]) * cfg.DWELL_SPEED
+        dx = self.x[idx] - center[0]
+        dy = self.y[idx] - center[1]
+        dist = np.hypot(dx, dy)
+        max_r = radius * cfg.ROOM_WANDER_FACTOR
+        over = dist > max_r
+        if np.any(over):
+            safe_dist = np.where(dist[over] < 1e-6, 1.0, dist[over])
+            scale = max_r / safe_dist
+            self.x[idx[over]] = center[0] + dx[over] * scale
+            self.y[idx[over]] = center[1] + dy[over] * scale
+            self.theta[idx[over]] = np.arctan2(-dy[over], -dx[over])
+
+    def _update_nurses(self):
+        """Kiến CHUYÊN CHĂM ẤU TRÙNG (self.job == JOB_NURSE): KHÔNG BAO GIỜ
+        lên mặt đất - cả đời quanh quẩn giữa Kho thức ăn và Phòng ấu trùng,
+        tự lấy thức ăn từ kho (nếu kho còn) mang qua cho ấu trùng ăn, lặp
+        lại vô thời hạn. Đây là CHỨC NĂNG RIÊNG, tách biệt hẳn khỏi việc
+        thợ (JOB_FORAGER) tha thức ăn từ mặt đất về kho."""
+        nurse_mask = self.alive & (self.job == cfg.JOB_NURSE)
+        if not np.any(nurse_mask):
+            return
+
+        # --- Đang ở kho: lượn chờ, hễ kho còn đủ hàng thì lấy ngay 1 chuyến ---
+        at_storage = nurse_mask & (self.state == cfg.STATE_NURSE_AT_STORAGE)
+        if np.any(at_storage):
+            idx = np.where(at_storage)[0]
+            self._wander_in_room(idx, self.underground.storage, cfg.ROOM_RADIUS_STORAGE)
+            if self.underground.food_in_nursery < cfg.NURSE_NURSERY_TARGET_STOCK:
+                available = int(self.underground.food_in_storage // cfg.NURSE_TRIP_FOOD_AMOUNT)
+                take_n = min(len(idx), max(0, available))
+            else:
+                take_n = 0  # ấu trùng đang đủ ăn - không cần lấy thêm, để
+                            # dành thức ăn tích lũy trong kho (cho chúa đẻ
+                            # trứng thay vì bị nurse hút hết ngay khi vừa về)
+            if take_n > 0:
+                go_idx = idx[:take_n]
+                self.underground.food_in_storage -= take_n * cfg.NURSE_TRIP_FOOD_AMOUNT
+                self.carrying[go_idx] = True
+                self.carry_type[go_idx] = 1
+                self.depth[go_idx] = self.underground.nursery_depth
+                self.x[go_idx] = self.underground.shaft_xy[0]
+                self.y[go_idx] = self.underground.shaft_xy[1]
+                self.state[go_idx] = cfg.STATE_NURSE_TO_NURSERY
+
+        # --- đang mang thức ăn sang phòng ấu trùng ---
+        mask = nurse_mask & (self.state == cfg.STATE_NURSE_TO_NURSERY)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            dist = self._move_towards_2d(idx, self.underground.nursery, cfg.UG_SPEED)
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                self.underground.deposit_to_nursery(len(arrived))
+                self.carrying[arrived] = False
+                self.carry_type[arrived] = 0
+                self.dwell_ticks[arrived] = np.random.randint(
+                    cfg.NURSE_IDLE_TICKS_MIN, cfg.NURSE_IDLE_TICKS_MAX + 1, size=len(arrived)
+                ).astype(np.int16)
+                self.state[arrived] = cfg.STATE_NURSE_AT_NURSERY
+
+        # --- đang "chăm" ở phòng ấu trùng 1 lúc rồi quay lại kho ---
+        mask = nurse_mask & (self.state == cfg.STATE_NURSE_AT_NURSERY)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            self._wander_in_room(idx, self.underground.nursery, cfg.ROOM_RADIUS_NURSERY)
+            self.dwell_ticks[idx] -= 1
+            done = idx[self.dwell_ticks[idx] <= 0]
+            if len(done) > 0:
+                self.depth[done] = self.underground.storage_depth
+                self.x[done] = self.underground.shaft_xy[0]
+                self.y[done] = self.underground.shaft_xy[1]
+                self.state[done] = cfg.STATE_NURSE_TO_STORAGE
+
+        # --- đang quay lại kho ---
+        mask = nurse_mask & (self.state == cfg.STATE_NURSE_TO_STORAGE)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            dist = self._move_towards_2d(idx, self.underground.storage, cfg.UG_SPEED)
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                self.state[arrived] = cfg.STATE_NURSE_AT_STORAGE
+
+    def _update_attendants(self):
+        """Kiến CHUYÊN CHĂM TRỨNG + KIẾN CHÚA (self.job == JOB_ATTENDANT):
+        KHÔNG BAO GIỜ lên mặt đất - túc trực cạnh chúa 1 khoảng thời gian
+        rồi đổi qua túc trực cạnh trứng, lặp lại vô thời hạn (mô phỏng vừa
+        hầu chúa vừa trông trứng, luân phiên giữa 2 phòng)."""
+        mask_all = self.alive & (self.job == cfg.JOB_ATTENDANT)
+        if not np.any(mask_all):
+            return
+
+        at_queen = mask_all & (self.state == cfg.STATE_ATTENDANT_AT_QUEEN)
+        if np.any(at_queen):
+            idx = np.where(at_queen)[0]
+            self._wander_in_room(idx, self.underground.queen_room, cfg.ROOM_RADIUS_QUEEN)
+            self.dwell_ticks[idx] -= 1
+            done = idx[self.dwell_ticks[idx] <= 0]
+            if len(done) > 0:
+                self.depth[done] = self.underground.egg_depth
+                self.x[done] = self.underground.shaft_xy[0]
+                self.y[done] = self.underground.shaft_xy[1]
+                self.state[done] = cfg.STATE_ATTENDANT_TO_EGG
+
+        mask = mask_all & (self.state == cfg.STATE_ATTENDANT_TO_EGG)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            dist = self._move_towards_2d(idx, self.underground.egg_room, cfg.UG_SPEED)
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                self.dwell_ticks[arrived] = np.random.randint(
+                    cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1, size=len(arrived)
+                ).astype(np.int16)
+                self.state[arrived] = cfg.STATE_ATTENDANT_AT_EGG
+
+        at_egg = mask_all & (self.state == cfg.STATE_ATTENDANT_AT_EGG)
+        if np.any(at_egg):
+            idx = np.where(at_egg)[0]
+            self._wander_in_room(idx, self.underground.egg_room, cfg.ROOM_RADIUS_EGG)
+            self.dwell_ticks[idx] -= 1
+            done = idx[self.dwell_ticks[idx] <= 0]
+            if len(done) > 0:
+                self.depth[done] = self.underground.queen_depth
+                self.x[done] = self.underground.shaft_xy[0]
+                self.y[done] = self.underground.shaft_xy[1]
+                self.state[done] = cfg.STATE_ATTENDANT_TO_QUEEN
+
+        mask = mask_all & (self.state == cfg.STATE_ATTENDANT_TO_QUEEN)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            dist = self._move_towards_2d(idx, self.underground.queen_room, cfg.UG_SPEED)
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                self.dwell_ticks[arrived] = np.random.randint(
+                    cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1, size=len(arrived)
+                ).astype(np.int16)
+                self.state[arrived] = cfg.STATE_ATTENDANT_AT_QUEEN
 
     # ------------------------------------------------------------------
     def _update_guards(self, enemy, rival=None):
@@ -793,10 +949,13 @@ class AntColony:
         self.underground.total_births += n_hatch
 
     def _spawn_new_ants(self, idx):
-        """Tái sử dụng các ô đã chết để tạo kiến mới, xuất hiện tại phòng
-        chúa, lượn 1 lúc (mới sinh, còn quây quần quanh chúa) rồi tự đi lên
-        mặt đất qua giếng - RIÊNG lính gác mới thì đi thẳng xuống đóng quân
-        ở phòng gác cửa, không cần trồi lên mặt đất trước."""
+        """Tái sử dụng các ô đã chết để tạo kiến mới. Lính gác mới thì đi
+        thẳng xuống đóng quân ở phòng gác cửa; nurse/attendant mới cũng đi
+        thẳng tới đúng phòng của mình (kho / phòng chúa) - CẢ HAI ĐỀU
+        KHÔNG BAO GIỜ trồi lên mặt đất. Chỉ thợ kiếm ăn (JOB_FORAGER) và
+        lính thường (không phải gác) mới xuất hiện ở phòng chúa, lượn 1
+        lúc (mới sinh, còn quây quần quanh chúa) rồi tự đi lên mặt đất qua
+        giếng."""
         self.alive[idx] = True
         self.age[idx] = 0.0
         self.carrying[idx] = False
@@ -808,8 +967,21 @@ class AntColony:
         )
         self.theta[idx] = np.random.uniform(0, 2 * np.pi, len(idx))
 
+        # Chức năng cố định cho thợ nhỏ mới sinh (xem __init__ để biết lý
+        # do có ngưỡng dân số tối thiểu mới bắt đầu chuyên môn hóa)
+        self.job[idx] = cfg.JOB_FORAGER
+        current_population = int(np.sum(self.alive))  # đã cộng idx (alive[idx]=True ở trên)
+        if current_population >= cfg.JOB_SPECIALIZATION_MIN_POPULATION:
+            job_roll = np.random.uniform(0, 1, len(idx))
+            is_minor = self.role[idx] == cfg.ROLE_MINOR
+            self.job[idx[is_minor & (job_roll < cfg.JOB_NURSE_RATIO)]] = cfg.JOB_NURSE
+            self.job[idx[is_minor & (job_roll >= cfg.JOB_NURSE_RATIO) &
+                          (job_roll < cfg.JOB_NURSE_RATIO + cfg.JOB_ATTENDANT_RATIO)]] = cfg.JOB_ATTENDANT
+
         guard_idx = idx[self.is_guard[idx]]
-        normal_idx = idx[~self.is_guard[idx]]
+        nurse_idx = idx[self.job[idx] == cfg.JOB_NURSE]
+        attendant_idx = idx[self.job[idx] == cfg.JOB_ATTENDANT]
+        normal_idx = idx[(~self.is_guard[idx]) & (self.job[idx] == cfg.JOB_FORAGER)]
 
         if len(normal_idx) > 0:
             self.layer[normal_idx] = cfg.LAYER_UNDERGROUND
@@ -826,10 +998,28 @@ class AntColony:
             self.y[guard_idx] = self.underground.shaft_xy[1]
             self.state[guard_idx] = cfg.STATE_GUARD_DUTY
 
+        if len(nurse_idx) > 0:
+            self.layer[nurse_idx] = cfg.LAYER_UNDERGROUND
+            self.depth[nurse_idx] = self.underground.storage_depth
+            self.x[nurse_idx] = self.underground.storage[0]
+            self.y[nurse_idx] = self.underground.storage[1]
+            self.state[nurse_idx] = cfg.STATE_NURSE_AT_STORAGE
+
+        if len(attendant_idx) > 0:
+            self.layer[attendant_idx] = cfg.LAYER_UNDERGROUND
+            self.depth[attendant_idx] = self.underground.queen_depth
+            self.x[attendant_idx] = self.underground.queen_room[0]
+            self.y[attendant_idx] = self.underground.queen_room[1]
+            self.state[attendant_idx] = cfg.STATE_ATTENDANT_AT_QUEEN
+            self.dwell_ticks[attendant_idx] = np.random.randint(
+                cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1, size=len(attendant_idx)
+            ).astype(np.int16)
+
     # ------------------------------------------------------------------
     def counts(self):
         """Trả về dict thống kê nhanh cho bảng UI."""
         alive = self.alive
+        is_minor = self.role == cfg.ROLE_MINOR
         return {
             "population": int(np.sum(alive)),
             "soldiers": int(np.sum(alive & (self.role == cfg.ROLE_MAJOR))),
@@ -853,4 +1043,9 @@ class AntColony:
             "raiders_out": int(np.sum(alive & (
                 (self.state == cfg.STATE_RAID_TO_ENEMY) | (self.state == cfg.STATE_RAID_LOOT)
             ))),
+            "foragers_total": int(np.sum(alive & (~self.is_guard) & (
+                (self.role == cfg.ROLE_MAJOR) | (is_minor & (self.job == cfg.JOB_FORAGER))
+            ))),
+            "nurses_total": int(np.sum(alive & is_minor & (self.job == cfg.JOB_NURSE))),
+            "attendants_total": int(np.sum(alive & is_minor & (self.job == cfg.JOB_ATTENDANT))),
         }

@@ -102,11 +102,32 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Chạy
+## Chạy (từ mã nguồn - cần cài Python)
 
 ```powershell
 python main.py
 ```
+
+## Đóng gói thành app Windows độc lập (.exe)
+
+Không cần mở PowerShell/gõ lệnh mỗi lần muốn chơi - có thể đóng gói thành
+1 file `.exe` chạy như app Windows thật sự: có icon riêng, hiện đầy đủ nút
+**thu nhỏ / phóng to / đóng** trên thanh tiêu đề (cửa sổ giờ có thể kéo
+giãn/resize tự do), không hiện cửa sổ console đen, và **không cần cài
+Python** trên máy chạy sau khi đã đóng gói xong.
+
+**Bước 1 - Trên máy có Python (chỉ cần làm 1 lần):**
+```powershell
+pip install -r requirements.txt
+pip install -r requirements-build.txt
+pyinstaller AntWorld2D.spec --noconfirm
+```
+(hoặc chạy trực tiếp file `build_exe.bat` đi kèm - tự làm hết các bước trên)
+
+**Bước 2:** file kết quả nằm ở `dist\AntWorld2D\AntWorld2D.exe`. Có thể
+copy CẢ THƯ MỤC `dist\AntWorld2D\` sang bất kỳ máy Windows nào khác để
+chạy - không cần cài Python trên máy đó. Có thể tạo shortcut ra Desktop từ
+file `.exe` này như bất kỳ app Windows nào khác.
 
 ## Điều khiển
 
@@ -116,6 +137,8 @@ python main.py
 - **Giữ CHUỘT PHẢI + di chuột**: kéo (pan) để di chuyển góc nhìn ngang/dọc
 - **Nút "Tang ^" / "Tang v"** trên thanh công cụ: chuyển tầng bằng chuột
   nếu không có bánh xe lăn
+- **Kéo giãn/phóng to/thu nhỏ cửa sổ**: thoải mái như mọi app Windows khác
+  - giao diện (thanh công cụ, HUD, khung nhìn) tự động co giãn theo
 - **Esc**: thoát
 
 ## Cấu trúc các tầng
@@ -186,6 +209,12 @@ render_underground.py - vẽ các tầng ngầm (từng phòng chức năng riê
 hud.py                - biểu đồ dân số, bảng thống kê, thanh công cụ
 main.py               - CHỈ còn ~160 dòng: khởi tạo pygame, dựng
                         GameState, vòng lặp sự kiện gọi vào các module trên
+
+--- Đóng gói thành app Windows (.exe) ---
+assets/icon.png, icon.ico - icon app/taskbar
+AntWorld2D.spec       - cấu hình PyInstaller (icon, ẩn console, gói assets)
+build_exe.bat         - script tự động chạy PyInstaller trên Windows
+requirements-build.txt - thư viện CHỈ cần khi đóng gói (PyInstaller)
 ```
 
 Nguyên tắc tách: các module render/hud nhận `state` (đối tượng GameState)

@@ -29,7 +29,7 @@ def draw_grid_lines(state, surf):
         if gy >= -step:
             pygame.draw.line(
                 surf, (0, 0, 0, 40), (max(0, x0), gy),
-                (min(cfg.SCREEN_W, map_right), gy), 1
+                (min(state.SCREEN_W, map_right), gy), 1
             )
         gy += step
 
@@ -43,7 +43,7 @@ def draw_pheromone_trails(state, surf):
     camera = state.camera
     cell = camera.cell_px()
 
-    overlay = pygame.Surface((cfg.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
+    overlay = pygame.Surface((state.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
     r = max(2, int(cell * 0.42))
 
     xi, yi = np.where(surface_world.pheromone > 0.05)
@@ -152,7 +152,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     sys_ = CENTER_Y + (ys - camera.cy) * cell
     for i in range(len(idx)):
         sx, sy = sxs[i], sys_[i]
-        if sx < -10 or sx > cfg.SCREEN_W + 10 or sy < -10 or sy > CANVAS_H + 10:
+        if sx < -10 or sx > state.SCREEN_W + 10 or sy < -10 or sy > CANVAS_H + 10:
             continue
         base_r = cell * 0.155
         major = bool(is_major[i])

@@ -11,7 +11,7 @@ from render_underground import layer_name
 def build_toolbar(state):
     """Tạo toàn bộ nút bấm của thanh công cụ và nối callback vào state.
     Điền kết quả vào state.buttons / state.tool_buttons."""
-    row1_y = cfg.SCREEN_H - cfg.TOOLBAR_H + 6
+    row1_y = state.SCREEN_H - cfg.TOOLBAR_H + 6
     row2_y = row1_y + 38
 
     def make_tool_button(label, tool_name, x, y, w=108, h=30):
@@ -39,8 +39,8 @@ def build_toolbar(state):
     grid_btn = Button((208, row2_y, 150, 26), "Luoi o vuong: BAT", active=True)
     graph_btn = Button((366, row2_y, 130, 26), "Bieu do: HIEN", active=True)
     enemy_spawn_btn = Button((504, row2_y, 200, 26), "Ke thu tu nhien: BAT", active=True)
-    layer_up_btn = Button((cfg.SCREEN_W - 150, row2_y, 60, 26), "Tang ^")
-    layer_down_btn = Button((cfg.SCREEN_W - 84, row2_y, 60, 26), "Tang v")
+    layer_up_btn = Button((state.SCREEN_W - 150, row2_y, 60, 26), "Tang ^")
+    layer_down_btn = Button((state.SCREEN_W - 84, row2_y, 60, 26), "Tang v")
 
     respawn_btn.on_click = lambda: state.toggle_respawn(respawn_btn)
     grid_btn.on_click = lambda: state.toggle_grid(grid_btn)
@@ -57,7 +57,7 @@ def build_toolbar(state):
 def draw_graph(state, surf):
     if not state.graph_visible or len(state.pop_history_main) < 2:
         return
-    panel_x = cfg.SCREEN_W - cfg.GRAPH_PANEL_W - 12
+    panel_x = state.SCREEN_W - cfg.GRAPH_PANEL_W - 12
     panel_y = 12
     panel = pygame.Rect(panel_x, panel_y, cfg.GRAPH_PANEL_W, cfg.GRAPH_PANEL_H)
     s = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
@@ -129,7 +129,7 @@ def draw_hud(state, surf):
     # --- nhãn tầng hiện tại, to, dễ thấy ---
     name = layer_name(state.current_layer)
     label = state.font_big.render(f"Tang {state.current_layer}: {name}", True, (255, 255, 80))
-    lr = label.get_rect(topright=(cfg.SCREEN_W - 12, 8))
+    lr = label.get_rect(topright=(state.SCREEN_W - 12, 8))
     bg = pygame.Surface((lr.w + 16, lr.h + 10), pygame.SRCALPHA)
     bg.fill((0, 0, 0, 140))
     surf.blit(bg, (lr.x - 8, lr.y - 5))
@@ -137,11 +137,11 @@ def draw_hud(state, surf):
 
 
 def draw_toolbar(state, surf):
-    pygame.draw.rect(surf, (22, 22, 26), (0, cfg.SCREEN_H - cfg.TOOLBAR_H, cfg.SCREEN_W, cfg.TOOLBAR_H))
+    pygame.draw.rect(surf, (22, 22, 26), (0, state.SCREEN_H - cfg.TOOLBAR_H, state.SCREEN_W, cfg.TOOLBAR_H))
     for b in state.buttons:
         b.draw(surf, state.font)
     hint = "Chon cong cu, CLICK hoac GIU+KEO chuot trai de dung (tru Dao phong/Tha ke thu)"
     if state.current_tool in ("food", "enemy", "dig", "rock", "water") and state.current_layer != 0:
         hint = "Cong cu nay chi dung duoc o Tang 0 (Mat dat) - doi tang bang Ctrl+Lan chuot"
     txt = state.font_small.render(hint, True, (255, 230, 90))
-    surf.blit(txt, (10, cfg.SCREEN_H - 18))
+    surf.blit(txt, (10, state.SCREEN_H - 18))

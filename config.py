@@ -5,7 +5,12 @@ GRID_SIZE = 40               # đã giảm 20% so với bản trước (50 -> 40
 BASE_CELL_PX = 16           # kích thước 1 ô lưới tính bằng pixel ở mức zoom 1x
 
 # ----- Cửa sổ -----
-SCREEN_W, SCREEN_H = 1280, 800
+SCREEN_W, SCREEN_H = 1280, 800   # kích thước cửa sổ MẶC ĐỊNH lúc mở app -
+                                 # cửa sổ giờ CÓ THỂ THAY ĐỔI KÍCH THƯỚC/
+                                 # phóng to/thu nhỏ (RESIZABLE), đây chỉ là
+                                 # kích thước khởi đầu
+MIN_WINDOW_W, MIN_WINDOW_H = 950, 650  # không cho kéo nhỏ hơn mức này -
+                                 # tránh vỡ layout thanh công cụ
 FPS = 60
 
 # ----- Độ sâu = TẦNG rời rạc (0 = mặt đất, số càng lớn càng sâu) -----

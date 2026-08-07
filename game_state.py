@@ -4,6 +4,9 @@ module render_*.py/hud.py chỉ cần nhận `state` để đọc dữ liệu c�
 vì main.py cũ nhồi tất cả (world, colony, camera, toolbar, render, vòng
 lặp...) vào 1 hàm main() 900 dòng dùng closures.
 """
+import os
+import sys
+
 import numpy as np
 import pygame
 
@@ -13,11 +16,27 @@ from ants import AntColony
 from enemy import EnemyManager
 from camera import Camera2D
 
+# Khi chạy bình thường: assets/ nằm cạnh file .py này. Khi được đóng gói
+# thành .exe bằng PyInstaller (chế độ --onefile), file được giải nén tạm
+# vào thư mục sys._MEIPASS lúc chạy - phải trỏ theo đó thay vì theo vị trí
+# file .py (không còn tồn tại trong bản .exe).
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    ASSETS_DIR = os.path.join(sys._MEIPASS, "assets")
+else:
+    ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
 
 class GameState:
     def __init__(self):
-        self.screen = pygame.display.set_mode((cfg.SCREEN_W, cfg.SCREEN_H))
+        # Cửa sổ CÓ THỂ THAY ĐỔI KÍCH THƯỚC (RESIZABLE) - để nút phóng to
+        # (maximize) trên thanh tiêu đề Windows thật sự hoạt động, không bị
+        # mờ/vô hiệu như khi cửa sổ cố định kích thước.
+        self.SCREEN_W, self.SCREEN_H = cfg.SCREEN_W, cfg.SCREEN_H
+        self.screen = pygame.display.set_mode(
+            (self.SCREEN_W, self.SCREEN_H), pygame.RESIZABLE
+        )
         pygame.display.set_caption("Ant World 2D - tung lop / tung tang")
+        self._set_window_icon()
         self.clock = pygame.time.Clock()
 
         self.font = pygame.font.SysFont("arial", 16)
@@ -25,8 +44,8 @@ class GameState:
         self.font_big = pygame.font.SysFont("arial", 22, bold=True)
         self.font_hud = pygame.font.SysFont("consolas", 15)
 
-        self.CANVAS_H = cfg.SCREEN_H - cfg.TOOLBAR_H
-        self.CENTER_X = cfg.SCREEN_W / 2.0
+        self.CANVAS_H = self.SCREEN_H - cfg.TOOLBAR_H
+        self.CENTER_X = self.SCREEN_W / 2.0
         self.CENTER_Y = self.CANVAS_H / 2.0
 
         # --- Thế giới mô phỏng (logic không đổi so với bản 3D, chỉ khác ở
@@ -69,6 +88,34 @@ class GameState:
         # Thanh công cụ - danh sách Button; được hud.build_toolbar() điền vào
         self.buttons = []
         self.tool_buttons = []
+
+    # ------------------------------------------------------------------
+    def _set_window_icon(self):
+        """Đặt icon cho cửa sổ/taskbar - im lặng bỏ qua nếu không tìm thấy
+        file icon (vd chạy từ bản build thiếu file assets)."""
+        icon_path = os.path.join(ASSETS_DIR, "icon.png")
+        if os.path.isfile(icon_path):
+            try:
+                pygame.display.set_icon(pygame.image.load(icon_path))
+            except pygame.error:
+                pass
+
+    def handle_resize(self, new_w, new_h):
+        """Gọi khi người dùng kéo giãn/phóng to/thu nhỏ cửa sổ (sự kiện
+        pygame.VIDEORESIZE) - cập nhật lại toàn bộ kích thước phụ thuộc và
+        dựng lại thanh công cụ (vị trí nút bấm tính theo SCREEN_W/H)."""
+        new_w = max(cfg.MIN_WINDOW_W, new_w)
+        new_h = max(cfg.MIN_WINDOW_H, new_h)
+        self.SCREEN_W, self.SCREEN_H = new_w, new_h
+        self.screen = pygame.display.set_mode((new_w, new_h), pygame.RESIZABLE)
+        self.CANVAS_H = self.SCREEN_H - cfg.TOOLBAR_H
+        self.CENTER_X = self.SCREEN_W / 2.0
+        self.CENTER_Y = self.CANVAS_H / 2.0
+
+        self.buttons = []
+        self.tool_buttons = []
+        import hud
+        hud.build_toolbar(self)
 
     # ------------------------------------------------------------------
     def max_layer_overall(self):

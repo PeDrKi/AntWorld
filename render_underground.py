@@ -180,7 +180,7 @@ def draw_graveyard(surf, cx, cy, r_px, corpse_count, seed_key):
 
 def draw_underground_layer(state, surf, depth):
     camera = state.camera
-    pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, cfg.SCREEN_W, state.CANVAS_H))
+    pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
     cell = camera.cell_px()
     if state.grid_visible and cell >= 3:
         from render_surface import draw_grid_lines

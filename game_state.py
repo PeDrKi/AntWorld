@@ -5,6 +5,7 @@ vì main.py cũ nhồi tất cả (world, colony, camera, toolbar, render, vòng
 lặp...) vào 1 hàm main() 900 dòng dùng closures.
 """
 import os
+import pickle
 import sys
 
 import numpy as np
@@ -24,6 +25,14 @@ if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
     ASSETS_DIR = os.path.join(sys._MEIPASS, "assets")
 else:
     ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+# File lưu ván chơi PHẢI nằm cạnh file .exe thật (không phải thư mục tạm
+# _MEIPASS - thư mục đó bị xóa ngay khi tắt app, lưu vào đó thì mất ngay).
+if getattr(sys, "frozen", False):
+    SAVE_DIR = os.path.dirname(sys.executable)
+else:
+    SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
+SAVE_PATH = os.path.join(SAVE_DIR, cfg.SAVE_FILE_NAME)
 
 
 class GameState:
@@ -82,6 +91,13 @@ class GameState:
         self.history_tick = 0
         self.pop_history_main = []
         self.pop_history_rival = []
+
+        # --- Thông báo nổi bật (toast) - xem TOAST_* trong config.py ---
+        self.toasts = []            # list các dict {msg, color, created}
+        self._prev_alert_flags = {}  # trạng thái cảnh báo tick TRƯỚC, để chỉ
+                                     # báo khi CHUYỂN từ bình thường -> có vấn
+                                     # đề (không báo liên tục mỗi frame khi
+                                     # tình trạng đó vẫn đang tiếp diễn)
 
         self.DRAG_TOOLS = {"food", "rock", "water", "erase"}
         self.DRAG_PLACE_INTERVAL_FRAMES = 6
@@ -344,6 +360,136 @@ class GameState:
         self.enemy.auto_spawn_enabled = not self.enemy.auto_spawn_enabled
         enemy_spawn_btn.text = f"Ke thu tu nhien: {'BAT' if self.enemy.auto_spawn_enabled else 'TAT'}"
         enemy_spawn_btn.active = self.enemy.auto_spawn_enabled
+
+    # ------------------------------------------------------------------
+    # Thông báo nổi bật (toast) - hiện cố định góc màn hình, không phụ
+    # thuộc panel nào, tự biến mất sau vài giây. Dùng cho cả cảnh báo sự
+    # kiện quan trọng LẪN xác nhận lưu/tải ván chơi.
+    # ------------------------------------------------------------------
+    def add_toast(self, message, color=(235, 235, 235)):
+        self.toasts.append({"msg": message, "color": color, "created": self.frame_counter})
+        if len(self.toasts) > cfg.TOAST_MAX_VISIBLE:
+            self.toasts = self.toasts[-cfg.TOAST_MAX_VISIBLE:]
+
+    def update_toasts(self):
+        """Gọi 1 lần mỗi khung hình render - dọn các toast đã hết hạn."""
+        if not self.toasts:
+            return
+        self.toasts = [
+            t for t in self.toasts if self.frame_counter - t["created"] < cfg.TOAST_TTL_FRAMES
+        ]
+
+    def check_alerts(self):
+        """So sánh các tình trạng quan trọng (đói/khát/kẻ thù/bị xâm chiếm/
+        tuyệt chủng) với khung hình TRƯỚC - chỉ bắn ra 1 toast đúng lúc
+        CHUYỂN từ bình thường sang có vấn đề, không báo liên tục mỗi khung
+        hình trong lúc tình trạng đó vẫn đang tiếp diễn (xem
+        _prev_alert_flags). Gọi 1 lần mỗi khung hình render, SAU khi mô
+        phỏng đã chạy xong các tick của khung hình đó."""
+        c = self.colony.counts()
+        r = self.rival_colony.counts()
+        main_invaded = bool(np.any(
+            self.rival_colony.alive & (self.rival_colony.state == cfg.STATE_RAID_LOOT)
+        ))
+        rival_invaded = bool(np.any(
+            self.colony.alive & (self.colony.state == cfg.STATE_RAID_LOOT)
+        ))
+
+        col_bad = (255, 95, 90)
+        col_warn = (255, 190, 70)
+        col_info = (140, 190, 255)
+
+        flags = {
+            "main_starving": (c["is_starving"], "To chinh dang doi thuc an!", col_bad),
+            "main_dehydrated": (c["is_dehydrated"], "To chinh dang khat nuoc!", col_warn),
+            "rival_starving": (r["is_starving"], "To doi thu dang doi thuc an", col_info),
+            "rival_dehydrated": (r["is_dehydrated"], "To doi thu dang khat nuoc", col_info),
+            "enemy_active": (self.enemy.active, "Ke thu xuat hien tren mat dat!", col_warn),
+            "main_invaded": (main_invaded, "To chinh dang bi xam chiem!", col_bad),
+            "rival_invaded": (rival_invaded, "To doi thu dang bi xam chiem", col_info),
+            "main_extinct": (c["population"] == 0, "To chinh da tuyet chung!", col_bad),
+            "rival_extinct": (r["population"] == 0, "To doi thu da tuyet chung!", col_info),
+        }
+        for key, (active, msg, color) in flags.items():
+            was_active = self._prev_alert_flags.get(key, False)
+            if active and not was_active:
+                self.add_toast(msg, color)
+            self._prev_alert_flags[key] = active
+
+    # ------------------------------------------------------------------
+    # Lưu / tải ván chơi - dùng pickle để lưu nguyên trạng thái mô phỏng
+    # (2 đàn kiến, thế giới mặt đất, kẻ thù...) vào 1 file DUY NHẤT cạnh
+    # file chạy (main.py hoặc .exe) - lưu đè lần sau, không cần chọn tên.
+    # KHÔNG lưu bất kỳ thứ gì thuộc giao diện (panel, nút, font, màn hình
+    # pygame...) - chỉ lưu đúng phần "thế giới mô phỏng" thuần dữ liệu.
+    # ------------------------------------------------------------------
+    def save_game(self):
+        data = {
+            "version": 1,
+            "colony": self.colony,
+            "rival_colony": self.rival_colony,
+            "surface_world": self.surface_world,
+            "enemy": self.enemy,
+            "camera_cx": self.camera.cx,
+            "camera_cy": self.camera.cy,
+            "camera_zoom": self.camera.zoom,
+            "current_layer": self.current_layer,
+            "sim_paused": self.sim_paused,
+            "sim_speed": self.sim_speed,
+            "food_respawn_enabled": self.food_respawn_enabled,
+            "food_respawn_tick": self.food_respawn_tick,
+            "history_tick": self.history_tick,
+            "pop_history_main": list(self.pop_history_main),
+            "pop_history_rival": list(self.pop_history_rival),
+        }
+        try:
+            tmp_path = SAVE_PATH + ".tmp"
+            with open(tmp_path, "wb") as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp_path, SAVE_PATH)  # ghi ra file tạm rồi mới đổi
+                                              # tên - tránh hỏng file lưu cũ
+                                              # nếu quá trình ghi bị ngắt
+                                              # giữa chừng (mất điện, crash)
+            self.add_toast("Da luu van choi", (140, 230, 150))
+            return True
+        except Exception as e:
+            self.add_toast(f"Loi khi luu: {e}", (255, 95, 90))
+            return False
+
+    def load_game(self):
+        if not os.path.exists(SAVE_PATH):
+            self.add_toast("Chua co van choi nao duoc luu", (255, 190, 70))
+            return False
+        try:
+            with open(SAVE_PATH, "rb") as f:
+                data = pickle.load(f)
+            self.colony = data["colony"]
+            self.rival_colony = data["rival_colony"]
+            self.surface_world = data["surface_world"]
+            self.underground_world = self.colony.underground
+            self.rival_underground = self.rival_colony.underground
+            self.enemy = data["enemy"]
+            self.ALL_COLONIES = [self.colony, self.rival_colony]
+            self.camera.cx = data["camera_cx"]
+            self.camera.cy = data["camera_cy"]
+            self.camera.zoom = data["camera_zoom"]
+            self.current_layer = data["current_layer"]
+            self.sim_paused = data["sim_paused"]
+            self.sim_speed = data["sim_speed"]
+            self.food_respawn_enabled = data["food_respawn_enabled"]
+            self.food_respawn_tick = data.get("food_respawn_tick", 0)
+            self.history_tick = data.get("history_tick", 0)
+            self.pop_history_main = list(data.get("pop_history_main", []))
+            self.pop_history_rival = list(data.get("pop_history_rival", []))
+            self.stop_follow()  # tránh tham chiếu "lơ lửng" tới đàn kiến cũ
+            self._prev_alert_flags = {}  # để tình trạng cảnh báo tính lại
+                                          # đúng từ đầu, không báo nhầm ngay
+                                          # khung hình đầu sau khi tải
+            self.add_toast("Da tai van choi", (140, 230, 150))
+            return True
+        except Exception as e:
+            self.add_toast(f"Loi khi tai: {e}", (255, 95, 90))
+            return False
 
     # ------------------------------------------------------------------
     def step_simulation(self):

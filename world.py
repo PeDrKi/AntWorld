@@ -211,6 +211,7 @@ class UndergroundWorld:
         self.egg_room = offset(cfg.EGG_OFFSET_XY)
         self.guard_room = offset(cfg.GUARD_OFFSET_XY)
         self.graveyard = offset(cfg.GRAVEYARD_OFFSET_XY)
+        self.pupa_room = offset(cfg.PUPA_OFFSET_XY)
 
         self.storage_depth = cfg.DEPTH_STORAGE
         self.nursery_depth = cfg.DEPTH_NURSERY
@@ -219,12 +220,13 @@ class UndergroundWorld:
         self.egg_depth = cfg.DEPTH_EGG
         self.guard_depth = cfg.DEPTH_GUARD
         self.graveyard_depth = cfg.DEPTH_GRAVEYARD
+        self.pupa_depth = cfg.DEPTH_PUPA
 
         # Danh sách phòng để vẽ (id, tên, tâm(x,y), bán kính, màu gợi ý,
-        # tầng) - LUÔN ĐÚNG 7 phòng GỐC/CHỨC NĂNG cố định, không đổi trong
+        # tầng) - LUÔN ĐÚNG 8 phòng GỐC/CHỨC NĂNG cố định, không đổi trong
         # suốt ván (không còn chức năng tự đào thêm phòng như bản trước).
         # Kích thước (bán kính) khác nhau theo đúng vai trò: kho/nước chứa
-        # số lượng lớn nên to nhất, trứng/gác cửa/nghĩa địa nhỏ hơn.
+        # số lượng lớn nên to nhất, trứng/gác cửa/nghĩa địa/nhộng nhỏ hơn.
         self.rooms = [
             (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS_STORAGE, (170, 130, 70), self.storage_depth),
             (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS_NURSERY, (200, 190, 120), self.nursery_depth),
@@ -233,6 +235,7 @@ class UndergroundWorld:
             (4, f"{label_prefix}Phòng trứng", self.egg_room, cfg.ROOM_RADIUS_EGG, (235, 225, 200), self.egg_depth),
             (5, f"{label_prefix}Phòng gác cửa", self.guard_room, cfg.ROOM_RADIUS_GUARD, (120, 110, 100), self.guard_depth),
             (6, f"{label_prefix}Nghĩa địa", self.graveyard, cfg.ROOM_RADIUS_GRAVEYARD, (90, 80, 75), self.graveyard_depth),
+            (7, f"{label_prefix}Phòng nhộng", self.pupa_room, cfg.ROOM_RADIUS_PUPA, (150, 130, 95), self.pupa_depth),
         ]
 
         # Thống kê tổ

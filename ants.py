@@ -138,6 +138,8 @@ class AntColony:
         self.egg_active = np.zeros(cfg.EGG_MAX_COUNT, dtype=bool)
         self.larva_growth = np.zeros(cfg.LARVA_MAX_COUNT, dtype=np.float32)
         self.larva_active = np.zeros(cfg.LARVA_MAX_COUNT, dtype=bool)
+        self.pupa_growth = np.zeros(cfg.PUPA_MAX_COUNT, dtype=np.float32)
+        self.pupa_active = np.zeros(cfg.PUPA_MAX_COUNT, dtype=bool)
 
         # Thống kê tích lũy
         self.total_food_collected = 0
@@ -176,6 +178,7 @@ class AntColony:
         self._update_lifecycle()
         self._update_eggs()
         self._update_larvae()
+        self._update_pupae()
         # LƯU Ý: việc tái sinh thức ăn ngẫu nhiên KHÔNG còn nằm ở đây nữa -
         # đã chuyển sang main.py để có thể bật/tắt bằng nút trên thanh công
         # cụ, và để tránh 2 tổ (chính + đối thủ) cùng kích hoạt trùng lặp
@@ -975,10 +978,11 @@ class AntColony:
     def _update_larvae(self):
         """Ấu trùng ĐANG CÓ trong phòng ấu trùng lớn lên dần bằng cách ăn
         thức ăn nurse mang tới (food_in_nursery) - hết thức ăn ở đó thì lớn
-        rất chậm thay vì dừng hẳn. Ấu trùng đủ lớn (growth >= 1.0) sẽ "nở"
-        thành 1 kiến thợ mới, NẾU còn chỗ trống trong đàn (chưa chạm trần
-        max_ants) - nếu chưa có chỗ, ấu trùng chờ (growth giữ ở mức tối đa)
-        tới khi có kiến khác chết đi, nhường chỗ."""
+        rất chậm thay vì dừng hẳn. Ấu trùng đủ lớn (growth >= 1.0) KHÔNG nở
+        thành kiến ngay - mà HÓA NHỘNG, "chuyển" qua phòng nhộng (nếu còn
+        chỗ trống; nếu chưa có chỗ, ấu trùng chờ đã đủ lớn nhưng chưa hóa
+        nhộng được, giữ growth ở mức tối đa) - xem _update_pupae để biết
+        giai đoạn nhộng thật sự nở thành kiến thế nào."""
         active = np.where(self.larva_active)[0]
         if len(active) == 0:
             return
@@ -993,14 +997,42 @@ class AntColony:
         mature = active[self.larva_growth[active] >= 1.0]
         if len(mature) == 0:
             return
+        free_pupa_slots = np.where(~self.pupa_active)[0]
+        n_move = min(len(mature), len(free_pupa_slots))
+        if n_move == 0:
+            return  # đã đủ lớn nhưng phòng nhộng đầy - chờ có chỗ trống
+        move_larvae = mature[:n_move]
+        move_slots = free_pupa_slots[:n_move]
+        self.larva_active[move_larvae] = False
+        self.larva_growth[move_larvae] = 0.0
+        self.pupa_active[move_slots] = True
+        self.pupa_growth[move_slots] = 0.0
+
+    def _update_pupae(self):
+        """Nhộng trong PHÒNG NHỘNG "chín" dần theo THỜI GIAN (KHÔNG cần ăn
+        - đúng thực tế, nhộng không ăn, chỉ nằm yên biến thái) - chín đủ
+        (growth >= 1.0) mới thật sự "nở" thành 1 kiến thợ mới, NẾU còn chỗ
+        trống trong đàn (chưa chạm trần max_ants) - nếu chưa có chỗ, nhộng
+        chờ (growth giữ ở mức tối đa) tới khi có kiến khác chết đi, nhường
+        chỗ. Đây là bước cuối cùng của vòng đời 4 giai đoạn: trứng -> ấu
+        trùng -> NHỘNG -> kiến trưởng thành."""
+        active = np.where(self.pupa_active)[0]
+        if len(active) == 0:
+            return
+        self.pupa_growth[active] = np.clip(
+            self.pupa_growth[active] + cfg.PUPA_MATURE_PER_TICK, 0.0, 1.0
+        )
+        mature = active[self.pupa_growth[active] >= 1.0]
+        if len(mature) == 0:
+            return
         dead_slots = np.where(~self.alive)[0]
         n_hatch = min(len(mature), len(dead_slots))
         if n_hatch == 0:
-            return  # đủ lớn nhưng đàn đã đầy chỗ - chờ tới khi có chỗ trống
-        hatch_larvae = mature[:n_hatch]
+            return  # đủ chín nhưng đàn đã đầy chỗ - chờ tới khi có chỗ trống
+        hatch_pupae = mature[:n_hatch]
         new_ants = dead_slots[:n_hatch]
-        self.larva_active[hatch_larvae] = False
-        self.larva_growth[hatch_larvae] = 0.0
+        self.pupa_active[hatch_pupae] = False
+        self.pupa_growth[hatch_pupae] = 0.0
         self._spawn_new_ants(new_ants)
         self.underground.total_births += n_hatch
 
@@ -1092,6 +1124,7 @@ class AntColony:
             "is_dehydrated": self.underground.is_dehydrated(),
             "larva_count": int(np.sum(self.larva_active)),
             "egg_count": int(np.sum(self.egg_active)),
+            "pupa_count": int(np.sum(self.pupa_active)),
             "corpse_count": self.underground.corpse_count,
             "guards_on_duty": int(np.sum(alive & self.is_guard & (self.state == cfg.STATE_GUARD_DUTY))),
             "guards_total": int(np.sum(alive & self.is_guard)),

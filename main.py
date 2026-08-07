@@ -83,6 +83,10 @@ def handle_events(state):
             elif event.key == pygame.K_DOWN:
                 state.stop_follow()
                 state.change_layer(1)
+            elif event.key == pygame.K_s and ctrl_held:
+                state.save_game()
+            elif event.key == pygame.K_l and ctrl_held:
+                state.load_game()
         elif event.type == pygame.MOUSEWHEEL:
             mx, my = pygame.mouse.get_pos()
             if any(p.contains((mx, my)) for p in state.panels):
@@ -157,6 +161,7 @@ def render(state):
     hud.draw_graph(state, screen)
     hud.draw_hud(state, screen)
     hud.draw_toolbar(state, screen)
+    hud.draw_toasts(state, screen)
     pygame.display.flip()
 
 
@@ -178,6 +183,8 @@ def main(max_frames=None):
                 state.step_simulation()
 
         state.update_follow_camera()
+        state.check_alerts()
+        state.update_toasts()
         render(state)
         state.clock.tick(cfg.FPS)
 

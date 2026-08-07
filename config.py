@@ -32,8 +32,11 @@ DEPTH_GUARD = 1             # phòng gác cửa - ngay dưới cửa hang, tuy�
                             # phòng thủ đầu tiên trước khi vào sâu hơn
 DEPTH_STORAGE = 2           # kho thức ăn - CHUNG TẦNG với bể trữ nước
 DEPTH_WATER = 2             # bể trữ nước - CHUNG TẦNG với kho thức ăn
-DEPTH_EGG = 3               # phòng trứng - CHUNG TẦNG với phòng ấu trùng
-DEPTH_NURSERY = 3           # phòng ấu trùng - CHUNG TẦNG với phòng trứng
+DEPTH_EGG = 3               # phòng trứng - CHUNG TẦNG với phòng ấu trùng/nhộng
+DEPTH_NURSERY = 3           # phòng ấu trùng - CHUNG TẦNG với phòng trứng/nhộng
+DEPTH_PUPA = 3              # phòng nhộng - CHUNG TẦNG với phòng trứng/ấu trùng
+                            # (3 giai đoạn đầu vòng đời quây quần 1 tầng,
+                            # đều cần được bảo vệ như nhau)
 DEPTH_QUEEN = 4             # phòng chúa - sâu nhất, được bảo vệ kỹ nhất
 DEPTH_GRAVEYARD = 5         # nghĩa địa/phòng rác - tách riêng 1 góc, cũng
                             # là TẦNG SÂU NHẤT của tổ (chỉ có 6 tầng cố
@@ -195,8 +198,12 @@ NEST_RADIUS = 1.2
 GUARD_OFFSET_XY = (0, 3)       # ngay dưới cửa hang - gần lỗ tổ nhất
 STORAGE_OFFSET_XY = (-6, -2)   # cùng tầng với bể nước - đặt bên TRÁI
 WATER_OFFSET_XY = (6, -2)      # cùng tầng với kho - đặt bên PHẢI
-EGG_OFFSET_XY = (-5, -6)       # cùng tầng với ấu trùng - đặt bên TRÁI
-NURSERY_OFFSET_XY = (5, -6)    # cùng tầng với trứng - đặt bên PHẢI
+EGG_OFFSET_XY = (-5, -6)       # cùng tầng với ấu trùng/nhộng - đặt bên TRÁI
+NURSERY_OFFSET_XY = (5, -6)    # cùng tầng với trứng/nhộng - đặt bên PHẢI
+PUPA_OFFSET_XY = (0, -2)       # cùng tầng với trứng/ấu trùng - đặt Ở GIỮA,
+                                # gần cửa hang hơn để không chồng lên 2
+                                # phòng kia (đều ở y=-6, đã kiểm tra khoảng
+                                # cách bằng số liệu để không chạm viền nhau)
 QUEEN_OFFSET_XY = (0, -9)      # tầng riêng, sâu nhất
 GRAVEYARD_OFFSET_XY = (0, 7)   # tầng riêng, tách hẳn 1 góc
 
@@ -365,6 +372,7 @@ ROOM_RADIUS_WATER = ROOM_RADIUS * 1.25
 ROOM_RADIUS_NURSERY = ROOM_RADIUS * 1.05
 ROOM_RADIUS_QUEEN = ROOM_RADIUS * 1.15
 ROOM_RADIUS_EGG = ROOM_RADIUS * 0.75
+ROOM_RADIUS_PUPA = ROOM_RADIUS * 0.6
 ROOM_RADIUS_GUARD = ROOM_RADIUS * 0.9
 ROOM_RADIUS_GRAVEYARD = ROOM_RADIUS * 0.8
 
@@ -429,13 +437,17 @@ STARVATION_DEATH_RATE = 0.0015  # xác suất chết PHỤ THÊM mỗi tick cho 
 STARVATION_GRACE_TICKS = 400    # số tick phòng ấu trùng được phép "rỗng"
                                  # trước khi bắt đầu tính chết đói
 
-# ----- Trứng -> Ấu trùng: 2 GIAI ĐOẠN, 2 PHÒNG RIÊNG BIỆT -----
-# Chúa không "sinh" kiến trực tiếp - chúa chỉ ĐẺ TRỨNG (tốn thức ăn+nước từ
-# kho). Trứng được ủ trong PHÒNG TRỨNG riêng (chỉ cần thời gian, KHÔNG cần
-# ăn) - nở xong mới "chuyển" qua PHÒNG ẤU TRÙNG để lớn lên thật sự bằng
-# thức ăn nurse mang tới (food_in_nursery) - hết thức ăn ở đó thì lớn rất
-# chậm. Ấu trùng lớn đủ (growth >= 1.0) mới thật sự "nở" thành 1 kiến thợ
-# mới đi ra ngoài.
+# ----- Trứng -> Ấu trùng -> Nhộng -> Kiến trưởng thành: ĐỦ 4 GIAI ĐOẠN
+# BIẾN THÁI HOÀN TOÀN đúng vòng đời thật của loài kiến (holometabolous),
+# mỗi giai đoạn 1 PHÒNG RIÊNG BIỆT. Chúa không "sinh" kiến trực tiếp - chúa
+# chỉ ĐẺ TRỨNG (tốn thức ăn+nước từ kho). Trứng được ủ trong PHÒNG TRỨNG
+# riêng (chỉ cần thời gian, KHÔNG cần ăn) - nở xong "chuyển" qua PHÒNG ẤU
+# TRÙNG để lớn lên thật sự bằng thức ăn nurse mang tới (food_in_nursery) -
+# hết thức ăn ở đó thì lớn rất chậm. Ấu trùng lớn đủ (growth >= 1.0) KHÔNG
+# nở thành kiến ngay - mà "hóa nhộng", chuyển qua PHÒNG NHỘNG, nằm yên
+# BIẾN THÁI trong 1 khoảng thời gian (giống trứng: chỉ cần thời gian,
+# KHÔNG cần ăn - đúng thực tế, nhộng không ăn) - xong mới thật sự "nở"
+# thành 1 kiến thợ mới đi ra ngoài.
 EGG_LAY_INTERVAL = 70        # cứ mỗi bấy nhiêu tick, chúa thử đẻ 1 trứng mới
 EGG_FOOD_COST = 4            # thức ăn (lấy từ KHO) chúa cần để đẻ 1 trứng
 EGG_WATER_COST = 2           # nước cần thêm để đẻ 1 trứng - thiếu nước thì
@@ -477,6 +489,14 @@ LARVA_FOOD_PER_TICK = 0.02   # MỖI ấu trùng đang lớn tiêu thụ bấy n
                              # ăn trong phòng ấu trùng mỗi tick - đây chính là
                              # nơi thức ăn nurse mang vào THỰC SỰ được dùng
                              # đến, thay vì chỉ là số liệu suông
+
+PUPA_MAX_COUNT = 30          # số nhộng tối đa cùng lúc trong phòng nhộng
+PUPA_MATURE_PER_TICK = 0.004  # tốc độ "chín" mỗi tick (KHÔNG phụ thuộc thức
+                             # ăn - đúng thực tế, NHỘNG KHÔNG ĂN, chỉ cần đủ
+                             # thời gian biến thái) - nhanh hơn ấu trùng (vốn
+                             # phải chờ đủ thức ăn mới lớn) nhưng chậm hơn
+                             # trứng (trứng chỉ cần "nở vỏ", nhộng cần biến
+                             # thái toàn bộ cơ thể nên lâu hơn 1 chút)
 
 # ----- Kẻ thù tự nhiên (đe dọa trên mặt đất) -----
 ENEMY_SPAWN_COOLDOWN_MIN = 500   # số tick tối thiểu giữa 2 lần kẻ thù xuất hiện
@@ -572,3 +592,17 @@ FOLLOW_AUTO_ZOOM = 2.4       # khi BẮT ĐẦU theo dõi 1 con kiến, tự ph�
                              # nhìn rõ "từng chút một" ngay lập tức - nếu
                              # đang zoom gần hơn mức này rồi thì giữ nguyên,
                              # không tự thu nhỏ lại
+
+# ----- Lưu / tải ván chơi -----
+SAVE_FILE_NAME = "antworld_savegame.pkl"  # lưu ngay cạnh main.py (1 slot
+                             # duy nhất - lưu đè lần sau, đơn giản dễ dùng)
+
+# ----- Thông báo nổi bật (toast) - hiện GÓC TRÊN màn hình, LUÔN NHÌN THẤY
+# bất kể panel thống kê đang thu gọn/kéo đi đâu, tự biến mất sau vài giây -
+# dùng cho cả xác nhận lưu/tải LẪN cảnh báo sự kiện quan trọng (đói, khát,
+# kẻ thù xuất hiện, bị xâm chiếm, tuyệt chủng...) -----
+TOAST_TTL_FRAMES = 260       # 1 thông báo hiện khoảng bấy nhiêu khung hình
+                             # (~4.3 giây ở 60 FPS) rồi tự nhòe biến mất
+TOAST_FADE_FRAMES = 40       # bấy nhiêu khung hình cuối cùng dùng để nhòe dần
+TOAST_MAX_VISIBLE = 6        # tối đa bấy nhiêu thông báo xếp chồng cùng lúc
+                             # (thông báo cũ nhất bị đẩy ra nếu vượt quá)

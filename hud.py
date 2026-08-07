@@ -50,7 +50,7 @@ def build_toolbar(state):
 
     SIDEBAR_W = 232
     toolbar_panel = Panel(state.SCREEN_W - SIDEBAR_W - 10, 8, SIDEBAR_W, 10, "Cong cu")
-    stats_panel = Panel(8, 8, 700, 150, "Thong tin dan kien (2 to)")
+    stats_panel = Panel(8, 8, 740, 150, "Thong tin dan kien (2 to)")
     graph_panel = Panel(8, state.SCREEN_H - 214 - 10, 310, 178, "Dan so theo thoi gian")
 
     # --- Xây SIDEBAR bằng 1 "con trỏ dọc" (cursor_y) - mỗi phần tử thêm
@@ -99,6 +99,12 @@ def build_toolbar(state):
     speed_btn.on_click = lambda: state.cycle_speed(speed_btn)
 
     cursor["y"] += 4
+    add_section("LUU/TAI (Ctrl+S / Ctrl+L)")
+    add_half_buttons(
+        "Luu van choi", lambda: state.save_game(), "time",
+        "Tai van choi", lambda: state.load_game(), "time")
+
+    cursor["y"] += 4
     add_section("CONG TAC BAT/TAT")
     respawn_btn = add_full_button("Tai sinh thuc an: BAT", None, "toggle", active=True, h=26)
     grid_btn = add_full_button("Luoi o vuong: BAT", None, "toggle", active=True, h=26)
@@ -134,6 +140,41 @@ def build_toolbar(state):
 # ---------------------------------------------------------------------
 # Biểu đồ dân số theo thời gian (Panel nổi, kéo/thu gọn được)
 # ---------------------------------------------------------------------
+def draw_toasts(state, surf):
+    """Vẽ các thông báo nổi bật (toast) - LUÔN CỐ ĐỊNH giữa-trên màn hình,
+    HOÀN TOÀN KHÔNG phụ thuộc panel nào (không bị ẩn dù panel thống kê
+    đang thu gọn hay bị kéo đi đâu) - dùng cho cảnh báo sự kiện quan trọng
+    (đói/khát/kẻ thù/bị xâm chiếm/tuyệt chủng) VÀ xác nhận lưu/tải ván
+    chơi. Mỗi toast tự nhòe dần vào lúc xuất hiện và trước khi biến mất."""
+    if not state.toasts:
+        return
+    y = 46  # chừa chỗ dưới nhãn "Tang X" ở góc trên phải, không đụng nhau
+    cx = state.SCREEN_W // 2
+    for t in state.toasts:
+        age = state.frame_counter - t["created"]
+        remaining = cfg.TOAST_TTL_FRAMES - age
+        if age < cfg.TOAST_FADE_FRAMES:
+            alpha = int(255 * age / cfg.TOAST_FADE_FRAMES)
+        elif remaining < cfg.TOAST_FADE_FRAMES:
+            alpha = int(255 * max(0, remaining) / cfg.TOAST_FADE_FRAMES)
+        else:
+            alpha = 255
+        alpha = max(0, min(255, alpha))
+
+        text_img = state.font.render(t["msg"], True, (245, 245, 245))
+        box_w = text_img.get_width() + 34
+        box_h = text_img.get_height() + 16
+        box = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        box.fill((22, 22, 27, 235))
+        pygame.draw.rect(box, t["color"], (0, 0, 6, box_h))
+        pygame.draw.rect(box, (95, 95, 108), box.get_rect(), width=1)
+        box.blit(text_img, (18, 8))
+        box.set_alpha(alpha)
+        rect = box.get_rect(midtop=(cx, y))
+        surf.blit(box, rect)
+        y += box_h + 6
+
+
 def draw_graph(state, surf):
     if not state.graph_visible:
         return
@@ -239,7 +280,8 @@ def draw_hud(state, surf):
                 ("Kho ", COL_LABEL), (f"{cdata['food_in_storage']:.0f}    ", COL_FOOD),
                 ("Nuoc ", COL_LABEL), (f"{cdata['water_in_storage']:.0f}    ", COL_WATER),
                 ("Trung ", COL_LABEL), (f"{cdata['egg_count']} qua    ", COL_VALUE),
-                ("Au trung ", COL_LABEL), (f"{cdata['larva_count']} con", COL_VALUE),
+                ("Au trung ", COL_LABEL), (f"{cdata['larva_count']} con    ", COL_VALUE),
+                ("Nhong ", COL_LABEL), (f"{cdata['pupa_count']} ken", COL_VALUE),
             ])
             y[0] += LINE_H
             _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [

@@ -127,6 +127,41 @@ def draw_storage_pile(surf, cx, cy, r_px, amount, seed_key):
         pygame.draw.circle(surf, (255, 255, 230), (px - r // 3, py - r // 3), hi)  # điểm sáng
 
 
+def draw_pupae(surf, cx, cy, r_px, colony_obj, seed_key):
+    """Phòng nhộng THẬT SỰ có nhộng bên trong - mỗi nhộng là 1 CÁI KÉN hình
+    bầu dục (tơ bọc quanh, màu vàng nhạt/nâu đất đặc trưng), KHÁC HẲN dáng
+    ấu trùng (mập tròn, trắng nhợt) hay trứng (chấm nhỏ trắng ngà) - càng
+    gần "nở" (growth cao) kén càng đậm màu hơn, đúng thực tế (kén nhộng
+    sậm màu dần khi kiến trưởng thành bên trong sắp hoàn thiện)."""
+    active_idx = np.where(colony_obj.pupa_active)[0]
+    if len(active_idx) == 0:
+        return
+    rng_local = np.random.RandomState(seed_key * 419 + 13)
+    ang = rng_local.uniform(0, 2 * np.pi, cfg.PUPA_MAX_COUNT)
+    rad = np.sqrt(rng_local.uniform(0, 1, cfg.PUPA_MAX_COUNT)) * r_px * 0.62
+    tilt = rng_local.uniform(-0.5, 0.5, cfg.PUPA_MAX_COUNT)
+    for i in active_idx:
+        growth = float(colony_obj.pupa_growth[i])
+        dx = int(math.cos(ang[i]) * rad[i])
+        dy = int(math.sin(ang[i]) * rad[i])
+        w = max(4, int(r_px * 0.13))
+        h = max(3, int(r_px * 0.085))
+        # Màu kén đậm dần theo growth: vàng rơm nhạt lúc mới hóa nhộng ->
+        # nâu vàng đậm lúc sắp nở
+        shade = 0.55 + 0.45 * growth
+        color = (int(215 * shade + 40 * (1 - shade)), int(180 * shade + 40 * (1 - shade)), int(110 * shade + 30 * (1 - shade)))
+        px, py = cx + dx, cy + dy
+        cocoon = pygame.Surface((w * 2 + 4, h * 2 + 4), pygame.SRCALPHA)
+        pygame.draw.ellipse(cocoon, (60, 45, 25), (0, 0, w * 2 + 4, h * 2 + 4))
+        pygame.draw.ellipse(cocoon, color, (2, 2, w * 2, h * 2))
+        # 2 sợi tơ mảnh ngang thân kén cho ra dáng "bọc kén" thật
+        pygame.draw.line(cocoon, (60, 45, 25), (w * 0.5, h * 0.4), (w * 0.5, h * 1.6), 1)
+        pygame.draw.line(cocoon, (60, 45, 25), (w * 1.5, h * 0.4), (w * 1.5, h * 1.6), 1)
+        rotated = pygame.transform.rotate(cocoon, math.degrees(tilt[i]))
+        rect = rotated.get_rect(center=(px, py))
+        surf.blit(rotated, rect)
+
+
 def draw_larvae(surf, cx, cy, r_px, colony_obj, seed_key):
     """Phòng ấu trùng THẬT SỰ có ấu trùng bên trong - mỗi ấu trùng lớn
     dần theo growth (0..1): bé + trắng nhợt lúc mới đẻ, to + ngả vàng
@@ -299,6 +334,8 @@ def draw_underground_layer(state, surf, depth):
                 draw_eggs(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
             elif room_id == 6:  # Nghĩa địa: vẽ các nắm xác thật
                 draw_graveyard(surf, int(cx), int(cy), r_px, uworld.corpse_count, seed_key)
+            elif room_id == 7:  # Phòng nhộng: vẽ các kén nhộng đang biến thái thật
+                draw_pupae(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
             # room_id == 5 (Phòng gác cửa): không cần vẽ thêm gì đặc biệt
             # - lính gác đóng quân ở đây đã tự hiện ra qua draw_ants() bên
             # dưới (vì depth của họ = DEPTH_GUARD), giống như trong bất kỳ

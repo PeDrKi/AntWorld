@@ -6,21 +6,11 @@ và zoom tự do bằng chuột để nhìn từ mọi góc, kể cả nhìn xuy
 xuống các phòng sâu dưới đất.
 
 Dùng engine **Ursina** (xây trên nền **Panda3D**) để dựng 3D.
-
-## Cài đặt (Windows)
-
-```powershell
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
-
 ## Chạy
 
 ```powershell
 python main.py
 ```
-
 ## Điều khiển
 
 - **Giữ CHUỘT PHẢI + di chuột**: xoay camera quanh khối thế giới
@@ -55,11 +45,6 @@ Khi chạy trên Windows, nếu FPS thấp hơn mong đợi, thử theo thứ t�
    ăn được vẽ.
 3. Đóng bớt ứng dụng khác đang dùng GPU.
 
-Nếu 600 kiến vẫn mượt tốt trên máy bạn, mình có thể tăng dần lên 1000+ ở
-bước sau, kèm theo tối ưu bằng kỹ thuật "instanced rendering" (gộp nhiều
-kiến thành 1 draw call duy nhất thay vì 600 draw call riêng lẻ) để tăng
-hiệu năng đáng kể hơn nữa.
-
 ## Cấu trúc file
 
 ```
@@ -68,15 +53,3 @@ world.py     - SurfaceWorld (mặt đất) và UndergroundWorld (hầm ngầm, t
 ants.py      - AntColony: đàn kiến dạng mảng NumPy, di chuyển 3D thật (x,y,z)
 main.py      - dựng cảnh Ursina/Panda3D, camera xoay quỹ đạo, vòng lặp update()
 ```
-
-## Hướng mở rộng tiếp theo (gợi ý)
-
-- **Instanced rendering** để tăng số lượng kiến lên 1000+ mà vẫn mượt
-- Vẽ đường hầm dạng ống cong (Ursina hỗ trợ `Pipe`/`Cylinder` theo path)
-  thay vì đường thẳng đơn giản như hiện tại
-- Vòng đời kiến, phòng chúa sinh sản thật, tiêu thụ thức ăn theo thời gian
-- Panel điều khiển (CustomTkinter cửa sổ riêng, hoặc UI trong chính Ursina)
-  để đặt thức ăn bằng cách click chuột trái vào mặt đất
-- Lưu/tải trạng thái thế giới bằng SQLite
-- Texture động cho mặt đất hiển thị pheromone (đã cài sẵn Pillow, có thể
-  thêm ở bước sau nếu bạn muốn thấy "vệt mùi" ngay trên mặt đất 3D)

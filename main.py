@@ -49,16 +49,24 @@ def sim_to_world(x, y, z):
 # ---------------------------------------------------------------------
 # Khối kính bao quanh toàn bộ thế giới (như bể nuôi kiến)
 # ---------------------------------------------------------------------
-GLASS_TOP = 3.0
-GLASS_BOTTOM = -cfg.WORLD_DEPTH
-glass_height = GLASS_TOP - GLASS_BOTTOM
-glass_box = Entity(
-    model="cube",
-    scale=(cfg.GRID_SIZE + 2, glass_height, cfg.GRID_SIZE + 2),
-    position=(0, (GLASS_TOP + GLASS_BOTTOM) / 2, 0),
-    color=color.rgba(255, 255, 255, 16),
-    double_sided=True,
-)
+# TẠM TẮT (SHOW_GLASS_BOX = False) để cô lập nguyên nhân gây trắng màn
+# hình - nghi ngờ khối hộp trong suốt khổng lồ này kết hợp với vị trí
+# camera là thủ phạm. Sau khi xác nhận phần còn lại hiển thị ổn, đổi lại
+# thành True để bật lại.
+SHOW_GLASS_BOX = False
+
+if SHOW_GLASS_BOX:
+    GLASS_TOP = 3.0
+    GLASS_BOTTOM = -cfg.WORLD_DEPTH
+    glass_height = GLASS_TOP - GLASS_BOTTOM
+    glass_box = Entity(
+        model="cube",
+        scale=(cfg.GRID_SIZE + 2, glass_height, cfg.GRID_SIZE + 2),
+        position=(0, (GLASS_TOP + GLASS_BOTTOM) / 2, 0),
+        color=color.rgba(255, 255, 255, 16),
+        double_sided=True,
+    )
+
 
 # ---------------------------------------------------------------------
 # Mặt đất - có thể bấm phím G để chuyển giữa đục/trong suốt
@@ -146,16 +154,14 @@ COLOR_CARRY_UNDERGROUND = color.rgb(235, 190, 70)
 # ---------------------------------------------------------------------
 # Camera xoay quỹ đạo tự do quanh khối thế giới
 # ---------------------------------------------------------------------
-# Tạo camera trước với rotation_smoothing=0 (xoay tức thì, không có độ trễ
-# lerp) để tránh tình trạng vài khung hình đầu camera "kẹt" ở vị trí mặc
-# định (0,0,0) - bên TRONG khối kính - trước khi kịp lùi ra xa.
+# Cố tình giữ pivot ở đúng gốc tọa độ (0,0,0) - giống hệt cách
+# test_3d_basic.py đã chạy thành công trên máy bạn - thay vì dịch chuyển
+# tâm xoay, để loại trừ khả năng lệch vị trí camera do phép xoay.
 editor_cam = EditorCamera(rotation_smoothing=0)
-editor_cam.position = (0, -6, 0)      # điểm xoay quanh (gần giữa thế giới)
-editor_cam.rotation_x = 30            # nhìn hơi chếch xuống
-CAMERA_START_DISTANCE = -75
-camera.z = CAMERA_START_DISTANCE      # gán TRỰC TIẾP, không chờ lerp
-editor_cam.target_z = CAMERA_START_DISTANCE  # để lerp zoom sau này (lăn chuột)
-                                              # không kéo camera giật ngược lại
+editor_cam.rotation_x = 20
+CAMERA_START_DISTANCE = -90
+camera.z = CAMERA_START_DISTANCE
+editor_cam.target_z = CAMERA_START_DISTANCE
 
 # ---------------------------------------------------------------------
 # Bảng thống kê (HUD góc trên trái)

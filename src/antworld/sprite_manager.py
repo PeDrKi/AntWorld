@@ -68,7 +68,16 @@ class SpriteManager:
 
     def get_static(self, filename, size_px):
         """Ảnh KHÔNG xoay (thức ăn/đá/nước/trứng/ấu trùng/nhộng/chúa), đã co
-        giãn đúng kích thước hiển thị `size_px` (hình vuông), có cache."""
+        giãn đúng kích thước hiển thị `size_px` (hình vuông), có cache.
+
+        Dùng `pygame.transform.scale` (nearest-neighbor, KHÔNG nội suy màu)
+        thay vì `smoothscale` (nội suy bilinear) - vì sprite là ẢNH PIXEL
+        ART độ phân giải rất thấp (16x16, 8x8...) vẽ bằng pixel_editor.py.
+        smoothscale làm mờ nhòe ranh giới giữa các pixel khi phóng to (đúng
+        thứ pixel art KHÔNG muốn - mất luôn cái "nét vuông vức" đặc trưng),
+        còn scale giữ nguyên từng pixel gốc thành 1 khối vuông sắc cạnh khi
+        phóng to, đúng phong cách pixel art.
+        """
         raw = self._load_raw(filename)
         if raw is None:
             return None
@@ -76,7 +85,7 @@ class SpriteManager:
         key = (filename, size_px, -1)
         cached = self._render_cache.get(key)
         if cached is None:
-            cached = pygame.transform.smoothscale(raw, (size_px, size_px))
+            cached = pygame.transform.scale(raw, (size_px, size_px))
             self._render_cache[key] = cached
         return cached
 
@@ -94,13 +103,29 @@ class SpriteManager:
         key = (filename, size_px, step)
         cached = self._render_cache.get(key)
         if cached is None:
-            base = pygame.transform.smoothscale(raw, (size_px, size_px))
+            # Phóng to bằng "scale" (nearest-neighbor) TRƯỚC khi xoay, y hệt
+            # lý do trong get_static() ở trên - giữ pixel art sắc nét thay
+            # vì mờ nhòe. Phóng lên gấp đôi kích thước hiển thị thật rồi mới
+            # xoay + thu lại đúng size_px giúp cạnh xoay đỡ răng cưa hơn so
+            # với xoay thẳng trên ảnh nhỏ xíu (rotate() của pygame có nội
+            # suy nhẹ ở các góc không tròn 90 độ, phóng to sẵn giảm bớt độ
+            # "vỡ hạt" do nội suy đó gây ra).
+            base = pygame.transform.scale(raw, (size_px * 2, size_px * 2))
             # pygame xoay NGƯỢC CHIỀU KIM ĐỒNG HỒ theo độ dương -> đổi dấu vì
             # angle_rad ở đây dùng quy ước toán học thường (atan2), độ xoay
             # cần truyền vào pygame.transform.rotate là độ, chiều dương =
             # ngược kim đồng hồ - trùng quy ước toán học nên KHÔNG cần đổi dấu
             deg = step * (360.0 / ROTATION_STEPS)
-            cached = pygame.transform.rotate(base, deg)
+            rotated = pygame.transform.rotate(base, deg)
+            # Thu lại đúng size_px (nearest-neighbor) - xoay xong ảnh to hơn
+            # do rotate() tự nới khung chứa vừa đủ góc xoay, cần crop về
+            # đúng tâm rồi resize về kích thước hiển thị thật.
+            rect = rotated.get_rect()
+            crop_size = min(rect.width, rect.height)
+            crop_rect = pygame.Rect(0, 0, crop_size, crop_size)
+            crop_rect.center = rect.center
+            cropped = rotated.subsurface(crop_rect).copy()
+            cached = pygame.transform.scale(cropped, (size_px, size_px))
             self._render_cache[key] = cached
         return cached
 

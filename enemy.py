@@ -143,6 +143,7 @@ class EnemyManager:
             if len(killed) > 0:
                 colony.alive[killed] = False
                 colony.underground.total_deaths += len(killed)
+                colony.underground.add_corpse(len(killed))
                 self.total_kills += len(killed)
                 self.kills_this_visit += len(killed)
                 remaining_quota -= len(killed)

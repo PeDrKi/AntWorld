@@ -63,6 +63,12 @@ class AntColony:
 
         # --- Phân vai: đa số thợ nhỏ, 1 phần nhỏ là lính (thợ lớn) ---
         self.role = (rng.uniform(0, 1, self.n) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
+        # --- Trong số lính, 1 nửa là "lính gác" đóng quân cố định ở phòng
+        # gác cửa (xem _update_guards) - nửa còn lại vẫn tha đồ/chiến đấu
+        # ngẫu nhiên như thợ thường mọi khi ---
+        self.is_guard = (self.role == cfg.ROLE_MAJOR) & (
+            rng.uniform(0, 1, self.n) < cfg.GUARD_SHARE_OF_MAJORS
+        )
 
         # --- Vòng đời ---
         self.alive = np.zeros(self.n, dtype=bool)
@@ -72,7 +78,20 @@ class AntColony:
         # Tuổi ban đầu rải ngẫu nhiên để đàn không cùng già/chết 1 lượt
         self.age = rng.uniform(0, cfg.MAX_AGE_TICKS * 0.6, self.n).astype(np.float32)
 
-        # --- Trứng / ấu trùng (phòng ấu trùng NUÔI THẬT, xem _update_larvae) ---
+        # Lính gác khởi đầu đóng quân NGAY trong phòng gác cửa, không đứng
+        # lẫn trên mặt đất như thợ thường
+        guard_start = np.where(self.is_guard[:n_start])[0]
+        if len(guard_start) > 0:
+            self.layer[guard_start] = cfg.LAYER_UNDERGROUND
+            self.depth[guard_start] = cfg.DEPTH_GUARD
+            self.x[guard_start] = nest_x
+            self.y[guard_start] = nest_y
+            self.state[guard_start] = cfg.STATE_GUARD_DUTY
+
+        # --- Trứng (phòng trứng, ủ theo thời gian) -> Ấu trùng (phòng ấu
+        # trùng, lớn nhờ ăn - xem _update_eggs / _update_larvae) ---
+        self.egg_growth = np.zeros(cfg.EGG_MAX_COUNT, dtype=np.float32)
+        self.egg_active = np.zeros(cfg.EGG_MAX_COUNT, dtype=bool)
         self.larva_growth = np.zeros(cfg.LARVA_MAX_COUNT, dtype=np.float32)
         self.larva_active = np.zeros(cfg.LARVA_MAX_COUNT, dtype=bool)
 
@@ -81,17 +100,20 @@ class AntColony:
         self.tick_count = 0
 
     # ------------------------------------------------------------------
-    def update(self):
+    def update(self, enemy=None):
         self.tick_count += 1
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
         self._update_surface_ants()
         self._update_underground_ants()
+        self._update_guards(enemy)
         self.surface.decay_pheromone()
         self.underground.update_starvation_tracker()
         self.underground.consume_upkeep(int(np.sum(self.alive)))
+        self.underground.decay_graveyard()
         if self.surface.has_water_source():
             self.underground.deposit_water(cfg.WATER_BASE_INCOME_PER_TICK)
         self._update_lifecycle()
+        self._update_eggs()
         self._update_larvae()
         # LƯU Ý: việc tái sinh thức ăn ngẫu nhiên KHÔNG còn nằm ở đây nữa -
         # đã chuyển sang main.py để có thể bật/tắt bằng nút trên thanh công
@@ -211,11 +233,16 @@ class AntColony:
             dist = np.hypot(self.x[idx] - nest_x, self.y[idx] - nest_y)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
-                # Chui xuống giếng: "thang máy" đưa thẳng xuống tầng kho -
-                # depth đổi tức thời, xuất hiện ngay tại điểm giếng (vị trí
-                # lỗ tổ) trên tầng kho rồi đi bộ 2D tới phòng kho.
+                # Chui xuống giếng: "thang máy" đưa thẳng xuống ĐÚNG tầng
+                # cần tới - tha thức ăn thì xuống tầng kho, tha nước thì
+                # xuống tầng bể trữ nước (2 tầng RIÊNG BIỆT) - depth đổi tức
+                # thời, xuất hiện ngay tại điểm giếng (vị trí lỗ tổ) trên
+                # tầng đó rồi đi bộ 2D tới phòng.
+                is_water = self.carry_type[arrived] == 2
                 self.layer[arrived] = cfg.LAYER_UNDERGROUND
-                self.depth[arrived] = self.underground.storage_depth
+                self.depth[arrived] = np.where(
+                    is_water, self.underground.water_depth, self.underground.storage_depth
+                )
                 self.x[arrived] = self.underground.shaft_xy[0]
                 self.y[arrived] = self.underground.shaft_xy[1]
                 self.state[arrived] = cfg.STATE_UG_TO_STORAGE
@@ -284,11 +311,17 @@ class AntColony:
         if not np.any(ug):
             return
 
-        # --- đi tới kho ---
+        # --- đi tới kho HOẶC bể trữ nước (tùy đang tha thức ăn hay nước) ---
         mask = ug & (self.state == cfg.STATE_UG_TO_STORAGE)
         if np.any(mask):
             idx = np.where(mask)[0]
-            dist = self._move_towards_2d(idx, self.underground.storage, cfg.UG_SPEED)
+            is_water_carry = self.carry_type[idx] == 2
+            # Mỗi kiến có thể đang hướng tới 1 trong 2 đích khác nhau (kho
+            # HOẶC bể nước) - xây mảng đích riêng cho TỪNG con rồi di
+            # chuyển vectorized 1 lần, thay vì tách thành 2 lệnh gọi.
+            target_x = np.where(is_water_carry, self.underground.water_room[0], self.underground.storage[0])
+            target_y = np.where(is_water_carry, self.underground.water_room[1], self.underground.storage[1])
+            dist = self._move_towards_2d(idx, (target_x, target_y), cfg.UG_SPEED)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
                 is_water = self.carry_type[arrived] == 2
@@ -311,6 +344,7 @@ class AntColony:
                     self._start_dwell(go_back, cfg.STATE_UG_TO_SHAFT)
 
                 if len(water_idx) > 0:
+                    # Đã tới ĐÚNG bể trữ nước (không phải kho) - đổ nước vào đây
                     self.underground.deposit_water(float(self.carry_amount[water_idx].sum()))
                     self.carry_amount[water_idx] = 0.0
                     self.carry_type[water_idx] = 0
@@ -361,13 +395,7 @@ class AntColony:
         ).astype(np.int16)
 
     def _room_center_and_radius(self, depth):
-        if depth == self.underground.storage_depth:
-            return self.underground.storage, cfg.ROOM_RADIUS
-        if depth == self.underground.nursery_depth:
-            return self.underground.nursery, cfg.ROOM_RADIUS
-        if depth == self.underground.queen_depth:
-            return self.underground.queen_room, cfg.ROOM_RADIUS * 1.1
-        return None, None
+        return self.underground.room_center_and_radius(depth)
 
     def _update_dwelling_ants(self):
         mask = self.alive & (self.state == cfg.STATE_DWELL)
@@ -417,6 +445,81 @@ class AntColony:
                 self.state[others] = self.next_state[others]
 
     # ------------------------------------------------------------------
+    def _update_guards(self, enemy):
+        """Lính gác (self.is_guard): mặc định lượn vô thời hạn trong phòng
+        gác cửa (STATE_GUARD_DUTY); nếu có kẻ thù xuất hiện đủ gần lỗ tổ,
+        LAO LÊN mặt đất thẳng tới chỗ kẻ thù để nghênh chiến (việc gây/nhận
+        sát thương đã được enemy.py tự xử lý dựa trên khoảng cách + vai trò
+        ROLE_MAJOR, không cần thêm logic chiến đấu ở đây); hết mối đe dọa
+        thì tự quay về đóng quân lại."""
+        guard_mask = self.alive & self.is_guard
+        if not np.any(guard_mask):
+            return
+
+        nest_x, nest_y = self.nest_pos
+        threat_active = enemy is not None and enemy.active
+        threat_near_nest = threat_active and (
+            (enemy.x - nest_x) ** 2 + (enemy.y - nest_y) ** 2 < cfg.GUARD_ALERT_RADIUS ** 2
+        )
+
+        # --- Đóng quân: lượn quanh phòng gác VÔ THỜI HẠN, trừ khi có báo động ---
+        duty_mask = guard_mask & (self.state == cfg.STATE_GUARD_DUTY)
+        if np.any(duty_mask):
+            if threat_near_nest:
+                rush_idx = np.where(duty_mask)[0]
+                self.layer[rush_idx] = cfg.LAYER_SURFACE
+                self.depth[rush_idx] = cfg.LAYER_SURFACE_DEPTH
+                self.x[rush_idx] = nest_x
+                self.y[rush_idx] = nest_y
+                self.state[rush_idx] = cfg.STATE_GUARD_RUSH
+            else:
+                idx = np.where(duty_mask)[0]
+                center, radius = self.underground.room_center_and_radius(cfg.DEPTH_GUARD)
+                if center is not None:
+                    self.theta[idx] += np.random.uniform(-0.6, 0.6, len(idx)).astype(np.float32)
+                    self.x[idx] += np.cos(self.theta[idx]) * cfg.DWELL_SPEED
+                    self.y[idx] += np.sin(self.theta[idx]) * cfg.DWELL_SPEED
+                    dx = self.x[idx] - center[0]
+                    dy = self.y[idx] - center[1]
+                    dist = np.hypot(dx, dy)
+                    max_r = radius * cfg.ROOM_WANDER_FACTOR
+                    over = dist > max_r
+                    if np.any(over):
+                        safe_dist = np.where(dist[over] < 1e-6, 1.0, dist[over])
+                        scale = max_r / safe_dist
+                        self.x[idx[over]] = center[0] + dx[over] * scale
+                        self.y[idx[over]] = center[1] + dy[over] * scale
+                        self.theta[idx[over]] = np.arctan2(-dy[over], -dx[over])
+
+        # --- Đang lao lên nghênh chiến ---
+        rush_mask = guard_mask & (self.state == cfg.STATE_GUARD_RUSH)
+        if np.any(rush_mask):
+            idx = np.where(rush_mask)[0]
+            if threat_active:
+                prev_x, prev_y = self.x[idx].copy(), self.y[idx].copy()
+                self._move_towards_2d(idx, (enemy.x, enemy.y), cfg.GUARD_SPEED)
+                self._bounce_walls(idx)
+                self._avoid_obstacles(idx, prev_x, prev_y)
+            else:
+                self.state[idx] = cfg.STATE_GUARD_RETURN  # hết mối đe dọa - rút về
+
+        # --- Đang rút quân về giếng để xuống lại phòng gác ---
+        return_mask = guard_mask & (self.state == cfg.STATE_GUARD_RETURN)
+        if np.any(return_mask):
+            idx = np.where(return_mask)[0]
+            prev_x, prev_y = self.x[idx].copy(), self.y[idx].copy()
+            dist = self._move_towards_2d(idx, (nest_x, nest_y), cfg.GUARD_SPEED)
+            self._bounce_walls(idx)
+            self._avoid_obstacles(idx, prev_x, prev_y)
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                self.layer[arrived] = cfg.LAYER_UNDERGROUND
+                self.depth[arrived] = cfg.DEPTH_GUARD
+                self.x[arrived] = self.underground.shaft_xy[0]
+                self.y[arrived] = self.underground.shaft_xy[1]
+                self.state[arrived] = cfg.STATE_GUARD_DUTY
+
+    # ------------------------------------------------------------------
     def _update_lifecycle(self):
         """Tăng tuổi, tính nguy cơ chết (già/đói), và xử lý sinh sản."""
         alive_idx = np.where(self.alive)[0]
@@ -447,21 +550,47 @@ class AntColony:
         if len(died) > 0:
             self.alive[died] = False
             self.underground.total_deaths += len(died)
+            self.underground.add_corpse(len(died))
 
         # --- Đẻ trứng: chúa thử đẻ 1 trứng mới theo chu kỳ, cần đủ thức ăn
-        # + nước TRONG KHO. Trứng KHÔNG lập tức thành kiến - nó được chuyển
-        # qua _update_larvae() để lớn lên thật sự trong phòng ấu trùng. ---
+        # + nước TRONG KHO. Trứng được ủ trong PHÒNG TRỨNG (_update_eggs)
+        # rồi mới "chuyển" qua phòng ấu trùng để lớn lên thật sự. ---
         if self.tick_count % cfg.EGG_LAY_INTERVAL == 0:
-            free_larva_slots = np.where(~self.larva_active)[0]
+            free_egg_slots = np.where(~self.egg_active)[0]
             has_ant_capacity = np.any(~self.alive)
-            if len(free_larva_slots) > 0 and has_ant_capacity:
+            if len(free_egg_slots) > 0 and has_ant_capacity:
                 got_food = self.underground.try_consume_for_egg(
                     cfg.EGG_FOOD_COST, cfg.EGG_WATER_COST
                 )
                 if got_food:
-                    slot = free_larva_slots[0]
-                    self.larva_active[slot] = True
-                    self.larva_growth[slot] = 0.0
+                    slot = free_egg_slots[0]
+                    self.egg_active[slot] = True
+                    self.egg_growth[slot] = 0.0
+
+    def _update_eggs(self):
+        """Trứng trong PHÒNG TRỨNG lớn dần theo THỜI GIAN (không cần ăn) -
+        đủ lớn thì "chuyển" sang phòng ấu trùng thành 1 ấu trùng thật (nếu
+        còn chỗ trống trong phòng ấu trùng; nếu chưa có chỗ, trứng chờ đã
+        nở nhưng chưa chuyển được, giữ growth ở mức tối đa)."""
+        active = np.where(self.egg_active)[0]
+        if len(active) == 0:
+            return
+        self.egg_growth[active] = np.clip(
+            self.egg_growth[active] + cfg.EGG_INCUBATE_PER_TICK, 0.0, 1.0
+        )
+        hatched = active[self.egg_growth[active] >= 1.0]
+        if len(hatched) == 0:
+            return
+        free_larva_slots = np.where(~self.larva_active)[0]
+        n_move = min(len(hatched), len(free_larva_slots))
+        if n_move == 0:
+            return  # trứng đã nở nhưng phòng ấu trùng đầy - chờ có chỗ trống
+        move_eggs = hatched[:n_move]
+        move_slots = free_larva_slots[:n_move]
+        self.egg_active[move_eggs] = False
+        self.egg_growth[move_eggs] = 0.0
+        self.larva_active[move_slots] = True
+        self.larva_growth[move_slots] = 0.0
 
     def _update_larvae(self):
         """Ấu trùng ĐANG CÓ trong phòng ấu trùng lớn lên dần bằng cách ăn
@@ -498,20 +627,36 @@ class AntColony:
     def _spawn_new_ants(self, idx):
         """Tái sử dụng các ô đã chết để tạo kiến mới, xuất hiện tại phòng
         chúa, lượn 1 lúc (mới sinh, còn quây quần quanh chúa) rồi tự đi lên
-        mặt đất qua giếng."""
+        mặt đất qua giếng - RIÊNG lính gác mới thì đi thẳng xuống đóng quân
+        ở phòng gác cửa, không cần trồi lên mặt đất trước."""
         self.alive[idx] = True
         self.age[idx] = 0.0
-        self.layer[idx] = cfg.LAYER_UNDERGROUND
-        self.depth[idx] = self.underground.queen_depth
         self.carrying[idx] = False
         self.carry_type[idx] = 0
         self.carry_amount[idx] = 0.0
         self.role[idx] = (np.random.uniform(0, 1, len(idx)) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
-        qx, qy = self.underground.queen_room
-        self.x[idx] = qx
-        self.y[idx] = qy
+        self.is_guard[idx] = (self.role[idx] == cfg.ROLE_MAJOR) & (
+            np.random.uniform(0, 1, len(idx)) < cfg.GUARD_SHARE_OF_MAJORS
+        )
         self.theta[idx] = np.random.uniform(0, 2 * np.pi, len(idx))
-        self._start_dwell(idx, cfg.STATE_UG_TO_SHAFT)
+
+        guard_idx = idx[self.is_guard[idx]]
+        normal_idx = idx[~self.is_guard[idx]]
+
+        if len(normal_idx) > 0:
+            self.layer[normal_idx] = cfg.LAYER_UNDERGROUND
+            self.depth[normal_idx] = self.underground.queen_depth
+            qx, qy = self.underground.queen_room
+            self.x[normal_idx] = qx
+            self.y[normal_idx] = qy
+            self._start_dwell(normal_idx, cfg.STATE_UG_TO_SHAFT)
+
+        if len(guard_idx) > 0:
+            self.layer[guard_idx] = cfg.LAYER_UNDERGROUND
+            self.depth[guard_idx] = cfg.DEPTH_GUARD
+            self.x[guard_idx] = self.underground.shaft_xy[0]
+            self.y[guard_idx] = self.underground.shaft_xy[1]
+            self.state[guard_idx] = cfg.STATE_GUARD_DUTY
 
     # ------------------------------------------------------------------
     def counts(self):
@@ -532,4 +677,8 @@ class AntColony:
             "is_starving": self.underground.is_starving(),
             "is_dehydrated": self.underground.is_dehydrated(),
             "larva_count": int(np.sum(self.larva_active)),
+            "egg_count": int(np.sum(self.egg_active)),
+            "corpse_count": self.underground.corpse_count,
+            "guards_on_duty": int(np.sum(alive & self.is_guard & (self.state == cfg.STATE_GUARD_DUTY))),
+            "guards_total": int(np.sum(alive & self.is_guard)),
         }

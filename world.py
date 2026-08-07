@@ -201,28 +201,42 @@ class UndergroundWorld:
         self.nest_pos = nest_pos
         self.shaft_xy = np.array([nest_x, nest_y], dtype=np.float32)
 
-        self.storage = np.array(
-            [nest_x + cfg.STORAGE_OFFSET_XY[0], nest_y + cfg.STORAGE_OFFSET_XY[1]], dtype=np.float32
-        )
-        self.nursery = np.array(
-            [nest_x + cfg.NURSERY_OFFSET_XY[0], nest_y + cfg.NURSERY_OFFSET_XY[1]], dtype=np.float32
-        )
-        self.queen_room = np.array(
-            [nest_x + cfg.QUEEN_OFFSET_XY[0], nest_y + cfg.QUEEN_OFFSET_XY[1]], dtype=np.float32
-        )
+        def offset(off_xy):
+            return np.array([nest_x + off_xy[0], nest_y + off_xy[1]], dtype=np.float32)
+
+        self.storage = offset(cfg.STORAGE_OFFSET_XY)
+        self.nursery = offset(cfg.NURSERY_OFFSET_XY)
+        self.queen_room = offset(cfg.QUEEN_OFFSET_XY)
+        self.water_room = offset(cfg.WATER_OFFSET_XY)
+        self.egg_room = offset(cfg.EGG_OFFSET_XY)
+        self.guard_room = offset(cfg.GUARD_OFFSET_XY)
+        self.graveyard = offset(cfg.GRAVEYARD_OFFSET_XY)
+
         self.storage_depth = cfg.DEPTH_STORAGE
         self.nursery_depth = cfg.DEPTH_NURSERY
         self.queen_depth = cfg.DEPTH_QUEEN
+        self.water_depth = cfg.DEPTH_WATER
+        self.egg_depth = cfg.DEPTH_EGG
+        self.guard_depth = cfg.DEPTH_GUARD
+        self.graveyard_depth = cfg.DEPTH_GRAVEYARD
 
         # Danh sách phòng để vẽ (id, tên, tâm(x,y), bán kính, màu gợi ý, tầng)
-        # - ID 0,1,2 là 3 phòng GỐC (không thể xóa vì hành vi kiến phụ thuộc
-        # trực tiếp vào chúng); phòng do người chơi tự đào sẽ có ID >= 3.
+        # - ID 0..6 là 7 phòng GỐC/CHỨC NĂNG (không thể xóa vì hành vi kiến
+        # phụ thuộc trực tiếp vào chúng); phòng do người chơi tự đào sẽ có
+        # ID >= FIXED_ROOM_COUNT. Kích thước (bán kính) khác nhau theo đúng
+        # vai trò: kho/nước chứa số lượng lớn nên to nhất, trứng/gác cửa/
+        # nghĩa địa nhỏ hơn.
         self.rooms = [
-            (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70), self.storage_depth),
-            (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120), self.nursery_depth),
-            (2, f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140), self.queen_depth),
+            (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS_STORAGE, (170, 130, 70), self.storage_depth),
+            (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS_NURSERY, (200, 190, 120), self.nursery_depth),
+            (2, f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS_QUEEN, (180, 90, 140), self.queen_depth),
+            (3, f"{label_prefix}Bể trữ nước", self.water_room, cfg.ROOM_RADIUS_WATER, (70, 130, 190), self.water_depth),
+            (4, f"{label_prefix}Phòng trứng", self.egg_room, cfg.ROOM_RADIUS_EGG, (235, 225, 200), self.egg_depth),
+            (5, f"{label_prefix}Phòng gác cửa", self.guard_room, cfg.ROOM_RADIUS_GUARD, (120, 110, 100), self.guard_depth),
+            (6, f"{label_prefix}Nghĩa địa", self.graveyard, cfg.ROOM_RADIUS_GRAVEYARD, (90, 80, 75), self.graveyard_depth),
         ]
-        self._next_room_id = 3
+        self.FIXED_ROOM_COUNT = 7
+        self._next_room_id = self.FIXED_ROOM_COUNT
         self._next_dug_depth = cfg.DUG_ROOM_FIRST_DEPTH
 
         # Thống kê tổ
@@ -233,10 +247,31 @@ class UndergroundWorld:
         self.ticks_water_empty = 0     # số tick liên tiếp hết nước dự trữ
         self.total_births = 0
         self.total_deaths = 0
+        # Nghĩa địa: số "nắm xác" đang hiển thị (giảm dần theo thời gian -
+        # xem GRAVEYARD_DECAY_PER_TICK - để không phình to vô hạn)
+        self.corpse_count = 0.0
+
+    def room_center_and_radius(self, depth):
+        """Tra tâm + bán kính phòng CHỨC NĂNG (không phải phòng tự đào) ở 1
+        tầng cho trước - dùng chung bởi AntColony để biết kiến nên lượn
+        quanh đâu khi đang ở tầng đó (dwell/gác cửa)."""
+        for room in self.rooms[: self.FIXED_ROOM_COUNT]:
+            if room[5] == depth:
+                return room[2], room[3]
+        return None, None
+
+    def add_corpse(self, count=1):
+        """1 (hoặc nhiều) con kiến vừa chết - thêm xác vào nghĩa địa (giới
+        hạn trần để không hiển thị rợp hình khi tổ chết chóc nhiều)."""
+        self.corpse_count = min(cfg.GRAVEYARD_MAX_CORPSES, self.corpse_count + count)
+
+    def decay_graveyard(self):
+        """Xác cũ dần phân hủy/biến mất theo thời gian, gọi mỗi tick."""
+        self.corpse_count = max(0.0, self.corpse_count - cfg.GRAVEYARD_DECAY_PER_TICK)
 
     def max_depth(self):
         """Tầng sâu nhất hiện có (để giới hạn phạm vi cuộn Ctrl+Scroll)."""
-        return max((r[5] for r in self.rooms), default=cfg.DEPTH_QUEEN)
+        return max((r[5] for r in self.rooms), default=cfg.DEPTH_GRAVEYARD)
 
     def deposit_to_storage(self, amount):
         self.food_in_storage += float(amount)
@@ -310,21 +345,21 @@ class UndergroundWorld:
         return room
 
     def find_dug_room_near(self, x, y, depth, radius):
-        """Tìm 1 phòng do người chơi TỰ ĐÀO (ID >= 3, không bao giờ trả về
-        3 phòng gốc) nằm ĐÚNG TẦNG đang xem và có tâm trong bán kính quanh
-        (x, y). Trả về room tuple hoặc None nếu không có."""
+        """Tìm 1 phòng do người chơi TỰ ĐÀO (ID >= FIXED_ROOM_COUNT, không
+        bao giờ trả về các phòng chức năng gốc) nằm ĐÚNG TẦNG đang xem và
+        có tâm trong bán kính quanh (x, y). Trả về room tuple hoặc None."""
         for room in self.rooms:
             room_id, name, center, radius_room, rgb, room_depth = room
-            if room_id < 3 or room_depth != depth:
-                continue  # không bao giờ cho xóa 3 phòng gốc; đúng tầng mới tính
+            if room_id < self.FIXED_ROOM_COUNT or room_depth != depth:
+                continue  # không bao giờ cho xóa phòng gốc; đúng tầng mới tính
             if np.hypot(center[0] - x, center[1] - y) <= radius:
                 return room
         return None
 
     def remove_room(self, room_id):
-        """Xóa 1 phòng đã đào theo ID (không có tác dụng với ID < 3 - 3
-        phòng gốc luôn được bảo vệ). Trả về room tuple đã xóa, hoặc None."""
-        if room_id < 3:
+        """Xóa 1 phòng đã đào theo ID (không có tác dụng với các phòng gốc
+        - luôn được bảo vệ). Trả về room tuple đã xóa, hoặc None."""
+        if room_id < self.FIXED_ROOM_COUNT:
             return None
         target = None
         remaining_rooms = []

@@ -221,6 +221,7 @@ def main(max_frames=None):
                         if len(kill_idx) > 0:
                             col.alive[kill_idx] = False
                             col.underground.total_deaths += len(kill_idx)
+                            col.underground.add_corpse(len(kill_idx))
             else:
                 for uworld in ALL_UNDERGROUNDS:
                     dug_room = uworld.find_dug_room_near(sim_x, sim_y, layer, cfg.ERASE_RADIUS)
@@ -235,6 +236,7 @@ def main(max_frames=None):
                         if len(kill_idx) > 0:
                             col.alive[kill_idx] = False
                             col.underground.total_deaths += len(kill_idx)
+                            col.underground.add_corpse(len(kill_idx))
 
     # -------------------------------------------------------------
     # Thanh công cụ (nút bấm)
@@ -325,12 +327,20 @@ def main(max_frames=None):
     def layer_name(depth):
         if depth == 0:
             return "Mat dat"
+        if depth == cfg.DEPTH_GUARD:
+            return "Phong gac cua"
         if depth == cfg.DEPTH_STORAGE:
             return "Kho thuc an"
+        if depth == cfg.DEPTH_WATER:
+            return "Be tru nuoc"
+        if depth == cfg.DEPTH_EGG:
+            return "Phong trung"
         if depth == cfg.DEPTH_NURSERY:
             return "Au trung"
         if depth == cfg.DEPTH_QUEEN:
             return "Phong chua"
+        if depth == cfg.DEPTH_GRAVEYARD:
+            return "Nghia dia"
         return f"Phong dao (tang {depth})"
 
     def draw_grid_lines(surf):
@@ -494,6 +504,63 @@ def main(max_frames=None):
             pygame.draw.line(surf, (20, 20, 20), (head_x - head_r * 0.3, head_y), end, 2)
         pygame.draw.ellipse(surf, (0, 0, 0), (cx - gaster_w * 0.15, qy - gaster_h / 2, gaster_w, gaster_h), 2)
 
+    def draw_water_drops(surf, cx, cy, r_px, amount, seed_key):
+        """Bể trữ nước KHÔNG chỉ là 1 con số - vẽ luôn lượng nước ĐANG TRỮ
+        THẬT SỰ dưới dạng các giọt nước xanh lấp lánh rải trong bể, to/nhỏ
+        theo lượng nước tồn hiện tại."""
+        n_icons = int(np.clip(amount / cfg.WATER_PER_ICON, 0, cfg.WATER_MAX_ICONS))
+        if n_icons <= 0:
+            return
+        rng_local = np.random.RandomState(seed_key * 611 + 17)
+        ang = rng_local.uniform(0, 2 * np.pi, n_icons)
+        rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.72
+        for i in range(n_icons):
+            dx = int(math.cos(ang[i]) * rad[i])
+            dy = int(math.sin(ang[i]) * rad[i])
+            r = max(3, int(r_px * 0.13))
+            px, py = cx + dx, cy + dy
+            pygame.draw.circle(surf, (20, 60, 100), (px, py), r + 1)
+            pygame.draw.circle(surf, (60, 150, 230), (px, py), r)
+            hi = max(1, int(r * 0.45))
+            pygame.draw.circle(surf, (220, 240, 255), (px - r // 3, py - r // 3), hi)
+
+    def draw_eggs(surf, cx, cy, r_px, colony_obj, seed_key):
+        """Phòng trứng THẬT SỰ có trứng bên trong - trứng nhỏ, trắng ngà,
+        hơi to dần khi sắp nở (chuyển sang phòng ấu trùng)."""
+        active_idx = np.where(colony_obj.egg_active)[0]
+        if len(active_idx) == 0:
+            return
+        rng_local = np.random.RandomState(seed_key * 421 + 3)
+        ang = rng_local.uniform(0, 2 * np.pi, cfg.EGG_MAX_COUNT)
+        rad = np.sqrt(rng_local.uniform(0, 1, cfg.EGG_MAX_COUNT)) * r_px * 0.65
+        for i in active_idx:
+            growth = float(colony_obj.egg_growth[i])
+            dx = int(math.cos(ang[i]) * rad[i])
+            dy = int(math.sin(ang[i]) * rad[i])
+            size = max(2, int(r_px * (0.045 + 0.035 * growth)))
+            color = (250, 248, 235)
+            pygame.draw.ellipse(surf, (150, 145, 120), (cx + dx - size - 1, cy + dy - size * 1.2 - 1, size * 2 + 2, size * 2.4 + 2))
+            pygame.draw.ellipse(surf, color, (cx + dx - size, cy + dy - size * 1.2, size * 2, size * 2.4))
+
+    def draw_graveyard(surf, cx, cy, r_px, corpse_count, seed_key):
+        """Nghĩa địa - mỗi kiến chết để lại 1 'nắm xác' nhỏ ở đây, mờ dần
+        theo thời gian (phân hủy) thay vì kiến biến mất vô hình."""
+        n_icons = int(np.clip(corpse_count, 0, cfg.GRAVEYARD_MAX_CORPSES))
+        if n_icons <= 0:
+            return
+        rng_local = np.random.RandomState(seed_key * 857 + 29)
+        ang = rng_local.uniform(0, 2 * np.pi, n_icons)
+        rad = np.sqrt(rng_local.uniform(0, 1, n_icons)) * r_px * 0.7
+        for i in range(n_icons):
+            dx = int(math.cos(ang[i]) * rad[i])
+            dy = int(math.sin(ang[i]) * rad[i])
+            px, py = cx + dx, cy + dy
+            size = max(2, int(r_px * 0.09))
+            # 1 nắm xác: thân nhỏ sẫm màu + 2 "chân" chéo tượng trưng
+            pygame.draw.line(surf, (60, 50, 45), (px - size, py - size), (px + size, py + size), 2)
+            pygame.draw.line(surf, (60, 50, 45), (px - size, py + size), (px + size, py - size), 2)
+            pygame.draw.circle(surf, (45, 38, 34), (px, py), size)
+
     def draw_underground_layer(surf, depth):
         pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, cfg.SCREEN_W, CANVAS_H))
         cell = camera.cell_px()
@@ -534,6 +601,16 @@ def main(max_frames=None):
                     draw_larvae(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
                 elif room_id == 2:  # Phòng chúa: vẽ 1 con kiến chúa thật
                     draw_queen(surf, int(cx), int(cy), r_px, room_rgb)
+                elif room_id == 3:  # Bể trữ nước: vẽ các giọt nước tồn trữ thật
+                    draw_water_drops(surf, int(cx), int(cy), r_px, uworld.water_in_storage, seed_key)
+                elif room_id == 4:  # Phòng trứng: vẽ các trứng đang ủ thật
+                    draw_eggs(surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+                elif room_id == 6:  # Nghĩa địa: vẽ các nắm xác thật
+                    draw_graveyard(surf, int(cx), int(cy), r_px, uworld.corpse_count, seed_key)
+                # room_id == 5 (Phòng gác cửa): không cần vẽ thêm gì đặc biệt
+                # - lính gác đóng quân ở đây đã tự hiện ra qua draw_ants() bên
+                # dưới (vì depth của họ = DEPTH_GUARD), giống như trong bất kỳ
+                # phòng nào khác.
 
                 label = font_small.render(name, True, (235, 235, 235))
                 surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
@@ -626,13 +703,13 @@ def main(max_frames=None):
         khat = "  *** DAN KIEN DANG KHAT NUOC ***" if c["is_dehydrated"] else ""
         ke_thu = "  *** CO KE THU TREN MAT DAT ***" if enemy.active else ""
         lines = [
-            f"TO CHINH - Dan so: {c['population']} (toi da {colony.n}, linh: {c['soldiers']})   "
-            f"Sinh: {c['total_births']}  Chet: {c['total_deaths']}",
-            f"TO DOI THU - Dan so: {r['population']} (toi da {rival_colony.n}, linh: {r['soldiers']})   "
-            f"Sinh: {r['total_births']}  Chet: {r['total_deaths']}",
-            f"Kho: {c['food_in_storage']:.0f}  Au trung: {c['larva_count']} con "
-            f"(thuc an: {c['food_in_nursery']:.0f})  Nuoc: {c['water_in_storage']:.0f}  "
-            f"Ke thu da giet: {enemy.total_kills}"
+            f"TO CHINH - Dan so: {c['population']} (toi da {colony.n}, linh: {c['soldiers']}, "
+            f"gac: {c['guards_on_duty']}/{c['guards_total']})   Sinh: {c['total_births']}  Chet: {c['total_deaths']}",
+            f"TO DOI THU - Dan so: {r['population']} (toi da {rival_colony.n}, linh: {r['soldiers']}, "
+            f"gac: {r['guards_on_duty']}/{r['guards_total']})   Sinh: {r['total_births']}  Chet: {r['total_deaths']}",
+            f"Kho: {c['food_in_storage']:.0f}  Nuoc: {c['water_in_storage']:.0f}  "
+            f"Trung: {c['egg_count']} qua  Au trung: {c['larva_count']} con  "
+            f"Nghia dia: {c['corpse_count']:.0f} xac  Ke thu da giet: {enemy.total_kills}"
             f"{canh_bao}{khat}{ke_thu}",
             "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat",
         ]
@@ -730,8 +807,8 @@ def main(max_frames=None):
         # --- cập nhật mô phỏng ---
         if not sim_paused:
             for _ in range(sim_speed):
-                colony.update()
-                rival_colony.update()
+                colony.update(enemy=enemy)
+                rival_colony.update(enemy=enemy)
                 enemy.update(ALL_COLONIES)
                 if enemy.active:
                     surface_world.deposit_danger(enemy.x, enemy.y)

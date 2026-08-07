@@ -11,13 +11,22 @@ FPS = 60
 # ----- Độ sâu = TẦNG rời rạc (0 = mặt đất, số càng lớn càng sâu) -----
 # Thay vì 1 khối 3D duy nhất, thế giới giờ là 1 chồng các tầng 2D phẳng,
 # giống lát cắt ngang của bể nuôi kiến - mỗi tầng là 1 bản đồ (x, y) riêng.
-# Giữ CTRL + lăn chuột để chuyển qua lại giữa các tầng.
+# Giữ CTRL + lăn chuột để chuyển qua lại giữa các tầng. Thứ tự tầng đi từ
+# NÔNG -> SÂU phản ánh đúng vai trò từng phòng trong 1 tổ kiến thật:
+# gác cửa ngay dưới cửa hang -> kho/nước gần cửa để tha đồ nhanh -> trứng/
+# ấu trùng ở giữa (cần được bảo vệ) -> phòng chúa sâu nhất (quan trọng
+# nhất) -> nghĩa địa/phòng rác tách hẳn ra 1 góc riêng.
 LAYER_SURFACE_DEPTH = 0     # tầng 0 LUÔN LUÔN là mặt đất
-DEPTH_STORAGE = 1           # tầng nông nhất dưới hầm - kho gần cửa
-DEPTH_NURSERY = 2           # tầng giữa - ấu trùng
-DEPTH_QUEEN = 3             # tầng sâu nhất - phòng chúa
-DUG_ROOM_FIRST_DEPTH = 4    # phòng đầu tiên người chơi tự đào -> tầng 4,
-                            # phòng đào tiếp theo -> tầng 5, 6, ... (mỗi
+DEPTH_GUARD = 1             # phòng gác cửa - ngay dưới cửa hang, tuyến
+                            # phòng thủ đầu tiên trước khi vào sâu hơn
+DEPTH_STORAGE = 2           # kho thức ăn - tầng nông, gần cửa để tha đồ nhanh
+DEPTH_WATER = 3             # bể trữ nước - cũng nông, tương tự kho
+DEPTH_EGG = 4               # phòng trứng - trứng chúa mới đẻ ủ ở đây
+DEPTH_NURSERY = 5           # phòng ấu trùng - ấu trùng lớn lên nhờ thức ăn
+DEPTH_QUEEN = 6             # phòng chúa - sâu nhất, được bảo vệ kỹ nhất
+DEPTH_GRAVEYARD = 7         # nghĩa địa/phòng rác - tách riêng 1 góc
+DUG_ROOM_FIRST_DEPTH = 8    # phòng đầu tiên người chơi tự đào -> tầng 8,
+                            # phòng đào tiếp theo -> tầng 9, 10, ... (mỗi
                             # phòng tự đào chiếm 1 tầng riêng, càng đào
                             # thêm càng "xuống sâu" thêm 1 tầng mới)
 
@@ -154,6 +163,10 @@ NEST_RADIUS = 1.2
 STORAGE_OFFSET_XY = (-7, 5)
 NURSERY_OFFSET_XY = (7, 5)
 QUEEN_OFFSET_XY = (0, 9)
+GUARD_OFFSET_XY = (0, -3)      # ngay dưới cửa hang - gần lỗ tổ nhất
+WATER_OFFSET_XY = (-9, 2)      # cạnh kho nhưng tách phòng riêng
+EGG_OFFSET_XY = (4, 3)         # gần phòng ấu trùng (trứng nở ra sẽ "chuyển" qua đó)
+GRAVEYARD_OFFSET_XY = (10, -6) # tách hẳn ra 1 góc riêng, xa khu sinh hoạt chính
 
 # ----- Phân vai kiến (caste) -----
 ROLE_MINOR = 0    # thợ nhỏ - đa số, lo tìm ăn/chăm ấu trùng
@@ -168,6 +181,15 @@ SOLDIER_DAMAGE_PER_HIT = 1.0
 ENEMY_MAX_HEALTH = 9.0      # kẻ thù có máu - lính có thể đánh bại nó thay vì
                             # chỉ chờ nó tự rời đi
 
+# ----- Phòng gác cửa: 1 phần lính đóng quân cố định dưới hầm, lao lên mặt
+# đất chiến đấu ngay khi có kẻ thù xuất hiện gần tổ, xong việc rút về ----- 
+GUARD_SHARE_OF_MAJORS = 0.5   # trong số lính (ROLE_MAJOR), bấy nhiêu % là
+                            # "lính gác" đóng quân cố định (còn lại vẫn đi
+                            # tha thức ăn/chiến đấu ngẫu nhiên như thường)
+GUARD_ALERT_RADIUS = 16     # kẻ thù vào trong bán kính này (tính từ lỗ tổ)
+                            # thì lính gác lao lên mặt đất nghênh chiến
+GUARD_SPEED = 0.22          # lính gác lao lên nhanh hơn tốc độ đi thường
+
 # ----- Tổ kiến đối thủ (cạnh tranh tài nguyên trên cùng bản đồ) -----
 RIVAL_NEST_POS = (14, 36)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
                             # để không bị bất lợi hình học (diện tích kiếm
@@ -178,7 +200,17 @@ MAX_ANTS_PER_COLONY = 1000  # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ
                             # sẵn cho mảng NumPy) - đàn khởi tạo NUM_ANTS con,
                             # rồi tự sinh sản lớn lên dần tới tối đa số này
                             # nếu đủ thức ăn/nước/không gian ấu trùng
-ROOM_RADIUS = 3.4
+ROOM_RADIUS = 3.4            # bán kính MẶC ĐỊNH (dùng cho phòng tự đào)
+# Mỗi phòng CHỨC NĂNG khác nhau có kích thước khác nhau cho hợp lý: kho +
+# bể nước chứa số lượng lớn nên to nhất; phòng chúa đủ rộng; ấu trùng vừa
+# phải; trứng/gác cửa/nghĩa địa nhỏ hơn vì bản chất chỉ chứa ít "vật thể".
+ROOM_RADIUS_STORAGE = ROOM_RADIUS * 1.3
+ROOM_RADIUS_WATER = ROOM_RADIUS * 1.25
+ROOM_RADIUS_NURSERY = ROOM_RADIUS * 1.05
+ROOM_RADIUS_QUEEN = ROOM_RADIUS * 1.15
+ROOM_RADIUS_EGG = ROOM_RADIUS * 0.75
+ROOM_RADIUS_GUARD = ROOM_RADIUS * 0.9
+ROOM_RADIUS_GRAVEYARD = ROOM_RADIUS * 0.8
 
 # Xác suất 1 con kiến sau khi giao thức ăn ở kho sẽ trở thành "nurse"
 # (mang thức ăn tiếp sang phòng ấu trùng) thay vì quay lại mặt đất ngay
@@ -194,6 +226,11 @@ STATE_DWELL = 5            # dưới hầm, đang LƯỢN/HOẠT ĐỘNG trong p
                            # phòng (kho/ấu trùng/phòng chúa) 1 lúc trước khi
                            # rời đi - để phòng ngầm có "sự sống" thật sự
                            # thay vì kiến chỉ chạm tâm phòng rồi quay đầu
+STATE_GUARD_DUTY = 6       # lính gác đang đóng quân, lượn trong phòng gác
+                           # (vô thời hạn, chỉ rời đi khi có báo động)
+STATE_GUARD_RUSH = 7       # lính gác đang lao lên mặt đất nghênh chiến
+STATE_GUARD_RETURN = 8     # lính gác xong việc, đang quay về giếng để
+                           # xuống lại phòng gác
 
 # Kiến "lượn" trong phòng bao lâu trước khi tiếp tục hành trình (tick mô
 # phỏng), và di chuyển nhẹ/chậm ra sao trong lúc đó
@@ -225,16 +262,23 @@ STARVATION_DEATH_RATE = 0.0015  # xác suất chết PHỤ THÊM mỗi tick cho 
 STARVATION_GRACE_TICKS = 400    # số tick phòng ấu trùng được phép "rỗng"
                                  # trước khi bắt đầu tính chết đói
 
-# ----- Trứng & ấu trùng: PHÒNG ẤU TRÙNG THẬT SỰ NUÔI ẤU TRÙNG -----
-# Chúa không "sinh" kiến trực tiếp nữa - chúa chỉ ĐẺ TRỨNG (tốn thức ăn từ
-# kho); trứng/ấu trùng sau đó lớn lên DẦN trong phòng ấu trùng, ăn đúng chỗ
-# thức ăn mà các "nurse" mang tới (food_in_nursery) - hết thức ăn ở đó thì
-# lớn rất chậm. Ấu trùng lớn đủ (growth >= 1.0) mới thật sự "nở" thành 1
-# kiến thợ mới đi ra ngoài.
+# ----- Trứng -> Ấu trùng: 2 GIAI ĐOẠN, 2 PHÒNG RIÊNG BIỆT -----
+# Chúa không "sinh" kiến trực tiếp - chúa chỉ ĐẺ TRỨNG (tốn thức ăn+nước từ
+# kho). Trứng được ủ trong PHÒNG TRỨNG riêng (chỉ cần thời gian, KHÔNG cần
+# ăn) - nở xong mới "chuyển" qua PHÒNG ẤU TRÙNG để lớn lên thật sự bằng
+# thức ăn nurse mang tới (food_in_nursery) - hết thức ăn ở đó thì lớn rất
+# chậm. Ấu trùng lớn đủ (growth >= 1.0) mới thật sự "nở" thành 1 kiến thợ
+# mới đi ra ngoài.
 EGG_LAY_INTERVAL = 70        # cứ mỗi bấy nhiêu tick, chúa thử đẻ 1 trứng mới
 EGG_FOOD_COST = 4            # thức ăn (lấy từ KHO) chúa cần để đẻ 1 trứng
 EGG_WATER_COST = 2           # nước cần thêm để đẻ 1 trứng - thiếu nước thì
                              # KHÔNG đẻ được dù đủ thức ăn
+EGG_MAX_COUNT = 30           # số trứng tối đa cùng lúc trong phòng trứng
+EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG phụ thuộc
+                             # thức ăn - trứng chỉ cần thời gian) - nở
+                             # nhanh hơn hẳn tốc độ lớn của ấu trùng vì đây
+                             # chỉ là giai đoạn ủ, chưa cần nuôi ăn
+
 LARVA_MAX_COUNT = 40         # số ấu trùng tối đa cùng lúc trong 1 phòng ấu
                              # trùng (giới hạn không gian + hiệu năng hiển thị)
 LARVA_GROWTH_PER_TICK = 0.0025      # tốc độ lớn lên mỗi tick khi ĐỦ thức ăn
@@ -298,5 +342,18 @@ GRAPH_PANEL_W, GRAPH_PANEL_H = 300, 170
 STORAGE_FOOD_PER_ICON = 8        # bấy nhiêu đơn vị thức ăn = 1 icon hiển thị
 STORAGE_MAX_ICONS = 40           # trần số icon vẽ (tránh rợp hình khi kho đầy)
 
+# Bể trữ nước: tương tự kho thức ăn nhưng vẽ dạng giọt nước lấp lánh
+WATER_PER_ICON = 40               # bấy nhiêu đơn vị nước = 1 giọt hiển thị
+WATER_MAX_ICONS = 40
+
 # Kiến chúa: to hơn hẳn thợ thường, luôn đứng yên (bob nhẹ) giữa phòng chúa
 QUEEN_BODY_SCALE = 3.2
+
+# Nghĩa địa/phòng rác: mỗi kiến chết được "chuyển" vào đây thành 1 nắm xác
+# nhỏ - KHÔNG mô phỏng chi tiết việc kiến khác tha xác đi (ngoài phạm vi
+# game này), chỉ cần đủ để phòng có ý nghĩa và có thể NHÌN THẤY hậu quả của
+# chết chóc thay vì kiến biến mất vô hình. Xác cũ dần phân hủy/biến mất để
+# nghĩa địa không phình to vô hạn.
+GRAVEYARD_MAX_CORPSES = 60       # trần số "nắm xác" hiển thị cùng lúc
+GRAVEYARD_DECAY_PER_TICK = 0.0008  # tốc độ phân hủy (xác cũ dần biến mất
+                             # sau khoảng vài chục giây, không phải tức thời)

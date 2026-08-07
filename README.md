@@ -20,17 +20,32 @@ Dùng thư viện **Pygame** để dựng 2D (không còn Ursina/Panda3D).
 
 ## Các phòng ngầm - thực hiện đúng chức năng
 
-- **Kho thức ăn**: hiển thị TRỰC TIẾP lượng thức ăn đang tồn kho dưới dạng
-  1 đống các viên thức ăn màu sắc rải trong phòng (to/nhỏ theo số lượng
-  thật), không chỉ là con số ẩn.
-- **Phòng ấu trùng**: có các ấu trùng THẬT đang lớn dần bên trong (nhỏ/nhợt
-  lúc mới đẻ, to/vàng hơn khi sắp nở) - chúng tiêu thụ thức ăn nurse mang
-  tới để lớn lên, hết thức ăn thì lớn rất chậm.
-- **Phòng chúa**: có 1 con kiến chúa thật đứng giữa phòng (to hẳn so với
-  thợ thường, có bụng/gaster đặc trưng), hơi bồng bềnh nhẹ cho có sức sống.
-- Kiến khi đến phòng nào cũng **lượn lại trong phòng đó một lúc** (trạng
-  thái "dwell") trước khi rời đi, thay vì chỉ chạm tâm phòng rồi quay đầu -
-  để phòng ngầm luôn có "sự sống" thay vì chỉ thấy kiến đi trên đường nối.
+Tổ giờ có **7 phòng chức năng**, mỗi phòng 1 tầng riêng, kích thước (bán
+kính) khác nhau theo đúng vai trò - kho/bể nước to nhất (chứa số lượng
+lớn), trứng/gác cửa/nghĩa địa nhỏ hơn:
+
+- **Phòng gác cửa** (tầng 1, ngay dưới cửa hang): 1 nửa số "lính" (thợ lớn)
+  đóng quân cố định ở đây, lượn quanh chờ lệnh. Hễ có kẻ thù xuất hiện đủ
+  gần lỗ tổ, TOÀN BỘ lính gác lập tức lao lên mặt đất nghênh chiến; hết mối
+  đe dọa thì tự rút quân về đóng lại.
+- **Kho thức ăn** (tầng 2): hiển thị TRỰC TIẾP lượng thức ăn tồn kho dưới
+  dạng 1 đống các viên thức ăn màu sắc, to/nhỏ theo đúng số lượng thật.
+- **Bể trữ nước** (tầng 3): TÁCH RIÊNG khỏi kho thức ăn - kiến tha nước về
+  sẽ tự động xuống đúng tầng này (khác tầng kho), hiển thị các giọt nước
+  xanh lấp lánh theo đúng lượng nước tồn trữ.
+- **Phòng trứng** (tầng 4): chúa đẻ trứng (tốn thức ăn+nước từ kho) - trứng
+  được ủ Ở ĐÂY theo thời gian (không cần ăn), đủ lớn mới "chuyển" sang
+  phòng ấu trùng.
+- **Phòng ấu trùng** (tầng 5): trứng nở ra thành ấu trùng THẬT, lớn dần nhờ
+  ăn đúng thức ăn nurse mang tới - đủ lớn mới "nở" thành 1 kiến thợ mới.
+- **Phòng chúa** (tầng 6): có 1 con kiến chúa thật đứng giữa phòng, to hẳn
+  so với thợ thường, hơi bồng bềnh nhẹ cho có sức sống.
+- **Nghĩa địa** (tầng 7): mỗi kiến chết (già/đói/bị giết) để lại 1 "nắm
+  xác" ở đây thay vì biến mất vô hình - xác cũ phân hủy dần theo thời gian.
+
+Kiến khi đến phòng nào cũng **lượn lại trong phòng đó một lúc** (trạng
+thái "dwell") trước khi rời đi, thay vì chỉ chạm tâm phòng rồi quay đầu -
+để phòng ngầm luôn có "sự sống" thay vì chỉ thấy kiến đi trên đường nối.
 
 ## Cài đặt (Windows)
 

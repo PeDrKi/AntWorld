@@ -1,11 +1,12 @@
-# Ant World 3D - Prototype
+# Ant World 2D - Prototype (theo tầng)
 
-Toàn bộ thế giới kiến (mặt đất + hầm ngầm với các phòng) hiển thị như
-**1 khối hộp trong suốt duy nhất** (kiểu bể nuôi kiến bằng kính), bạn xoay
-và zoom tự do bằng chuột để nhìn từ mọi góc, kể cả nhìn xuyên từ trên
-xuống các phòng sâu dưới đất.
+Thế giới kiến (mặt đất + hầm ngầm với các phòng) giờ hiển thị dưới dạng
+**các tầng 2D phẳng chồng lên nhau**, giống lát cắt ngang của 1 bể nuôi
+kiến (formicarium) hoặc kiểu "Z-level" trong các game như Dwarf Fortress.
+Bạn xem TỪNG TẦNG MỘT (nhìn thẳng từ trên xuống), và chuyển qua lại giữa
+các tầng bằng cách giữ **Ctrl + lăn chuột**.
 
-Dùng engine **Ursina** (xây trên nền **Panda3D**) để dựng 3D.
+Dùng thư viện **Pygame** để dựng 2D (không còn Ursina/Panda3D).
 
 ## Cài đặt (Windows)
 
@@ -23,60 +24,73 @@ python main.py
 
 ## Điều khiển
 
-- **Giữ CHUỘT PHẢI + di chuột**: xoay camera quanh khối thế giới
-- **Lăn chuột**: zoom vào/ra
-- **Giữ CHUỘT PHẢI + W/A/S/D**: bay ngang trong lúc đang xoay
-- **Phím G**: bật/tắt độ trong suốt của mặt đất, để nhìn xuyên xuống hầm
-  dễ hơn mà không cần xoay góc nhìn từ dưới lên
+- **Giữ CTRL + LĂN CHUỘT**: chuyển qua lại giữa các tầng (lên/xuống)
+- **Phím mũi tên Lên / Xuống**: cũng chuyển tầng (thay thế Ctrl+lăn chuột)
+- **Lăn chuột (không giữ Ctrl)**: zoom vào/ra tầng đang xem
+- **Giữ CHUỘT PHẢI + di chuột**: kéo (pan) để di chuyển góc nhìn ngang/dọc
+- **Nút "Tang ^" / "Tang v"** trên thanh công cụ: chuyển tầng bằng chuột
+  nếu không có bánh xe lăn
 - **Esc**: thoát
+
+## Cấu trúc các tầng
+
+- **Tầng 0 - Mặt đất**: thức ăn, đá, nước, lỗ tổ 2 bên, kiến đang tìm ăn
+  hoặc tha đồ về tổ, kẻ thù tự nhiên.
+- **Tầng 1 - Kho thức ăn**, **Tầng 2 - Ấu trùng**, **Tầng 3 - Phòng chúa**:
+  mỗi phòng nằm trên đúng 1 tầng riêng. "Giếng" (thang máy) hiện tại vị trí
+  lỗ tổ trên mọi tầng có phòng, nối tới phòng bằng 1 đoạn hành lang ngắn
+  trong CÙNG tầng.
+- **Tầng 4 trở đi**: các phòng do người chơi tự đào bằng công cụ "Dao
+  phong" - mỗi phòng đào thêm chiếm 1 tầng mới, sâu hơn tầng trước.
+
+Kiến "đi thang máy" tức thời giữa các tầng khi lên/xuống giếng (không còn
+bay theo đường chéo 3D xuyên qua nhiều tầng cùng lúc như bản 3D cũ) - vì
+vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 tầng.
 
 ## Cách đọc mô phỏng
 
-- Khối kính mờ bao quanh toàn bộ thế giới, mặt đất màu nâu nhạt nằm ở giữa.
 - Kiến màu đen/xám = đang tìm ăn hoặc di chuyển không mang gì; màu cam/vàng
   = đang tha thức ăn.
-- Dưới mặt đất là 3 quả cầu màu: **Kho thức ăn**, **Ấu trùng**, **Phòng
-  chúa** - nối với giếng (hình trụ đen ngay dưới lỗ tổ) bằng các đường hầm.
-  Kiến tha đồ xuống giếng sẽ tự bay thẳng theo đường 3D tới kho, sau đó một
-  phần thành "nurse" mang tiếp sang phòng ấu trùng.
+- Tổ đối thủ dùng tông màu đỏ/nâu để phân biệt với tổ chính (đen/cam).
+- Nhãn tầng hiện tại luôn hiện ở góc trên phải màn hình.
 
-## ⚠️ Lưu ý quan trọng về hiệu năng
+## Thanh công cụ
 
-Bản demo này được viết và kiểm thử trong môi trường không có card đồ họa
-thật (chỉ render bằng phần mềm), nên **không thể đo FPS thực tế ở đây**.
-Phần logic mô phỏng (NumPy) đã được xác nhận chạy rất nhẹ (~100+ lần/giây
-ngay cả khi phải cập nhật vị trí 600 con kiến mỗi khung hình), nhưng tốc độ
-hiển thị (FPS) thực sự phụ thuộc vào GPU trên máy bạn.
-
-Khi chạy trên Windows, nếu FPS thấp hơn mong đợi, thử theo thứ tự:
-
-1. **Giảm số kiến** trong `config.py` (`NUM_ANTS`), ví dụ xuống 300.
-2. Trong `main.py`, tăng `FOOD_SAMPLE_STEP` (hiện là 2) để giảm số ô thức
-   ăn được vẽ.
-3. Đóng bớt ứng dụng khác đang dùng GPU.
-
-Nếu 600 kiến vẫn mượt tốt trên máy bạn, mình có thể tăng dần lên 1000+ ở
-bước sau, kèm theo tối ưu bằng kỹ thuật "instanced rendering" (gộp nhiều
-kiến thành 1 draw call duy nhất thay vì 600 draw call riêng lẻ) để tăng
-hiệu năng đáng kể hơn nữa.
+- **"Dat thuc an" / "Tha ke thu" / "Dao phong" / "Dat da" / "Dat nuoc"**:
+  CHỈ dùng được khi đang xem **Tầng 0 (Mặt đất)** vì đây là thao tác đặt
+  trên mặt đất nhìn từ trên xuống. Nếu chọn công cụ này ở tầng khác, dòng
+  gợi ý dưới màn hình sẽ nhắc bạn quay về Tầng 0.
+- **"Xoa"**: dùng được ở MỌI tầng - xóa đúng nội dung của tầng đang xem
+  (mặt đất: thức ăn/đá/nước/kiến trên mặt đất; tầng ngầm: phòng tự đào ở
+  đúng tầng đó + kiến đang ở tầng đó).
+- **"Tam dung" / "Toc do xN"**: điều khiển thời gian mô phỏng.
+- **"Tai sinh thuc an: BAT/TAT"**: bật/tắt việc thức ăn mới tự xuất hiện
+  ngẫu nhiên theo chu kỳ.
+- **"Luoi o vuong"**: bật/tắt lưới ô vuông tham chiếu.
+- **"Bieu do"**: bật/tắt biểu đồ dân số theo thời gian (góc trên phải).
 
 ## Cấu trúc file
 
 ```
-config.py    - hằng số: quy mô, tốc độ, vị trí phòng (x, y, z)
-world.py     - SurfaceWorld (mặt đất) và UndergroundWorld (hầm ngầm, tọa độ 3D)
-ants.py      - AntColony: đàn kiến dạng mảng NumPy, di chuyển 3D thật (x,y,z)
-main.py      - dựng cảnh Ursina/Panda3D, camera xoay quỹ đạo, vòng lặp update()
+config.py    - hằng số: quy mô, tốc độ, số tầng (LAYER_SURFACE_DEPTH,
+               DEPTH_STORAGE, DEPTH_NURSERY, DEPTH_QUEEN, ...)
+world.py     - SurfaceWorld (mặt đất, không đổi) và UndergroundWorld
+               (hầm ngầm - giờ mỗi phòng gắn với 1 tầng rời rạc thay vì
+               tọa độ z liên tục)
+ants.py      - AntColony: đàn kiến dạng mảng NumPy, di chuyển 2D trong
+               PHẠM VI 1 TẦNG; đổi tầng tức thời tại các điểm chuyển
+               trạng thái (giống bước vào/ra thang máy)
+enemy.py     - kẻ thù tự nhiên trên mặt đất (không đổi)
+main.py      - dựng cảnh bằng Pygame: camera 2D (pan/zoom), vẽ từng tầng,
+               thanh công cụ, biểu đồ, vòng lặp update()
 ```
 
 ## Hướng mở rộng tiếp theo (gợi ý)
 
-- **Instanced rendering** để tăng số lượng kiến lên 1000+ mà vẫn mượt
-- Vẽ đường hầm dạng ống cong (Ursina hỗ trợ `Pipe`/`Cylinder` theo path)
-  thay vì đường thẳng đơn giản như hiện tại
-- Vòng đời kiến, phòng chúa sinh sản thật, tiêu thụ thức ăn theo thời gian
-- Panel điều khiển (CustomTkinter cửa sổ riêng, hoặc UI trong chính Ursina)
-  để đặt thức ăn bằng cách click chuột trái vào mặt đất
-- Lưu/tải trạng thái thế giới bằng SQLite
-- Texture động cho mặt đất hiển thị pheromone (đã cài sẵn Pillow, có thể
-  thêm ở bước sau nếu bạn muốn thấy "vệt mùi" ngay trên mặt đất 3D)
+- Vẽ mini-map dọc bên cạnh màn hình thể hiện toàn bộ các tầng cùng lúc
+  (như thanh "current level" của Dwarf Fortress), để dễ định vị hơn là
+  chỉ đọc số tầng ở góc màn hình.
+- Hiệu ứng chuyển tầng mượt (fade) thay vì đổi tức thời.
+- Cho phép đào nhiều phòng trên CÙNG 1 tầng (hiện tại mỗi phòng tự đào
+  chiếm hẳn 1 tầng riêng để đơn giản hóa).
+- Lưu/tải trạng thái thế giới bằng SQLite.

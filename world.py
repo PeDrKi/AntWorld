@@ -186,44 +186,44 @@ class SurfaceWorld:
 
 
 class UndergroundWorld:
-    """Cấu trúc tổ dưới lòng đất (3D): giếng + các phòng nối bằng hành lang.
+    """Cấu trúc tổ dưới lòng đất: 1 chồng các TẦNG 2D phẳng rời rạc.
 
-    Mọi tọa độ ở đây là (x, y, z) với z là độ sâu (0 = mặt đất, âm = sâu hơn).
-    """
+    Mỗi phòng nằm trên đúng 1 tầng (depth = số nguyên, 0 = mặt đất, càng lớn
+    càng sâu). "Giếng" không còn là 1 điểm 3D riêng - nó CHÍNH LÀ vị trí lỗ
+    tổ (nest_x, nest_y), hoạt động như 1 cái thang máy xuyên suốt mọi tầng:
+    ở tầng nào bạn cũng thấy nó ở đúng (x, y) đó, nối tới phòng của tầng ấy
+    bằng 1 đoạn hành lang phẳng trong CÙNG tầng (không có đường chéo cắt
+    xuyên qua nhiều tầng như bản 3D cũ)."""
 
     def __init__(self, nest_pos=None, label_prefix=""):
         nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         nest_x, nest_y = nest_pos
         self.nest_pos = nest_pos
-        self.shaft = np.array([nest_x, nest_y, cfg.SHAFT_TOP_Z], dtype=np.float32)
+        self.shaft_xy = np.array([nest_x, nest_y], dtype=np.float32)
+
         self.storage = np.array(
-            [nest_x + cfg.STORAGE_OFFSET_XY[0], nest_y + cfg.STORAGE_OFFSET_XY[1], cfg.ROOM_Z_STORAGE],
-            dtype=np.float32,
+            [nest_x + cfg.STORAGE_OFFSET_XY[0], nest_y + cfg.STORAGE_OFFSET_XY[1]], dtype=np.float32
         )
         self.nursery = np.array(
-            [nest_x + cfg.NURSERY_OFFSET_XY[0], nest_y + cfg.NURSERY_OFFSET_XY[1], cfg.ROOM_Z_NURSERY],
-            dtype=np.float32,
+            [nest_x + cfg.NURSERY_OFFSET_XY[0], nest_y + cfg.NURSERY_OFFSET_XY[1]], dtype=np.float32
         )
         self.queen_room = np.array(
-            [nest_x + cfg.QUEEN_OFFSET_XY[0], nest_y + cfg.QUEEN_OFFSET_XY[1], cfg.ROOM_Z_QUEEN],
-            dtype=np.float32,
+            [nest_x + cfg.QUEEN_OFFSET_XY[0], nest_y + cfg.QUEEN_OFFSET_XY[1]], dtype=np.float32
         )
+        self.storage_depth = cfg.DEPTH_STORAGE
+        self.nursery_depth = cfg.DEPTH_NURSERY
+        self.queen_depth = cfg.DEPTH_QUEEN
 
-        # Danh sách phòng để vẽ (id, tên, tâm, bán kính, màu gợi ý) - ID 0,1,2
-        # là 3 phòng GỐC (không thể xóa vì hành vi kiến phụ thuộc trực tiếp
-        # vào chúng); phòng do người chơi tự đào sẽ có ID >= 3.
+        # Danh sách phòng để vẽ (id, tên, tâm(x,y), bán kính, màu gợi ý, tầng)
+        # - ID 0,1,2 là 3 phòng GỐC (không thể xóa vì hành vi kiến phụ thuộc
+        # trực tiếp vào chúng); phòng do người chơi tự đào sẽ có ID >= 3.
         self.rooms = [
-            (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70)),
-            (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120)),
-            (2, f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140)),
+            (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS, (170, 130, 70), self.storage_depth),
+            (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS, (200, 190, 120), self.nursery_depth),
+            (2, f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS * 1.1, (180, 90, 140), self.queen_depth),
         ]
         self._next_room_id = 3
-        # Hành lang nối giếng <-> từng phòng, và kho <-> phòng chúa
-        self.corridors = [
-            (self.shaft, self.storage),
-            (self.shaft, self.nursery),
-            (self.storage, self.queen_room),
-        ]
+        self._next_dug_depth = cfg.DUG_ROOM_FIRST_DEPTH
 
         # Thống kê tổ
         self.food_in_storage = 0
@@ -233,6 +233,10 @@ class UndergroundWorld:
         self.ticks_water_empty = 0     # số tick liên tiếp hết nước dự trữ
         self.total_births = 0
         self.total_deaths = 0
+
+    def max_depth(self):
+        """Tầng sâu nhất hiện có (để giới hạn phạm vi cuộn Ctrl+Scroll)."""
+        return max((r[5] for r in self.rooms), default=cfg.DEPTH_QUEEN)
 
     def deposit_to_storage(self, amount):
         self.food_in_storage += float(amount)
@@ -287,48 +291,40 @@ class UndergroundWorld:
         return False
 
     def dig_new_room(self, x, y):
-        """Đào 1 phòng mới do người chơi chỉ định vị trí (x, y) trên mặt
-        đất - độ sâu tự động tăng dần theo số phòng ĐÃ TỪNG đào (kể cả đã
-        xóa, để không bị trùng độ sâu/tên khi đào lại), nối hành lang tới
-        phòng/giếng gần nhất. Trả về (id, name, center, radius, rgb) vừa
-        tạo để main.py vẽ thêm lên màn hình 3D."""
+        """Đào 1 phòng mới do người chơi chỉ định vị trí (x, y) (chọn trên
+        mặt đất, nhìn từ trên xuống) - phòng này tự động xuất hiện ở 1 TẦNG
+        MỚI, sâu hơn tầng trước đó 1 bậc (mỗi phòng tự đào chiếm hẳn 1 tầng
+        riêng). "Giếng" (thang máy) sẽ tự động nối tới phòng này ngay khi
+        bạn chuyển sang xem tầng đó. Trả về (id, name, center(x,y), radius,
+        rgb, depth) vừa tạo để main.py vẽ thêm lên màn hình."""
         room_id = self._next_room_id
-        dug_index = room_id - 3
         self._next_room_id += 1
+        depth = self._next_dug_depth
+        self._next_dug_depth += 1
 
-        depth = -6.0 - dug_index * 3.0
-        depth = max(depth, -cfg.WORLD_DEPTH + 2.0)  # không đào vượt đáy khối kính
-        center = np.array([x, y, depth], dtype=np.float32)
-
-        # Nối tới phòng/giếng gần nhất (theo khoảng cách ngang x,y)
-        candidates = [self.shaft] + [r[2] for r in self.rooms]
-        dists = [np.hypot(c[0] - x, c[1] - y) for c in candidates]
-        nearest = candidates[int(np.argmin(dists))]
-
-        name = f"Phong dao #{dug_index + 1}"
+        center = np.array([x, y], dtype=np.float32)
+        name = f"Phong dao #{depth - cfg.DUG_ROOM_FIRST_DEPTH + 1}"
         rgb = (140, 150, 175)
         radius = cfg.ROOM_RADIUS * 0.8
-        room = (room_id, name, center, radius, rgb)
+        room = (room_id, name, center, radius, rgb, depth)
         self.rooms.append(room)
-        self.corridors.append((nearest, center))
         return room
 
-    def find_dug_room_near(self, x, y, radius):
+    def find_dug_room_near(self, x, y, depth, radius):
         """Tìm 1 phòng do người chơi TỰ ĐÀO (ID >= 3, không bao giờ trả về
-        3 phòng gốc) có tâm nằm trong bán kính quanh (x, y). Trả về room
-        tuple hoặc None nếu không có."""
+        3 phòng gốc) nằm ĐÚNG TẦNG đang xem và có tâm trong bán kính quanh
+        (x, y). Trả về room tuple hoặc None nếu không có."""
         for room in self.rooms:
-            room_id, name, center, radius_room, rgb = room
-            if room_id < 3:
-                continue  # không bao giờ cho xóa 3 phòng gốc
+            room_id, name, center, radius_room, rgb, room_depth = room
+            if room_id < 3 or room_depth != depth:
+                continue  # không bao giờ cho xóa 3 phòng gốc; đúng tầng mới tính
             if np.hypot(center[0] - x, center[1] - y) <= radius:
                 return room
         return None
 
     def remove_room(self, room_id):
         """Xóa 1 phòng đã đào theo ID (không có tác dụng với ID < 3 - 3
-        phòng gốc luôn được bảo vệ). Cũng xóa luôn hành lang nối tới nó.
-        Trả về room tuple đã xóa (để main.py hủy entity 3D), hoặc None."""
+        phòng gốc luôn được bảo vệ). Trả về room tuple đã xóa, hoặc None."""
         if room_id < 3:
             return None
         target = None
@@ -341,9 +337,4 @@ class UndergroundWorld:
         if target is None:
             return None
         self.rooms = remaining_rooms
-        target_center = target[2]
-        self.corridors = [
-            c for c in self.corridors
-            if not (c[0] is target_center or c[1] is target_center)
-        ]
         return target

@@ -1,21 +1,25 @@
-"""Cấu hình chung cho mô phỏng thế giới kiến (bản 3D)."""
+"""Cấu hình chung cho mô phỏng thế giới kiến (bản 2D - từng lớp/tầng)."""
 
-# ----- Kích thước bản đồ (mặt phẳng ngang X/Y) -----
-GRID_SIZE = 50              # số ô mỗi chiều - giảm so với bản 2D để khối 3D
-                            # không quá to, vẫn đủ chi tiết khi xoay/zoom
-BASE_CELL_PX = 10           # (giữ lại, không dùng trong bản 3D nhưng vài chỗ tham chiếu)
+# ----- Kích thước bản đồ (mặt phẳng ngang X/Y, dùng chung cho MỌI tầng) -----
+GRID_SIZE = 50
+BASE_CELL_PX = 16           # kích thước 1 ô lưới tính bằng pixel ở mức zoom 1x
 
 # ----- Cửa sổ -----
 SCREEN_W, SCREEN_H = 1280, 800
 FPS = 60
 
-# ----- Trục Z (độ sâu, 0 = mặt đất, càng âm càng sâu) -----
-SURFACE_Z = 0.0
-SHAFT_TOP_Z = -0.6          # miệng giếng, ngay dưới mặt đất
-ROOM_Z_STORAGE = -6.0       # tầng nông nhất - kho gần cửa để tha đồ nhanh
-ROOM_Z_NURSERY = -11.0      # tầng giữa - ấu trùng cần được bảo vệ hơn kho
-ROOM_Z_QUEEN = -17.0        # tầng sâu nhất - chúa được bảo vệ kỹ nhất
-WORLD_DEPTH = 20.0          # độ sâu tối đa của khối hộp hiển thị (để vẽ khung kính)
+# ----- Độ sâu = TẦNG rời rạc (0 = mặt đất, số càng lớn càng sâu) -----
+# Thay vì 1 khối 3D duy nhất, thế giới giờ là 1 chồng các tầng 2D phẳng,
+# giống lát cắt ngang của bể nuôi kiến - mỗi tầng là 1 bản đồ (x, y) riêng.
+# Giữ CTRL + lăn chuột để chuyển qua lại giữa các tầng.
+LAYER_SURFACE_DEPTH = 0     # tầng 0 LUÔN LUÔN là mặt đất
+DEPTH_STORAGE = 1           # tầng nông nhất dưới hầm - kho gần cửa
+DEPTH_NURSERY = 2           # tầng giữa - ấu trùng
+DEPTH_QUEEN = 3             # tầng sâu nhất - phòng chúa
+DUG_ROOM_FIRST_DEPTH = 4    # phòng đầu tiên người chơi tự đào -> tầng 4,
+                            # phòng đào tiếp theo -> tầng 5, 6, ... (mỗi
+                            # phòng tự đào chiếm 1 tầng riêng, càng đào
+                            # thêm càng "xuống sâu" thêm 1 tầng mới)
 
 # ----- Kiến -----
 NUM_ANTS = 100              # bản 3D vẽ từng con bằng 1 mesh riêng nên đặt vừa
@@ -163,8 +167,9 @@ STATE_UG_TO_STORAGE = 2    # dưới hầm, đang đi tới kho
 STATE_UG_TO_NURSERY = 3    # dưới hầm, nurse đang mang đồ tới phòng ấu trùng
 STATE_UG_TO_SHAFT = 4      # dưới hầm, đang quay lại giếng để lên mặt đất
 
-LAYER_SURFACE = 0
-LAYER_UNDERGROUND = 1
+LAYER_SURFACE = 0     # dùng cho self.layer của kiến: 0 = đang ở mặt đất
+LAYER_UNDERGROUND = 1 # 1 = đang ở dưới hầm (bất kể đang ở tầng ngầm nào -
+                      # tầng ngầm CỤ THỂ được lưu riêng ở self.depth, xem ants.py)
 
 ARRIVE_THRESHOLD = 0.6     # khoảng cách coi là "đã đến nơi"
 
@@ -223,3 +228,21 @@ UPKEEP_FOOD_PER_ANT_PER_TICK = 0.0004  # mỗi kiến còn sống tiêu hao 1 l�
                              # nhỏ thức ăn từ kho mỗi tick để duy trì sự sống
                              # (không chỉ dùng thức ăn để sinh sản) - nếu đàn
                              # quá đông mà không đủ kiến đi kiếm ăn, kho sẽ cạn
+
+# =======================================================================
+# HIỂN THỊ 2D (pygame) - camera pan/zoom + màu sắc từng tầng
+# =======================================================================
+MIN_ZOOM = 0.35
+MAX_ZOOM = 3.5
+ZOOM_STEP = 1.12             # mỗi nấc lăn chuột (không giữ Ctrl) nhân/chia zoom bấy nhiêu
+
+# Màu nền riêng cho từng loại tầng, để luôn biết đang xem tầng nào dù có
+# nhìn lướt qua HUD hay không
+COLOR_BG_SURFACE = (74, 58, 40)
+COLOR_BG_UNDERGROUND = (32, 27, 24)
+COLOR_GRID_LINE = (0, 0, 0, 40)
+COLOR_GROUND_FILL = (205, 178, 132)
+COLOR_SHAFT = (25, 18, 12)
+
+TOOLBAR_H = 88               # chiều cao thanh công cụ dưới màn hình (pixel)
+GRAPH_PANEL_W, GRAPH_PANEL_H = 300, 170

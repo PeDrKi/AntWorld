@@ -1,9 +1,11 @@
 """Quản lý toàn bộ đàn kiến bằng mảng NumPy (vectorized), tránh vòng lặp
 Python từng con -- cần thiết để giữ khung hình mượt khi có nhiều kiến.
 
-Bản 3D: mỗi con kiến có vị trí đầy đủ (x, y, z). Trên mặt đất z luôn bằng
-SURFACE_Z (kiến đi trên 1 mặt phẳng). Khi xuống hầm, z thay đổi liên tục
-theo đường thẳng 3D tới từng phòng.
+Bản 2D theo TẦNG: mỗi con kiến có vị trí ngang (x, y) trên ĐÚNG 1 tầng tại
+1 thời điểm (self.depth = số nguyên, 0 = mặt đất). Kiến chỉ di chuyển 2D
+trong phạm vi tầng hiện tại; khi "xuống/lên" giữa các tầng (qua giếng ở vị
+trí lỗ tổ), depth đổi tức thời như đi thang máy, giống bản 3D cũ chỉ khác
+là không còn nội suy độ sâu liên tục giữa 2 tầng.
 
 Bản có vòng đời: mỗi con kiến có tuổi (age), có thể chết vì già hoặc vì
 đói (phòng ấu trùng rỗng kéo dài). Chúa chỉ sinh kiến mới khi kho đủ thức
@@ -27,12 +29,15 @@ class AntColony:
         # Vị trí ban đầu: rải quanh cửa tổ trên mặt đất
         self.x = nest_x + rng.normal(0, 2.0, n_ants).astype(np.float32)
         self.y = nest_y + rng.normal(0, 2.0, n_ants).astype(np.float32)
-        self.z = np.full(n_ants, cfg.SURFACE_Z, dtype=np.float32)
+        # depth: TẦNG hiện tại đang đứng (0 = mặt đất, 1=kho, 2=ấu trùng,
+        # 3=chúa, 4+=phòng tự đào) - dùng để main.py biết vẽ con kiến này
+        # lên đúng tầng nào đang xem.
+        self.depth = np.zeros(n_ants, dtype=np.int16)
         np.clip(self.x, 0, cfg.GRID_SIZE - 1, out=self.x)
         np.clip(self.y, 0, cfg.GRID_SIZE - 1, out=self.y)
 
         self.theta = rng.uniform(0, 2 * np.pi, n_ants).astype(np.float32)
-        self.layer = np.zeros(n_ants, dtype=np.int8)          # 0 = mặt đất
+        self.layer = np.zeros(n_ants, dtype=np.int8)          # 0=mặt đất, 1=dưới hầm (nhị phân, dùng cho state machine)
         self.state = np.zeros(n_ants, dtype=np.int8)          # STATE_SEARCHING
         self.carrying = np.zeros(n_ants, dtype=bool)
         self.carry_type = np.zeros(n_ants, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
@@ -163,11 +168,13 @@ class AntColony:
             dist = np.hypot(self.x[idx] - nest_x, self.y[idx] - nest_y)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
-                # Chui xuống giếng: bắt đầu hành trình 3D xuống hầm
+                # Chui xuống giếng: "thang máy" đưa thẳng xuống tầng kho -
+                # depth đổi tức thời, xuất hiện ngay tại điểm giếng (vị trí
+                # lỗ tổ) trên tầng kho rồi đi bộ 2D tới phòng kho.
                 self.layer[arrived] = cfg.LAYER_UNDERGROUND
-                self.x[arrived] = self.underground.shaft[0]
-                self.y[arrived] = self.underground.shaft[1]
-                self.z[arrived] = cfg.SHAFT_TOP_Z
+                self.depth[arrived] = self.underground.storage_depth
+                self.x[arrived] = self.underground.shaft_xy[0]
+                self.y[arrived] = self.underground.shaft_xy[1]
                 self.state[arrived] = cfg.STATE_UG_TO_STORAGE
 
     def _bounce_walls(self, idx):
@@ -201,17 +208,19 @@ class AntColony:
         )
 
     # ------------------------------------------------------------------
-    def _move_towards_3d(self, idx, target_xyz, speed):
-        """Di chuyển theo đường thẳng 3D tới đích. Trả về khoảng cách còn lại."""
-        x, y, z = self.x[idx], self.y[idx], self.z[idx]
-        tx, ty, tz = target_xyz
-        dx, dy, dz = tx - x, ty - y, tz - z
-        dist = np.sqrt(dx * dx + dy * dy + dz * dz)
+    def _move_towards_2d(self, idx, target_xy, speed):
+        """Di chuyển theo đường thẳng 2D (trong CÙNG 1 tầng) tới đích.
+        Trả về khoảng cách còn lại. Không còn chiều sâu liên tục - việc
+        đổi tầng (depth) diễn ra tức thời tại các điểm chuyển trạng thái
+        (giống bước vào/ra khỏi thang máy), không phải trong hàm này."""
+        x, y = self.x[idx], self.y[idx]
+        tx, ty = target_xy
+        dx, dy = tx - x, ty - y
+        dist = np.sqrt(dx * dx + dy * dy)
         safe_dist = np.where(dist < 1e-6, 1.0, dist)  # tránh chia 0
         step = np.minimum(speed, dist)  # không đi vượt quá đích trong 1 tick
         self.x[idx] = x + dx / safe_dist * step
         self.y[idx] = y + dy / safe_dist * step
-        self.z[idx] = z + dz / safe_dist * step
         self.theta[idx] = np.arctan2(dy, dx)
         return dist
 
@@ -224,7 +233,7 @@ class AntColony:
         mask = ug & (self.state == cfg.STATE_UG_TO_STORAGE)
         if np.any(mask):
             idx = np.where(mask)[0]
-            dist = self._move_towards_3d(idx, self.underground.storage, cfg.UG_SPEED)
+            dist = self._move_towards_2d(idx, self.underground.storage, cfg.UG_SPEED)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
                 is_water = self.carry_type[arrived] == 2
@@ -238,6 +247,11 @@ class AntColony:
                     rng_vals = np.random.uniform(0, 1, len(food_idx))
                     become_nurse = food_idx[rng_vals < cfg.NURSE_PROBABILITY]
                     go_back = food_idx[rng_vals >= cfg.NURSE_PROBABILITY]
+                    # Nurse đi thang máy sang tầng ấu trùng ngay tại điểm
+                    # giếng (depth đổi tức thời), rồi đi bộ 2D tới phòng.
+                    self.depth[become_nurse] = self.underground.nursery_depth
+                    self.x[become_nurse] = self.underground.shaft_xy[0]
+                    self.y[become_nurse] = self.underground.shaft_xy[1]
                     self.state[become_nurse] = cfg.STATE_UG_TO_NURSERY
                     self.carrying[become_nurse] = True
                     self.carry_type[become_nurse] = 1
@@ -255,7 +269,7 @@ class AntColony:
         mask = ug & (self.state == cfg.STATE_UG_TO_NURSERY)
         if np.any(mask):
             idx = np.where(mask)[0]
-            dist = self._move_towards_3d(idx, self.underground.nursery, cfg.UG_SPEED)
+            dist = self._move_towards_2d(idx, self.underground.nursery, cfg.UG_SPEED)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
                 self.underground.deposit_to_nursery(len(arrived))
@@ -263,17 +277,17 @@ class AntColony:
                 self.carry_type[arrived] = 0
                 self.state[arrived] = cfg.STATE_UG_TO_SHAFT
 
-        # --- quay lại giếng để lên mặt đất ---
+        # --- quay lại giếng (vị trí lỗ tổ, TRÊN TẦNG HIỆN TẠI) để lên mặt đất ---
         mask = ug & (self.state == cfg.STATE_UG_TO_SHAFT)
         if np.any(mask):
             idx = np.where(mask)[0]
-            dist = self._move_towards_3d(idx, self.underground.shaft, cfg.UG_SPEED)
+            dist = self._move_towards_2d(idx, self.underground.shaft_xy, cfg.UG_SPEED)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
                 self.layer[arrived] = cfg.LAYER_SURFACE
+                self.depth[arrived] = cfg.LAYER_SURFACE_DEPTH
                 self.x[arrived] = self.nest_pos[0]
                 self.y[arrived] = self.nest_pos[1]
-                self.z[arrived] = cfg.SURFACE_Z
                 self.state[arrived] = cfg.STATE_SEARCHING
                 self.theta[arrived] = np.random.uniform(0, 2 * np.pi, len(arrived))
 
@@ -328,15 +342,15 @@ class AntColony:
         self.alive[idx] = True
         self.age[idx] = 0.0
         self.layer[idx] = cfg.LAYER_UNDERGROUND
+        self.depth[idx] = self.underground.queen_depth
         self.state[idx] = cfg.STATE_UG_TO_SHAFT
         self.carrying[idx] = False
         self.carry_type[idx] = 0
         self.carry_amount[idx] = 0.0
         self.role[idx] = (np.random.uniform(0, 1, len(idx)) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
-        qx, qy, qz = self.underground.queen_room
+        qx, qy = self.underground.queen_room
         self.x[idx] = qx
         self.y[idx] = qy
-        self.z[idx] = qz
         self.theta[idx] = np.random.uniform(0, 2 * np.pi, len(idx))
 
     # ------------------------------------------------------------------

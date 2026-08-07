@@ -33,10 +33,65 @@ PHEROMONE_DECAY = 0.985     # mỗi tick pheromone giảm còn 98.5%
 PHEROMONE_DEPOSIT = 1.0     # lượng mùi để lại mỗi tick khi đang tha đồ
 PHEROMONE_MAX = 8.0
 
-# ----- Thức ăn trên mặt đất -----
+# ----- Thức ăn trên mặt đất (đa dạng loại) -----
 FOOD_CLUSTERS = 18
-FOOD_PER_CLUSTER = 6.0
 FOOD_CLUSTER_RADIUS = 2
+
+# 3 loại thức ăn khác nhau về màu sắc và giá trị dinh dưỡng mỗi lần nhặt
+FOOD_TYPE_SEED = 0     # Hạt - phổ biến, giá trị thường
+FOOD_TYPE_INSECT = 1   # Côn trùng - hiếm hơn, giá trị dinh dưỡng cao (đạm)
+FOOD_TYPE_NECTAR = 2   # Mật hoa - khá phổ biến, giá trị vừa phải
+
+FOOD_TYPE_VALUE = {
+    FOOD_TYPE_SEED: 1.0,
+    FOOD_TYPE_INSECT: 2.2,
+    FOOD_TYPE_NECTAR: 1.4,
+}
+FOOD_TYPE_COLOR = {
+    FOOD_TYPE_SEED: (150, 115, 60),     # nâu hạt
+    FOOD_TYPE_INSECT: (150, 40, 40),    # đỏ sẫm
+    FOOD_TYPE_NECTAR: (230, 195, 50),   # vàng mật
+}
+# Tỉ lệ xuất hiện mỗi loại khi 1 cụm thức ăn mới sinh ra (phải cộng lại = 1.0)
+FOOD_TYPE_WEIGHTS = {
+    FOOD_TYPE_SEED: 0.55,
+    FOOD_TYPE_INSECT: 0.20,
+    FOOD_TYPE_NECTAR: 0.25,
+}
+FOOD_PER_CLUSTER = 6.0  # số "đơn vị" thức ăn (không phải giá trị dinh dưỡng)
+
+# ----- Địa hình (chướng ngại vật trên mặt đất) -----
+TERRAIN_EMPTY = 0
+TERRAIN_ROCK = 1
+TERRAIN_WATER = 2
+
+NUM_ROCK_CLUSTERS = 4        # số cụm đá rải ngẫu nhiên lúc khởi tạo - vừa
+                             # phải để không cản trở quá mức việc tìm ăn
+ROCK_CLUSTER_RADIUS = 1.4
+NUM_WATER_CLUSTERS = 4       # số vũng nước rải ngẫu nhiên lúc khởi tạo
+WATER_CLUSTER_RADIUS = 2.4
+TERRAIN_SAFE_RADIUS_FROM_NEST = 6  # không đặt địa hình quá gần lỗ tổ
+
+# ----- Nước: KHÔNG CHỈ là chướng ngại vật mà còn là tài nguyên sống còn -----
+# Kiến không đi được VÀO nước (vẫn chặn đường như trước), nhưng nếu đứng
+# đủ GẦN mép nước có thể "uống" mang về - đàn kiến cần nước như cần ăn.
+WATER_COLLECT_RADIUS = 2.0     # khoảng cách tới mép nước để có thể "uống"
+WATER_BASE_INCOME_PER_TICK = 0.45  # tổ tự động thu được bấy nhiêu nước mỗi
+                               # tick MIỄN LÀ còn ít nhất 1 vũng nước trên
+                               # bản đồ (đại diện cho việc kiến đi lấy nước
+                               # thường xuyên) - nếu bạn lấp hết nước bằng
+                               # đá hoặc nước cạn sạch, nguồn thu này = 0
+WATER_UPKEEP_PER_ANT_PER_TICK = 0.00035  # mỗi kiến còn sống tiêu hao nước
+                                        # mỗi tick để duy trì sự sống
+WATER_STARVATION_GRACE_TICKS = 600     # số tick được phép hết nước dự trữ
+                                        # trước khi bắt đầu tính chết khát
+DEHYDRATION_DEATH_RATE = 0.0003        # xác suất chết PHỤ THÊM mỗi tick khi
+                                        # thiếu nước kéo dài - CỐ Ý đặt THẤP:
+                                        # hậu quả CHÍNH của thiếu nước là
+                                        # KHÔNG THỂ SINH SẢN (xem BIRTH_WATER_COST
+                                        # bên dưới), tránh vòng xoáy chết
+                                        # chóc tự gia tăng khi ít kiến hơn
+                                        # đồng nghĩa ít kiến đi lấy nước hơn
 
 # ----- Tổ kiến -----
 NEST_POS = (GRID_SIZE // 2, GRID_SIZE // 2)   # vị trí lỗ tổ trên mặt đất & giếng hầm
@@ -86,6 +141,8 @@ STARVATION_GRACE_TICKS = 400    # số tick phòng ấu trùng được phép "r
 BIRTH_CHECK_INTERVAL = 60   # cứ mỗi bấy nhiêu tick (~1 giây ở 60 FPS), chúa
                             # thử sinh 1 lứa kiến mới
 BIRTH_FOOD_COST = 4          # số đơn vị thức ăn (lấy từ kho) cần cho 1 kiến mới
+BIRTH_WATER_COST = 2          # số đơn vị nước cần thêm cho 1 kiến mới - nếu
+                              # thiếu nước, chúa KHÔNG sinh được dù đủ thức ăn
 BIRTH_BATCH_SIZE = 2         # số kiến sinh ra mỗi lần (nếu đủ thức ăn) -
                             # đặt đủ cao để bù được tốc độ chết già/chết đói
                             # trong điều kiện bình thường (không có kẻ thù)
@@ -108,6 +165,11 @@ ENEMY_TURN_NOISE = 0.5
 FOOD_RESPAWN_INTERVAL = 600  # cứ mỗi bấy nhiêu tick, có 1 cụm thức ăn mới
                              # xuất hiện ngẫu nhiên (mô phỏng thức ăn theo mùa)
 FOOD_RESPAWN_AMOUNT = 5.0    # lượng thức ăn của cụm mới mỗi lần tái sinh
+NURSERY_CONSUMPTION_PER_TICK = 0.10  # ấu trùng tiêu thụ dần thức ăn trong
+                             # phòng ấu trùng để lớn lên - QUAN TRỌNG: nếu
+                             # không có cơ chế này, thức ăn đưa vào phòng ấu
+                             # trùng sẽ tích lũy vĩnh viễn không dùng đến,
+                             # dần rút cạn toàn bộ tài nguyên khả dụng của tổ
 UPKEEP_FOOD_PER_ANT_PER_TICK = 0.0004  # mỗi kiến còn sống tiêu hao 1 lượng
                              # nhỏ thức ăn từ kho mỗi tick để duy trì sự sống
                              # (không chỉ dùng thức ăn để sinh sản) - nếu đàn

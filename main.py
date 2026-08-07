@@ -16,6 +16,8 @@ Can thiệp vào thế giới (thanh công cụ dưới màn hình):
   - "Dat thuc an" : chọn rồi CLICK CHUỘT TRÁI lên mặt đất để rải thức ăn
   - "Tha ke thu"  : chọn rồi click để thả kẻ thù ngay tại điểm đó
   - "Dao phong"   : chọn rồi click để đào 1 phòng hầm mới tại điểm đó
+  - "Dat da"      : chọn rồi click để đặt 1 cụm đá (chặn đường kiến)
+  - "Dat nuoc"    : chọn rồi click để đặt 1 vũng nước (cũng chặn đường)
   - "Tam dung" / "Toc do xN": điều khiển thời gian mô phỏng
 """
 from ursina import *
@@ -153,8 +155,46 @@ for a, b in underground_world.corridors:
     create_corridor_entity(a, b)
 
 # ---------------------------------------------------------------------
+# Địa hình: đá (chặn đường) và nước (chặn đường, màu xanh trong suốt) -
+# vẽ bằng hàm dùng lại được cho cả lúc khởi tạo lẫn khi người chơi tự đặt
+# thêm bằng công cụ
+# ---------------------------------------------------------------------
+def create_terrain_entity(terrain_type, cx, cy, radius):
+    if terrain_type == cfg.TERRAIN_ROCK:
+        # vài khối đá nhỏ xếp lệch nhau cho tự nhiên, thay vì 1 khối tròn đều
+        rng_local = np.random.default_rng(int(cx * 1000 + cy))
+        n_chunks = max(3, int(radius * 3))
+        for _ in range(n_chunks):
+            ox = rng_local.uniform(-radius * 0.6, radius * 0.6)
+            oy = rng_local.uniform(-radius * 0.6, radius * 0.6)
+            s = rng_local.uniform(0.7, 1.5)
+            Entity(
+                model="cube",
+                scale=(s, s * rng_local.uniform(0.6, 1.1), s),
+                position=sim_to_world(cx + ox, cy + oy, 0.0),
+                rotation=(0, rng_local.uniform(0, 360), 0),
+                color=rgb255(120, 118, 112, 255),
+            )
+    else:  # TERRAIN_WATER
+        Entity(
+            model=Cylinder(resolution=16, radius=radius, height=0.06),
+            position=sim_to_world(cx, cy, 0.05),
+            color=rgb255(70, 140, 200, 175),
+        )
+
+
+for terrain_type, cx, cy, radius in surface_world.terrain_features:
+    create_terrain_entity(terrain_type, cx, cy, radius)
+
+# ---------------------------------------------------------------------
 # Thức ăn trên mặt đất (lấy mẫu thưa để không tạo quá nhiều entity)
 # ---------------------------------------------------------------------
+def food_color_for(gx, gy):
+    ftype = int(surface_world.food_type[gx, gy])
+    rgb = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
+    return rgb255(rgb[0], rgb[1], rgb[2])
+
+
 food_entities = {}
 FOOD_SAMPLE_STEP = 2
 for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
@@ -164,26 +204,34 @@ for gx in range(0, cfg.GRID_SIZE, FOOD_SAMPLE_STEP):
                 model="sphere",
                 scale=0.55,
                 position=sim_to_world(gx, gy, 0.2),
-                color=rgb255(60, 150, 60),
+                color=food_color_for(gx, gy),
             )
             food_entities[(gx, gy)] = ent
 
 
-def place_food_at(gx, gy, amount=8.0):
+def place_food_at(gx, gy, amount=8.0, food_type=None):
     """Đặt thức ăn tại 1 ô lưới cụ thể (dùng cho công cụ click chuột) -
-    tạo entity hiển thị nếu ô đó chưa có sẵn."""
+    tạo entity hiển thị nếu ô đó chưa có sẵn. Nếu không chỉ định loại,
+    chọn ngẫu nhiên theo tỉ lệ giống lúc thế giới khởi tạo."""
     gx = int(np.clip(gx, 0, cfg.GRID_SIZE - 1))
     gy = int(np.clip(gy, 0, cfg.GRID_SIZE - 1))
+    if food_type is None:
+        types = list(cfg.FOOD_TYPE_WEIGHTS.keys())
+        weights = list(cfg.FOOD_TYPE_WEIGHTS.values())
+        food_type = int(np.random.choice(types, p=weights))
     surface_world.food[gx, gy] += amount
+    surface_world.food_type[gx, gy] = food_type
     if (gx, gy) not in food_entities:
         food_entities[(gx, gy)] = Entity(
             model="sphere",
             scale=0.55,
             position=sim_to_world(gx, gy, 0.2),
-            color=rgb255(60, 150, 60),
+            color=food_color_for(gx, gy),
         )
     else:
-        food_entities[(gx, gy)].enabled = True
+        ent = food_entities[(gx, gy)]
+        ent.enabled = True
+        ent.color = food_color_for(gx, gy)
 
 # ---------------------------------------------------------------------
 # Kiến - tạo sẵn 1 entity cho mỗi con, mỗi frame chỉ cập nhật vị trí/màu
@@ -233,18 +281,20 @@ def make_tool_button(label, tool_name, x):
         text=label,
         parent=camera.ui,
         position=(x, -0.45),
-        scale=(0.15, 0.06),
+        scale=(0.135, 0.06),
         color=TOOL_BUTTON_COLOR,
-        text_size=0.7,
+        text_size=0.65,
     )
     btn.on_click = Func(_set_tool, tool_name)
     tool_buttons[tool_name] = btn
     return btn
 
 
-make_tool_button("Dat thuc an", "food", -0.55)
-make_tool_button("Tha ke thu", "enemy", -0.37)
-make_tool_button("Dao phong", "dig", -0.19)
+make_tool_button("Dat thuc an", "food", -0.62)
+make_tool_button("Tha ke thu", "enemy", -0.465)
+make_tool_button("Dao phong", "dig", -0.31)
+make_tool_button("Dat da", "rock", -0.155)
+make_tool_button("Dat nuoc", "water", 0.0)
 
 pause_button = Button(
     text="Tam dung",
@@ -349,14 +399,16 @@ def update():
 
         c = colony.counts()
         canh_bao = "  *** DAN KIEN DANG DOI ***" if c["is_starving"] else ""
+        khat = "  *** DAN KIEN DANG KHAT NUOC ***" if c["is_dehydrated"] else ""
         ke_thu = "  *** CO KE THU TREN MAT DAT ***" if enemy.active else ""
         hud.text = (
             f"Dan so: {c['population']}/{colony.n}   Sinh: {c['total_births']}   "
             f"Chet: {c['total_deaths']}   Ke thu da giet: {enemy.total_kills}\n"
             f"Tim an: {c['searching']}   Dang tha ve: {c['returning']}   "
             f"Duoi ham: {c['underground']}\n"
-            f"Kho: {c['food_in_storage']:.0f}   Phong au trung: {c['food_in_nursery']:.0f}"
-            f"{canh_bao}{ke_thu}\n"
+            f"Kho: {c['food_in_storage']:.0f}   Phong au trung: {c['food_in_nursery']:.0f}   "
+            f"Nuoc: {c['water_in_storage']:.0f}"
+            f"{canh_bao}{khat}{ke_thu}\n"
             f"Chuot phai+keo: xoay | Lan chuot: zoom | G: xuyen mat dat | Esc: thoat"
         )
 
@@ -385,6 +437,16 @@ def input(key):
                 name, center, radius, rgb = underground_world.dig_new_room(sim_x, sim_y)
                 create_room_entity(name, center, radius, rgb)
                 create_corridor_entity(underground_world.corridors[-1][0], center)
+            elif current_tool == "rock":
+                feature = surface_world.add_obstacle(
+                    int(sim_x), int(sim_y), cfg.TERRAIN_ROCK, cfg.ROCK_CLUSTER_RADIUS
+                )
+                create_terrain_entity(*feature)
+            elif current_tool == "water":
+                feature = surface_world.add_obstacle(
+                    int(sim_x), int(sim_y), cfg.TERRAIN_WATER, cfg.WATER_CLUSTER_RADIUS
+                )
+                create_terrain_entity(*feature)
 
 
 app.run()

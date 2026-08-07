@@ -34,6 +34,8 @@ class AntColony:
         self.layer = np.zeros(n_ants, dtype=np.int8)          # 0 = mặt đất
         self.state = np.zeros(n_ants, dtype=np.int8)          # STATE_SEARCHING
         self.carrying = np.zeros(n_ants, dtype=bool)
+        self.carry_type = np.zeros(n_ants, dtype=np.int8)     # 0=không, 1=thức ăn, 2=nước
+        self.carry_amount = np.zeros(n_ants, dtype=np.float32)
 
         # --- Vòng đời ---
         self.alive = np.ones(n_ants, dtype=bool)
@@ -52,6 +54,8 @@ class AntColony:
         self.surface.decay_pheromone()
         self.underground.update_starvation_tracker()
         self.underground.consume_upkeep(int(np.sum(self.alive)))
+        if self.surface.has_water_source():
+            self.underground.deposit_water(cfg.WATER_BASE_INCOME_PER_TICK)
         self._update_lifecycle()
 
         if self.tick_count % cfg.FOOD_RESPAWN_INTERVAL == 0:
@@ -74,6 +78,7 @@ class AntColony:
             idx = np.where(searching)[0]
             theta = self.theta[idx]
             x, y = self.x[idx], self.y[idx]
+            prev_x, prev_y = x.copy(), y.copy()
 
             def sense(offset):
                 sx = x + np.cos(theta + offset) * cfg.SENSE_DIST
@@ -96,14 +101,21 @@ class AntColony:
             self.x[idx] += np.cos(self.theta[idx]) * cfg.ANT_SPEED
             self.y[idx] += np.sin(self.theta[idx]) * cfg.ANT_SPEED
             self._bounce_walls(idx)
+            self._avoid_obstacles(idx, prev_x, prev_y)
 
-            # Kiểm tra ô có thức ăn không -> nhặt
+            # Kiểm tra ô có thức ăn không -> nhặt (giá trị tùy loại thức ăn)
             xi = self._wrap_indices(self.x[idx])
             yi = self._wrap_indices(self.y[idx])
-            got_food = self.surface.take_food(xi, yi, amount=1.0)
+            got_food, food_types = self.surface.take_food(xi, yi, amount=1.0)
             got_idx = idx[got_food]
             if len(got_idx) > 0:
+                values = np.array(
+                    [cfg.FOOD_TYPE_VALUE[t] for t in food_types[got_food]],
+                    dtype=np.float32,
+                )
                 self.carrying[got_idx] = True
+                self.carry_type[got_idx] = 1
+                self.carry_amount[got_idx] = values
                 self.state[got_idx] = cfg.STATE_RETURNING
                 self.total_food_collected += len(got_idx)
 
@@ -111,6 +123,7 @@ class AntColony:
         if np.any(returning):
             idx = np.where(returning)[0]
             x, y = self.x[idx], self.y[idx]
+            prev_x, prev_y = x.copy(), y.copy()
             nest_x, nest_y = cfg.NEST_POS
             to_nest_theta = np.arctan2(nest_y - y, nest_x - x)
             self.theta[idx] = 0.25 * self.theta[idx] + 0.75 * to_nest_theta
@@ -118,6 +131,7 @@ class AntColony:
             self.x[idx] += np.cos(self.theta[idx]) * cfg.ANT_SPEED
             self.y[idx] += np.sin(self.theta[idx]) * cfg.ANT_SPEED
             self._bounce_walls(idx)
+            self._avoid_obstacles(idx, prev_x, prev_y)
 
             xi = self._wrap_indices(self.x[idx])
             yi = self._wrap_indices(self.y[idx])
@@ -142,6 +156,26 @@ class AntColony:
         self.theta[idx[hit_y]] = -self.theta[idx[hit_y]]
         np.clip(self.x, 0, n, out=self.x)
         np.clip(self.y, 0, n, out=self.y)
+
+    def _avoid_obstacles(self, idx, prev_x, prev_y):
+        """Kiến không đi xuyên qua được đá/nước - nếu ô mới là chướng ngại
+        vật, lùi lại vị trí cũ và lệch hướng sang bên (trái/phải ngẫu
+        nhiên) để né, thay vì quay ngoắt gần như quay đầu - giữ được phần
+        lớn tiến trình theo dấu pheromone thay vì mất hướng hoàn toàn."""
+        xi = self._wrap_indices(self.x[idx])
+        yi = self._wrap_indices(self.y[idx])
+        blocked = self.surface.is_blocked(xi, yi)
+        if not np.any(blocked):
+            return
+        blocked_idx = idx[blocked]
+        self.x[blocked_idx] = prev_x[blocked]
+        self.y[blocked_idx] = prev_y[blocked]
+        # lệch sang trái hoặc phải 1 góc vừa phải (không quay ngoắt lại)
+        n_blocked = len(blocked_idx)
+        side = np.random.choice([-1.0, 1.0], size=n_blocked)
+        self.theta[blocked_idx] += side * np.random.uniform(
+            np.pi * 0.25, np.pi * 0.55, n_blocked
+        )
 
     # ------------------------------------------------------------------
     def _move_towards_3d(self, idx, target_xyz, speed):
@@ -170,14 +204,29 @@ class AntColony:
             dist = self._move_towards_3d(idx, self.underground.storage, cfg.UG_SPEED)
             arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
             if len(arrived) > 0:
-                self.underground.deposit_to_storage(len(arrived))
-                self.carrying[arrived] = False
-                rng_vals = np.random.uniform(0, 1, len(arrived))
-                become_nurse = arrived[rng_vals < cfg.NURSE_PROBABILITY]
-                go_back = arrived[rng_vals >= cfg.NURSE_PROBABILITY]
-                self.state[become_nurse] = cfg.STATE_UG_TO_NURSERY
-                self.carrying[become_nurse] = True
-                self.state[go_back] = cfg.STATE_UG_TO_SHAFT
+                is_water = self.carry_type[arrived] == 2
+                food_idx = arrived[~is_water]
+                water_idx = arrived[is_water]
+
+                if len(food_idx) > 0:
+                    self.underground.deposit_to_storage(float(self.carry_amount[food_idx].sum()))
+                    self.carry_amount[food_idx] = 0.0
+                    self.carrying[food_idx] = False
+                    rng_vals = np.random.uniform(0, 1, len(food_idx))
+                    become_nurse = food_idx[rng_vals < cfg.NURSE_PROBABILITY]
+                    go_back = food_idx[rng_vals >= cfg.NURSE_PROBABILITY]
+                    self.state[become_nurse] = cfg.STATE_UG_TO_NURSERY
+                    self.carrying[become_nurse] = True
+                    self.carry_type[become_nurse] = 1
+                    self.carry_type[go_back] = 0
+                    self.state[go_back] = cfg.STATE_UG_TO_SHAFT
+
+                if len(water_idx) > 0:
+                    self.underground.deposit_water(float(self.carry_amount[water_idx].sum()))
+                    self.carry_amount[water_idx] = 0.0
+                    self.carry_type[water_idx] = 0
+                    self.carrying[water_idx] = False
+                    self.state[water_idx] = cfg.STATE_UG_TO_SHAFT
 
         # --- nurse mang đồ tới phòng ấu trùng ---
         mask = ug & (self.state == cfg.STATE_UG_TO_NURSERY)
@@ -188,6 +237,7 @@ class AntColony:
             if len(arrived) > 0:
                 self.underground.deposit_to_nursery(len(arrived))
                 self.carrying[arrived] = False
+                self.carry_type[arrived] = 0
                 self.state[arrived] = cfg.STATE_UG_TO_SHAFT
 
         # --- quay lại giếng để lên mặt đất ---
@@ -225,7 +275,11 @@ class AntColony:
         starving = self.underground.is_starving()
         starve_prob = cfg.STARVATION_DEATH_RATE if starving else 0.0
 
-        death_prob = 1.0 - (1.0 - old_age_prob) * (1.0 - starve_prob)
+        # --- Chết vì khát: áp dụng đều cho cả đàn khi hết nước dự trữ lâu ---
+        dehydrated = self.underground.is_dehydrated()
+        dehydrate_prob = cfg.DEHYDRATION_DEATH_RATE if dehydrated else 0.0
+
+        death_prob = 1.0 - (1.0 - old_age_prob) * (1.0 - starve_prob) * (1.0 - dehydrate_prob)
         rolls = np.random.uniform(0, 1, len(alive_idx))
         died = alive_idx[rolls < death_prob]
         if len(died) > 0:
@@ -236,7 +290,9 @@ class AntColony:
         if self.tick_count % cfg.BIRTH_CHECK_INTERVAL == 0:
             dead_slots = np.where(~self.alive)[0]
             if len(dead_slots) > 0:
-                got_food = self.underground.try_consume_for_birth(cfg.BIRTH_FOOD_COST)
+                got_food = self.underground.try_consume_for_birth(
+                    cfg.BIRTH_FOOD_COST, cfg.BIRTH_WATER_COST
+                )
                 if got_food:
                     n_new = min(cfg.BIRTH_BATCH_SIZE, len(dead_slots))
                     new_idx = dead_slots[:n_new]
@@ -251,6 +307,8 @@ class AntColony:
         self.layer[idx] = cfg.LAYER_UNDERGROUND
         self.state[idx] = cfg.STATE_UG_TO_SHAFT
         self.carrying[idx] = False
+        self.carry_type[idx] = 0
+        self.carry_amount[idx] = 0.0
         qx, qy, qz = self.underground.queen_room
         self.x[idx] = qx
         self.y[idx] = qy
@@ -269,7 +327,9 @@ class AntColony:
             "total_food_collected": self.total_food_collected,
             "food_in_storage": self.underground.food_in_storage,
             "food_in_nursery": self.underground.food_in_nursery,
+            "water_in_storage": self.underground.water_in_storage,
             "total_births": self.underground.total_births,
             "total_deaths": self.underground.total_deaths,
             "is_starving": self.underground.is_starving(),
+            "is_dehydrated": self.underground.is_dehydrated(),
         }

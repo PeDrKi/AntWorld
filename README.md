@@ -213,7 +213,12 @@ fonts.py              - nạp font TrueType riêng (assets/fonts/*.ttf) thay
                         vì SysFont, đảm bảo chữ tiếng Việt hiển thị đúng
                         trên mọi máy kể cả bản .exe đã đóng gói
 pixel_editor.py        - công cụ vẽ pixel art cho sprite (Pygame), độc
-                        lập với game, dùng chung fonts.py
+                        lập với game, dùng chung fonts.py. Có bút/tẩy
+                        (3 cỡ), đổ màu, hút màu, đường thẳng, hình chữ
+                        nhật (viền/đặc), đối xứng ngang+dọc, thanh trượt
+                        R/G/B, màu vừa dùng, xem hoạt ảnh (tự ghép cặp
+                        sprite thợ mang đồ, vd ant_worker_main <->
+                        ant_worker_main_carry)
 sprite_data.py         - dữ liệu bảng màu + sprite mẫu cho pixel_editor.py
 
 --- Đóng gói thành app Windows (.exe) ---

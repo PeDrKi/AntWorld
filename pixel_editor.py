@@ -105,11 +105,21 @@ class AppState:
         self.current = None
         self.tool = "pencil"
         self.color = "#d77820"
+        self.color_rgb = list(hex_to_rgb("#d77820"))
+        self.recent_colors = []  # hex, mới nhất ở đầu, tối đa 10, không trùng
+        self.brush_size = 1      # 1..3, áp dụng cho bút/tẩy (không áp dụng
+                                  # cho đổ màu/hút màu/đường thẳng/hcn)
         self.zoom = 20
         self.show_grid = True
         self.symmetry_h = False
         self.symmetry_v = False
         self.painting = False
+        self.shape_start = None       # (x, y) lúc bắt đầu kéo đường thẳng/HCN
+        self.shape_preview_end = None  # (x, y) hiện tại khi đang kéo (chỉ để xem trước)
+        self.rect_filled = False      # công cụ HCN: viền hay đặc
+        self.anim_playing = False
+        self.anim_timer = 0
+        self.anim_frame_idx = 0
         self.history = {}
         self.status = ""
         self.status_timer = 0
@@ -152,6 +162,16 @@ class AppState:
         h["undo"].append(self.sp().pixels[:])
         self.sp().pixels = h["redo"].pop()
 
+    def remember_color(self, hexcolor):
+        """Ghi mau vao danh sach 'vua dung', moi nhat len dau, khong
+        trung lap, toi da 10 mau."""
+        if not hexcolor:
+            return
+        if hexcolor in self.recent_colors:
+            self.recent_colors.remove(hexcolor)
+        self.recent_colors.insert(0, hexcolor)
+        del self.recent_colors[10:]
+
     def _mirror_points(self, x, y, size):
         """Tra ve danh sach cac diem doi xung can ve cung, tuy theo
         doi xung ngang/doc dang bat. Luon bao gom (x,y) goc."""
@@ -168,6 +188,54 @@ class AppState:
         sp = self.sp()
         for px, py in self._mirror_points(x, y, sp.size):
             sp.pixels[py * sp.size + px] = color
+
+    def paint_stamp(self, x, y, color):
+        """Ve 1 'con dau' vuong kich thuoc brush_size x brush_size, tam
+        tai (x,y) - dung cho but/tay khi brush_size > 1. brush_size=1
+        thi hanh vi giong het set_pixel() truoc day."""
+        sp = self.sp()
+        half = self.brush_size // 2
+        for oy in range(-half, self.brush_size - half):
+            for ox in range(-half, self.brush_size - half):
+                px, py = x + ox, y + oy
+                if 0 <= px < sp.size and 0 <= py < sp.size:
+                    self.set_pixel(px, py, color)
+
+    def line_points(self, x0, y0, x1, y1):
+        """Thuat toan Bresenham - tra ve danh sach (x,y) tao thanh 1
+        duong thang tu (x0,y0) den (x1,y1), khong bo sot o nao."""
+        points = []
+        dx = abs(x1 - x0)
+        dy = -abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx + dy
+        x, y = x0, y0
+        while True:
+            points.append((x, y))
+            if x == x1 and y == y1:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x += sx
+            if e2 <= dx:
+                err += dx
+                y += sy
+        return points
+
+    def rect_points(self, x0, y0, x1, y1):
+        """Tra ve danh sach (x,y) cua 1 hinh chu nhat giua 2 goc
+        (x0,y0)-(x1,y1) - dac neu rect_filled=True, chi vien neu khong."""
+        xmin, xmax = min(x0, x1), max(x0, x1)
+        ymin, ymax = min(y0, y1), max(y0, y1)
+        points = []
+        for y in range(ymin, ymax + 1):
+            for x in range(xmin, xmax + 1):
+                on_border = x in (xmin, xmax) or y in (ymin, ymax)
+                if self.rect_filled or on_border:
+                    points.append((x, y))
+        return points
 
     def flood_fill(self, x0, y0, color):
         sp = self.sp()
@@ -194,9 +262,9 @@ class AppState:
     def apply_tool_at(self, x, y, is_start):
         sp = self.sp()
         if self.tool == "pencil":
-            self.set_pixel(x, y, self.color)
+            self.paint_stamp(x, y, self.color)
         elif self.tool == "eraser":
-            self.set_pixel(x, y, None)
+            self.paint_stamp(x, y, None)
         elif self.tool == "fill":
             if is_start:
                 self.flood_fill(x, y, self.color)
@@ -205,9 +273,14 @@ class AppState:
                 c = sp.pixels[y * sp.size + x]
                 if c:
                     self.color = c
+                    self.color_rgb = list(hex_to_rgb(c))
+                    self.remember_color(c)
                     self.toast(f"Da hut mau: {c}")
                 else:
                     self.toast("Ô này đang trống (trong suốt)")
+        # "line" va "rect" khong ve ngay o day - chung duoc xu ly rieng
+        # bang shape_start/shape_preview_end (xem handle_mouse_down/up
+        # trong App) vi can XEM TRUOC khi dang keo, chi commit luc tha chuot.
 
 
 state = AppState()
@@ -249,7 +322,13 @@ class Button:
             bg = tuple(min(255, c + 12) for c in COL_PANEL2)
         pygame.draw.rect(surf, bg, r, border_radius=6)
         pygame.draw.rect(surf, border, r, width=1, border_radius=6)
-        img = self.font.render(self.label, True, text_col)
+        label = self.label
+        max_w = r.w - 10  # chua het chu 5px moi ben, tranh chu tran ra ngoai nut
+        while self.font.size(label)[0] > max_w and len(label) > 1:
+            label = label[:-1]
+        if label != self.label:
+            label = label.rstrip() + "…"
+        img = self.font.render(label, True, text_col)
         tw, th = img.get_size()
         surf.blit(img, (r.centerx - tw // 2, r.centery - th // 2))
 
@@ -330,7 +409,8 @@ class App:
     def __init__(self):
         self.rename_box = TextBox((0, 0, 10, 10), state.sp().label)
         self.hexinput_box = TextBox((0, 0, 10, 10), state.color)
-        self.right_scroll = 0
+        self.right_scroll = 0.0        # vi tri cuon HIEN TAI (mượt, chạy dần tới target)
+        self.right_scroll_target = 0.0  # vi tri cuon MUC TIEU (nhay ngay khi lan chuot)
         self.buttons = []
         self.swatches = []
         self.tab_buttons = []
@@ -338,13 +418,31 @@ class App:
         self.canvas_rect = pygame.Rect(0, 0, 0, 0)
         self.preview_game_rect = pygame.Rect(0, 0, 0, 0)
         self.preview_big_rect = pygame.Rect(0, 0, 0, 0)
+        # cac thanh truot dang keo (R/G/B/zoom) - luu rect KHUNG cua lan
+        # ve gan nhat de tinh gia tri khi ren chuot, va key nao dang duoc
+        # keo (None = khong keo thanh nao)
+        self.slider_specs = {}   # key -> dict(rect, value, minv, maxv, on_change)
+        self.active_slider = None
+        self.recent_swatch_rects = []  # [(rect, hexcolor), ...] cua lan ve gan nhat
         self.running = True
 
     # ---------- actions ----------
     def set_tool(self, name):
         state.tool = name
+        state.shape_start = None
+        state.shape_preview_end = None
 
     def set_color(self, hexcolor):
+        state.color = hexcolor
+        state.color_rgb = list(hex_to_rgb(hexcolor))
+        self.hexinput_box.text = hexcolor
+        state.remember_color(hexcolor)
+
+    def set_color_from_rgb(self):
+        """Cap nhat state.color (hex) tu 3 gia tri R/G/B hien tai - goi
+        moi khi keo 1 trong 3 thanh truot mau."""
+        r, g, b = state.color_rgb
+        hexcolor = f"#{r:02x}{g:02x}{b:02x}"
         state.color = hexcolor
         self.hexinput_box.text = hexcolor
 
@@ -355,6 +453,8 @@ class App:
     def select_sprite(self, name):
         state.current = name
         self.rename_box.text = state.sp().label
+        state.shape_start = None
+        state.shape_preview_end = None
 
     def clear_canvas(self):
         state.push_history()
@@ -400,6 +500,17 @@ class App:
         else:
             state.toast("Mã màu không hợp lệ (dùng dạng #rrggbb)")
 
+    def set_brush_size(self, size):
+        state.brush_size = size
+
+    def toggle_rect_filled(self):
+        state.rect_filled = not state.rect_filled
+
+    def toggle_anim(self):
+        state.anim_playing = not state.anim_playing
+        state.anim_timer = 0
+        state.anim_frame_idx = 0
+
     def resize_canvas(self, new_size):
         sp = state.sp()
         if sp.size == new_size:
@@ -411,6 +522,38 @@ class App:
 
     def change_zoom(self, delta):
         state.zoom = max(6, min(40, state.zoom + delta))
+
+    def set_zoom_value(self, value):
+        state.zoom = max(6, min(40, int(value)))
+
+    def register_slider(self, key, rect, value, minv, maxv, on_change):
+        """Ghi lai 1 thanh truot de ve + xu ly keo o frame nay. Goi lai
+        moi frame (giong Button) vi toa do co the doi khi resize cua so."""
+        self.slider_specs[key] = {
+            "rect": pygame.Rect(rect), "value": value,
+            "minv": minv, "maxv": maxv, "on_change": on_change,
+        }
+
+    def _slider_value_from_pos(self, key, pos):
+        spec = self.slider_specs.get(key)
+        if not spec:
+            return None
+        r = spec["rect"]
+        t = (pos[0] - r.x) / max(1, r.w)
+        t = max(0.0, min(1.0, t))
+        return spec["minv"] + t * (spec["maxv"] - spec["minv"])
+
+    def draw_sliders(self):
+        for key, spec in self.slider_specs.items():
+            r = spec["rect"]
+            pygame.draw.rect(screen, (20, 16, 11), r, border_radius=4)
+            pygame.draw.rect(screen, COL_BORDER, r, width=1, border_radius=4)
+            t = (spec["value"] - spec["minv"]) / max(1e-6, (spec["maxv"] - spec["minv"]))
+            t = max(0.0, min(1.0, t))
+            handle_x = r.x + int(t * r.w)
+            handle_col = COL_ACCENT2 if self.active_slider == key else COL_ACCENT
+            pygame.draw.circle(screen, handle_col, (handle_x, r.centery), 8)
+            pygame.draw.circle(screen, COL_BORDER, (handle_x, r.centery), 8, width=1)
 
     def toggle_symmetry_h(self):
         state.symmetry_h = not state.symmetry_h
@@ -490,6 +633,20 @@ class App:
             return None
         return x, y
 
+    def cell_from_pos_clamped(self, pos):
+        """Giong cell_from_pos, nhung LUON tra ve 1 o hop le (ep ve cham
+        bien gan nhat) thay vi None khi chuot ra ngoai canvas - dung cho
+        xem truoc duong thang/hinh chu nhat luc dang keo, de keo ra ngoai
+        bien van "dinh" vao canh/goc thay vi mat huong xem truoc."""
+        sp = state.sp()
+        rel_x = pos[0] - self.canvas_rect.x
+        rel_y = pos[1] - self.canvas_rect.y
+        x = int(rel_x // state.zoom)
+        y = int(rel_y // state.zoom)
+        x = max(0, min(sp.size - 1, x))
+        y = max(0, min(sp.size - 1, y))
+        return x, y
+
     # ---------- layout / draw ----------
     def layout(self):
         w, h = screen.get_size()
@@ -514,13 +671,31 @@ class App:
         y += 20
         tool_w = (w - 6) // 2
         tools = [("pencil", "Bút (B)"), ("eraser", "Tẩy (E)"),
-                 ("fill", "Đổ màu (G)"), ("eyedropper", "Hút màu (I)")]
+                 ("fill", "Đổ màu (G)"), ("eyedropper", "Hút màu (I)"),
+                 ("line", "Đường thẳng (L)"), ("rect", "Hình CN (R)")]
         for i, (key, label) in enumerate(tools):
             col, row = i % 2, i // 2
             rect = (x0 + col * (tool_w + 6), y + row * 34, tool_w, 30)
             self.buttons.append(Button(rect, label, (lambda k=key: self.set_tool(k)),
                                         active=(state.tool == key), font=font_small))
-        y += 34 * 2 + 16
+        y += 34 * 3 + 10
+
+        if state.tool == "rect":
+            self.buttons.append(Button((x0, y, w, 28),
+                                        f"HCN: {'ĐẶC' if state.rect_filled else 'VIỀN'}",
+                                        self.toggle_rect_filled, active=state.rect_filled,
+                                        font=font_small))
+            y += 34
+        elif state.tool in ("pencil", "eraser"):
+            draw_text(screen, f"Cỡ bút: {state.brush_size}px", (x0, y), font_small, COL_TEXT)
+            y += 18
+            bw = (w - 2 * 6) // 3
+            for i, sz in enumerate([1, 2, 3]):
+                rect = (x0 + i * (bw + 6), y, bw, 26)
+                self.buttons.append(Button(rect, f"{sz}", (lambda s=sz: self.set_brush_size(s)),
+                                            active=(state.brush_size == sz), font=font_small))
+            y += 32
+        y += 10
 
         draw_text(screen, "CHỈNH SỬA", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
@@ -543,10 +718,12 @@ class App:
         draw_text(screen, "HIỂN THỊ", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
         draw_text(screen, f"Thu phóng: {state.zoom}px", (x0, y), font_small, COL_TEXT)
-        y += 20
-        self.buttons.append(Button((x0, y, 34, 26), "-", lambda: self.change_zoom(-2), font=font_normal))
-        self.buttons.append(Button((x0 + w - 34, y, 34, 26), "+", lambda: self.change_zoom(2), font=font_normal))
-        y += 34
+        y += 18
+        self.buttons.append(Button((x0, y, 28, 24), "-", lambda: self.change_zoom(-2), font=font_normal))
+        self.register_slider("zoom", (x0 + 34, y + 4, w - 34 - 34 - 6, 16),
+                              state.zoom, 6, 40, self.set_zoom_value)
+        self.buttons.append(Button((x0 + w - 28, y, 28, 24), "+", lambda: self.change_zoom(2), font=font_normal))
+        y += 30
         self.buttons.append(Button((x0, y, w, 30), f"Lưới: {'BẬT' if state.show_grid else 'TẮT'}",
                                     self.toggle_grid, active=state.show_grid, font=font_small))
         y += 44
@@ -586,6 +763,7 @@ class App:
 
     def build_right_panel(self):
         self.swatches = []
+        self.recent_swatch_rects = []
         rx = self.W - self.right_w + 12
         y = self.header_h + 12 - self.right_scroll
         w = self.right_w - 24
@@ -602,12 +780,41 @@ class App:
         pygame.draw.rect(screen, COL_BORDER, swatch_rect, width=1, border_radius=6)
         self.hexinput_box.rect = pygame.Rect(rx + 42, y + 3, w - 42, 28)
         self.hexinput_box.draw(screen)
-        y += 40
+        y += 44
+
+        # Thanh trượt R/G/B - kéo trực tiếp để pha màu, khớp tức thì với
+        # mã hex và ô màu đang chọn phía trên (kéo tới đâu cập nhật tới đó).
+        r, g, b = state.color_rgb
+        slider_labels = [("r", "R", r, (220, 90, 90)), ("g", "G", g, (90, 200, 110)),
+                          ("b", "B", b, (100, 140, 230))]
+        for key, label, val, dot_col in slider_labels:
+            draw_text(screen, f"{label} {val}", (rx, y), font_small, COL_TEXT)
+            pygame.draw.circle(screen, dot_col, (rx + w - 8, y + 6), 5)
+            self.register_slider(f"color_{key}", (rx, y + 16, w, 14), val, 0, 255,
+                                  (lambda v, k=key: self._set_color_channel(k, v)))
+            y += 34
+        y += 6
+
         self.buttons.append(Button((rx, y, w, 26), "Áp dụng mã màu (Enter)", self.apply_hex_color, font=font_small))
         y += 32
         self.buttons.append(Button((rx, y, w, 28), 'Chọn "trong suốt" (tẩy)', self.set_transparent,
                                     active=(state.color is None), font=font_small))
-        y += 40
+        y += 38
+
+        if state.recent_colors:
+            draw_text(screen, "MÀU VỪA DÙNG", (rx, y), font_small, COL_TEXT_DIM)
+            y += 18
+            sw_size, gap = 22, 4
+            per_row = max(1, (w + gap) // (sw_size + gap))
+            for i, hexcolor in enumerate(state.recent_colors):
+                col, row = i % per_row, i // per_row
+                rect = pygame.Rect(rx + col * (sw_size + gap), y + row * (sw_size + gap), sw_size, sw_size)
+                pygame.draw.rect(screen, hex_to_rgb(hexcolor), rect, border_radius=4)
+                border_col = COL_ACCENT2 if hexcolor == state.color else COL_BORDER
+                pygame.draw.rect(screen, border_col, rect, width=2 if hexcolor == state.color else 1, border_radius=4)
+                self.recent_swatch_rects.append((rect.copy(), hexcolor))
+            rows_used = (len(state.recent_colors) + per_row - 1) // per_row
+            y += rows_used * (sw_size + gap) + 12
 
         draw_text(screen, "BẢNG MÀU GAME (bấm để chọn)", (rx, y), font_small, COL_TEXT_DIM)
         y += 20
@@ -622,6 +829,11 @@ class App:
                 y += 22
             y += 6
         self.right_content_h = (y - top) + self.right_scroll
+
+    def _set_color_channel(self, channel, value):
+        idx = {"r": 0, "g": 1, "b": 2}[channel]
+        state.color_rgb[idx] = int(max(0, min(255, value)))
+        self.set_color_from_rgb()
 
     def build_tabs(self):
         self.tab_buttons = []
@@ -673,6 +885,20 @@ class App:
         draw_text(screen, "XEM 8×", (pcx, self.preview_game_rect.bottom + 10), font_small, COL_TEXT_DIM)
         self.preview_big_rect = pygame.Rect(pcx, self.preview_game_rect.bottom + 28, sp.size * 8, sp.size * 8)
 
+        # nut xem hoat anh - doi nhan tuy co "cap doi" (vd _carry) hay khong
+        pair = self.anim_pair_name()
+        if pair:
+            label = "⏸ Dừng hoạt ảnh" if state.anim_playing else "▶ Xem hoạt ảnh (đổi/mang)"
+        else:
+            label = "⏸ Dừng lướt" if state.anim_playing else "▶ Lướt qua tất cả sprite"
+        anim_btn_w = max(170, self.preview_big_rect.w)
+        anim_y = self.preview_big_rect.bottom + 10
+        self.buttons.append(Button((pcx, anim_y, anim_btn_w, 28), label, self.toggle_anim,
+                                    active=state.anim_playing, font=font_small))
+        if state.anim_playing:
+            anim_sp_name = self._anim_frame_names()[state.anim_frame_idx % max(1, len(self._anim_frame_names()))]
+            draw_text(screen, f"đang chiếu: {anim_sp_name}", (pcx, anim_y + 32), font_small, COL_TEXT_DIM)
+
     def draw_canvas(self):
         sp = state.sp()
         z = state.zoom
@@ -690,6 +916,28 @@ class App:
                 if c:
                     r = (self.canvas_rect.x + x * z, self.canvas_rect.y + y * z, z, z)
                     pygame.draw.rect(screen, hex_to_rgb(c), r)
+
+        # Xem truoc duong thang / hinh chu nhat dang keo (chua ve that len
+        # sprite - chi ve tam thoi de nguoi dung thay hinh se ra sao truoc
+        # khi tha chuot). Ve theo dung phep doi xung dang bat, giong het
+        # luc commit that o handle_mouse_up.
+        if state.tool in ("line", "rect") and state.shape_start and state.shape_preview_end:
+            x0s, y0s = state.shape_start
+            x1s, y1s = state.shape_preview_end
+            pts = (state.line_points(x0s, y0s, x1s, y1s) if state.tool == "line"
+                   else state.rect_points(x0s, y0s, x1s, y1s))
+            preview_rgb = hex_to_rgb(state.color) if state.color else (255, 255, 255)
+            preview_layer = pygame.Surface(self.canvas_rect.size, pygame.SRCALPHA)
+            drawn = set()
+            for (px_, py_) in pts:
+                for mx, my in state._mirror_points(px_, py_, sp.size):
+                    if (mx, my) in drawn or not (0 <= mx < sp.size and 0 <= my < sp.size):
+                        continue
+                    drawn.add((mx, my))
+                    pygame.draw.rect(preview_layer, (*preview_rgb, 150),
+                                      (mx * z, my * z, z, z))
+            screen.blit(preview_layer, self.canvas_rect.topleft)
+
         if state.show_grid and z >= 6:
             grid_col = (0, 0, 0, 90)
             gs = pygame.Surface(self.canvas_rect.size, pygame.SRCALPHA)
@@ -699,16 +947,19 @@ class App:
             screen.blit(gs, self.canvas_rect.topleft)
         pygame.draw.rect(screen, COL_BORDER, self.canvas_rect, width=2)
 
-        # preview boxes
+        # preview boxes - dung sprite dang "chieu" (co the la sprite khac
+        # neu dang bat Xem hoat anh), khong phai luon la sprite dang sua
+        anim_sp = self._anim_current_sprite()
         for rect, scale in ((self.preview_game_rect, 4), (self.preview_big_rect, 8)):
             pygame.draw.rect(screen, COL_CANVAS_BG, rect.inflate(4, 4))
-            for y in range(sp.size):
-                for x in range(sp.size):
-                    c = sp.pixels[y * sp.size + x]
+            for y in range(anim_sp.size):
+                for x in range(anim_sp.size):
+                    c = anim_sp.pixels[y * anim_sp.size + x]
                     if c:
                         pygame.draw.rect(screen, hex_to_rgb(c),
                                           (rect.x + x * scale, rect.y + y * scale, scale, scale))
             pygame.draw.rect(screen, COL_BORDER, rect, width=1)
+
 
     def build_footer(self):
         y = self.H - self.footer_h + 8
@@ -721,7 +972,7 @@ class App:
         pygame.draw.line(screen, COL_BORDER, (0, self.header_h), (self.W, self.header_h), 2)
         draw_text(screen, "ANTWORLD PIXEL STUDIO", (18, 16), font_title, COL_ACCENT2)
         draw_text(screen, "Vẽ asset pixel art cho game đàn kiến", (330, 20), font_small, COL_TEXT_DIM)
-        hint = "B bút · E tẩy · G đổ màu · I hút màu · Ctrl+Z hoàn tác"
+        hint = "B bút · E tẩy · G đổ màu · I hút màu · L đường · R hcn · [ ] cỡ bút · Ctrl+Z hoàn tác"
         hint_w = font_small.size(hint)[0]
         draw_text(screen, hint, (self.W - hint_w - 18, 20), font_small, COL_TEXT_DIM)
 
@@ -757,10 +1008,13 @@ class App:
     # ---------- frame ----------
     def frame(self):
         self.layout()
+        self._update_smooth_scroll()
+        self._update_animation()
         screen.fill(COL_BG)
         self.draw_panel_backgrounds()
         self.draw_header()
         self.buttons = []
+        self.slider_specs = {}
         self.build_left_panel()
         self.build_tabs()
         self.build_canvas_toolbar()
@@ -776,14 +1030,72 @@ class App:
         for sw in self.swatches:
             sw.hover = pygame.Rect(sw.rect).collidepoint(mouse_pos)
             sw.draw(screen, selected=(state.color == sw.hexcolor))
+        self.draw_sliders()
 
         self.draw_footer()
         self.draw_toast()
         pygame.display.flip()
 
+    def _update_smooth_scroll(self):
+        """Cuon 'muot' - vi tri hien tai luon truot dan toi vi tri muc
+        tieu (thay vi nhay coc tuc thi), moi lan chuot lan chi doi TARGET,
+        con gia tri thuc te di chuyen dan qua vai frame."""
+        diff = self.right_scroll_target - self.right_scroll
+        if abs(diff) < 0.5:
+            self.right_scroll = self.right_scroll_target
+        else:
+            self.right_scroll += diff * 0.25
+
+    def _update_animation(self):
+        if not state.anim_playing:
+            return
+        state.anim_timer += 1
+        if state.anim_timer >= 24:  # ~0.4 giay o 60fps
+            state.anim_timer = 0
+            names = self._anim_frame_names()
+            if names:
+                state.anim_frame_idx = (state.anim_frame_idx + 1) % len(names)
+
+    def anim_pair_name(self):
+        """Neu sprite dang chon co 1 'ban sao mang do vat' (hau to
+        _carry) hoac chinh no la ban _carry, tra ve TEN cua sprite doi
+        cap - dung de xem truoc hoat anh 'tho khong mang <-> tho mang'."""
+        cur = state.current
+        if cur.endswith("_carry") and cur[:-6] in state.sprites:
+            return cur[:-6]
+        paired = cur + "_carry"
+        if paired in state.sprites:
+            return paired
+        return None
+
+    def _anim_frame_names(self):
+        pair = self.anim_pair_name()
+        if pair:
+            return [state.current, pair]
+        return state.order  # khong co cap doi -> luot qua TAT CA sprite
+
+    def _anim_current_sprite(self):
+        if not state.anim_playing:
+            return state.sp()
+        names = self._anim_frame_names()
+        if not names:
+            return state.sp()
+        idx = state.anim_frame_idx % len(names)
+        return state.sprites[names[idx]]
+
     def handle_mouse_down(self, event):
         pos = event.pos
         if event.button == 1:
+            # Thanh truot (R/G/B/zoom) - kiem tra TRUOC button, vi vung
+            # bam co the sat nhau. Cho phep bam hoi le ra ngoai track 1
+            # chut (margin doc) de de "tom" hon.
+            for key, spec in self.slider_specs.items():
+                grab_rect = spec["rect"].inflate(0, 14)
+                if grab_rect.collidepoint(pos):
+                    self.active_slider = key
+                    value = self._slider_value_from_pos(key, pos)
+                    spec["on_change"](value)
+                    return
             for b in self.buttons:
                 if b.rect.collidepoint(pos):
                     b.on_click()
@@ -791,6 +1103,10 @@ class App:
             for sw in self.swatches:
                 if pygame.Rect(sw.rect).collidepoint(pos):
                     sw.on_click(sw.hexcolor)
+                    return
+            for rect, hexcolor in self.recent_swatch_rects:
+                if rect.collidepoint(pos):
+                    self.set_color(hexcolor)
                     return
             if self.hexinput_box.rect.collidepoint(pos):
                 self.hexinput_box.active = True
@@ -803,33 +1119,73 @@ class App:
             self.hexinput_box.active = False
             self.rename_box.active = False
             cell = self.cell_from_pos(pos)
-            if cell:
+            if cell is None:
+                return
+            if state.tool in ("line", "rect"):
+                # Chi GHI NHO diem bat dau + xem truoc - chua ve that len
+                # canvas. Ve that (va push_history) dien ra 1 LAN DUY NHAT
+                # luc tha chuot (handle_mouse_up), de undo hoan tac ca
+                # duong/hinh vua ve trong 1 buoc thay vi tung o le.
+                state.push_history()
+                state.shape_start = cell
+                state.shape_preview_end = cell
+                state.painting = True
+            else:
                 state.push_history()
                 state.painting = True
                 state.apply_tool_at(cell[0], cell[1], True)
         elif event.button == 3:
-            # chuot phai = tay nhanh
+            # chuot phai = tay nhanh (ap dung ca brush_size hien tai)
             cell = self.cell_from_pos(pos)
             if cell:
                 state.push_history()
-                state.set_pixel(cell[0], cell[1], None)
+                state.paint_stamp(cell[0], cell[1], None)
         elif event.button == 4:
             if self.canvas_rect.collidepoint(pos):
                 self.change_zoom(2)
             else:
-                self.right_scroll = max(0, self.right_scroll - 25)
+                self.right_scroll_target = max(0, self.right_scroll_target - 60)
         elif event.button == 5:
             if self.canvas_rect.collidepoint(pos):
                 self.change_zoom(-2)
             else:
-                self.right_scroll = min(getattr(self, "right_content_h", 0), self.right_scroll + 25)
+                self.right_scroll_target = min(getattr(self, "right_content_h", 0),
+                                                self.right_scroll_target + 60)
 
     def handle_mouse_up(self, event):
         if event.button == 1:
+            if self.active_slider is not None:
+                # Neu vua keo 1 trong 3 thanh mau (khong phai zoom), ghi
+                # mau cuoi cung vao "vua dung" - chi ghi 1 LAN luc tha
+                # chuot, khong ghi lien tuc moi frame dang keo.
+                if self.active_slider.startswith("color_"):
+                    state.remember_color(state.color)
+                self.active_slider = None
+                return
+            if state.tool in ("line", "rect") and state.shape_start:
+                x0, y0 = state.shape_start
+                x1, y1 = state.shape_preview_end or state.shape_start
+                pts = (state.line_points(x0, y0, x1, y1) if state.tool == "line"
+                       else state.rect_points(x0, y0, x1, y1))
+                for (px, py) in pts:
+                    state.paint_stamp(px, py, state.color)
+                state.shape_start = None
+                state.shape_preview_end = None
             state.painting = False
 
     def handle_mouse_motion(self, event):
-        if state.painting and (state.tool in ("pencil", "eraser")):
+        if self.active_slider is not None:
+            value = self._slider_value_from_pos(self.active_slider, event.pos)
+            if value is not None:
+                self.slider_specs[self.active_slider]["on_change"](value)
+            return
+        if not state.painting:
+            return
+        if state.tool in ("line", "rect"):
+            cell = self.cell_from_pos_clamped(event.pos)
+            if cell:
+                state.shape_preview_end = cell
+        elif state.tool in ("pencil", "eraser"):
             cell = self.cell_from_pos(event.pos)
             if cell:
                 state.apply_tool_at(cell[0], cell[1], False)
@@ -857,6 +1213,14 @@ class App:
             self.set_tool("fill")
         elif event.key == pygame.K_i:
             self.set_tool("eyedropper")
+        elif event.key == pygame.K_l:
+            self.set_tool("line")
+        elif event.key == pygame.K_r:
+            self.set_tool("rect")
+        elif event.key in (pygame.K_LEFTBRACKET, pygame.K_MINUS):
+            self.set_brush_size(max(1, state.brush_size - 1))
+        elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_EQUALS):
+            self.set_brush_size(min(3, state.brush_size + 1))
 
     def run(self):
         while self.running:

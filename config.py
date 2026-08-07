@@ -65,3 +65,50 @@ LAYER_SURFACE = 0
 LAYER_UNDERGROUND = 1
 
 ARRIVE_THRESHOLD = 0.6     # khoảng cách coi là "đã đến nơi"
+
+# =======================================================================
+# YẾU TỐ BẤT LỢI CHO ĐÀN KIẾN (vòng đời, kẻ thù, tài nguyên có hạn)
+# =======================================================================
+
+# ----- Vòng đời & cái chết tự nhiên -----
+MAX_AGE_TICKS = 20000       # tuổi thọ "trung bình" (~5-6 phút ở 60 FPS) -
+                            # qua mốc này bắt đầu có nguy cơ chết già, tăng
+                            # dần theo thời gian (không chết đột ngột hàng loạt)
+OLD_AGE_DEATH_RATE = 0.0004 # xác suất chết mỗi tick khi vừa qua MAX_AGE_TICKS
+OLD_AGE_DEATH_GROWTH = 8000 # càng già hơn mốc này, xác suất chết càng tăng
+                            # nhanh (chia tuổi dư ra cho số này để tính hệ số)
+STARVATION_DEATH_RATE = 0.0015  # xác suất chết PHỤ THÊM mỗi tick cho MỌI
+                                 # kiến khi phòng ấu trùng hết thức ăn kéo dài
+STARVATION_GRACE_TICKS = 400    # số tick phòng ấu trùng được phép "rỗng"
+                                 # trước khi bắt đầu tính chết đói
+
+# ----- Sinh sản (chúa cần thức ăn để sinh kiến mới) -----
+BIRTH_CHECK_INTERVAL = 60   # cứ mỗi bấy nhiêu tick (~1 giây ở 60 FPS), chúa
+                            # thử sinh 1 lứa kiến mới
+BIRTH_FOOD_COST = 4          # số đơn vị thức ăn (lấy từ kho) cần cho 1 kiến mới
+BIRTH_BATCH_SIZE = 2         # số kiến sinh ra mỗi lần (nếu đủ thức ăn) -
+                            # đặt đủ cao để bù được tốc độ chết già/chết đói
+                            # trong điều kiện bình thường (không có kẻ thù)
+
+# ----- Kẻ thù tự nhiên (đe dọa trên mặt đất) -----
+ENEMY_SPAWN_COOLDOWN_MIN = 500   # số tick tối thiểu giữa 2 lần kẻ thù xuất hiện
+ENEMY_SPAWN_COOLDOWN_MAX = 1200
+ENEMY_LIFETIME_TICKS = 900       # kẻ thù tự rời đi sau bấy nhiêu tick
+ENEMY_SPEED = 0.20
+ENEMY_DETECT_RADIUS = 14         # chỉ đuổi theo kiến trong bán kính này;
+                                 # ngoài tầm thì đi lang thang ngẫu nhiên
+                                 # (không phải "thợ săn toàn năng" biết hết bản đồ)
+ENEMY_KILL_RADIUS = 1.3
+ENEMY_KILL_PROB_PER_TICK = 0.01  # xác suất giết 1 con kiến trong tầm/tick
+ENEMY_MAX_KILLS_PER_VISIT = 5    # kẻ thù "no" và tự rời đi sau khi giết đủ
+                                 # số này - tránh 1 lần xuất hiện xóa sổ cả đàn
+ENEMY_TURN_NOISE = 0.5
+
+# ----- Cạnh tranh tài nguyên: thức ăn có hạn, tái sinh chậm theo "mùa" -----
+FOOD_RESPAWN_INTERVAL = 600  # cứ mỗi bấy nhiêu tick, có 1 cụm thức ăn mới
+                             # xuất hiện ngẫu nhiên (mô phỏng thức ăn theo mùa)
+FOOD_RESPAWN_AMOUNT = 5.0    # lượng thức ăn của cụm mới mỗi lần tái sinh
+UPKEEP_FOOD_PER_ANT_PER_TICK = 0.0004  # mỗi kiến còn sống tiêu hao 1 lượng
+                             # nhỏ thức ăn từ kho mỗi tick để duy trì sự sống
+                             # (không chỉ dùng thức ăn để sinh sản) - nếu đàn
+                             # quá đông mà không đủ kiến đi kiếm ăn, kho sẽ cạn

@@ -41,6 +41,19 @@ class SurfaceWorld:
         np.clip(self.food, 0, None, out=self.food)
         return available
 
+    def respawn_random_cluster(self):
+        """Thêm 1 cụm thức ăn mới ở vị trí ngẫu nhiên - mô phỏng nguồn thức
+        ăn xuất hiện theo mùa, KHÔNG vô hạn/tức thời như lúc khởi tạo."""
+        n = cfg.GRID_SIZE
+        rng = np.random.default_rng()
+        cx = rng.integers(4, n - 4)
+        cy = rng.integers(4, n - 4)
+        r = cfg.FOOD_CLUSTER_RADIUS
+        x0, x1 = max(0, cx - r), min(n, cx + r + 1)
+        y0, y1 = max(0, cy - r), min(n, cy + r + 1)
+        self.food[x0:x1, y0:y1] += cfg.FOOD_RESPAWN_AMOUNT
+        return (int(cx), int(cy))
+
 
 class UndergroundWorld:
     """Cấu trúc tổ dưới lòng đất (3D): giếng + các phòng nối bằng hành lang.
@@ -71,6 +84,9 @@ class UndergroundWorld:
         # Thống kê tổ
         self.food_in_storage = 0
         self.food_in_nursery = 0
+        self.ticks_nursery_empty = 0   # số tick liên tiếp phòng ấu trùng rỗng
+        self.total_births = 0
+        self.total_deaths = 0
 
     def deposit_to_storage(self, count):
         self.food_in_storage += int(count)
@@ -78,3 +94,30 @@ class UndergroundWorld:
     def deposit_to_nursery(self, count):
         self.food_in_nursery += int(count)
         self.food_in_storage = max(0, self.food_in_storage - int(count))
+
+    def update_starvation_tracker(self):
+        """Gọi mỗi tick: theo dõi xem TOÀN BỘ nguồn thức ăn (cả kho lẫn
+        phòng ấu trùng) có đang cạn kiệt kéo dài không - dùng để tính nguy
+        cơ chết đói cho cả đàn."""
+        if self.food_in_nursery <= 0 and self.food_in_storage <= 0:
+            self.ticks_nursery_empty += 1
+        else:
+            self.ticks_nursery_empty = 0
+
+    def consume_upkeep(self, population):
+        """Mỗi kiến còn sống tiêu hao 1 lượng nhỏ thức ăn từ kho mỗi tick để
+        duy trì sự sống - khiến thức ăn thực sự có thể cạn nếu đàn quá đông
+        so với khả năng kiếm ăn."""
+        cost = population * cfg.UPKEEP_FOOD_PER_ANT_PER_TICK
+        self.food_in_storage = max(0.0, self.food_in_storage - cost)
+
+    def is_starving(self):
+        return self.ticks_nursery_empty > cfg.STARVATION_GRACE_TICKS
+
+    def try_consume_for_birth(self, cost):
+        """Trừ thức ăn trong kho để sinh 1 lứa kiến mới. Trả về True nếu đủ
+        thức ăn (tài nguyên có hạn -> không phải lúc nào cũng sinh được)."""
+        if self.food_in_storage >= cost:
+            self.food_in_storage -= cost
+            return True
+        return False

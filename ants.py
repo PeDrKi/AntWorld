@@ -3,8 +3,14 @@ Python từng con -- cần thiết để giữ khung hình mượt khi có nhi�
 
 Bản 3D: mỗi con kiến có vị trí đầy đủ (x, y, z). Trên mặt đất z luôn bằng
 SURFACE_Z (kiến đi trên 1 mặt phẳng). Khi xuống hầm, z thay đổi liên tục
-theo đường thẳng 3D tới từng phòng - đây là điểm khác biệt chính so với
-bản 2D (nơi "tầng" chỉ là 1 layer rời rạc)."""
+theo đường thẳng 3D tới từng phòng.
+
+Bản có vòng đời: mỗi con kiến có tuổi (age), có thể chết vì già hoặc vì
+đói (phòng ấu trùng rỗng kéo dài). Chúa chỉ sinh kiến mới khi kho đủ thức
+ăn (BIRTH_FOOD_COST) - tài nguyên có hạn thực sự ảnh hưởng tới quy mô đàn.
+Số lượng entity (mảng NumPy) luôn cố định = self.n; kiến "chết" chỉ được
+đánh dấu alive=False (ẩn khi vẽ) và có thể được "tái sử dụng" làm kiến mới
+sinh ra sau này, thay vì cấp phát thêm bộ nhớ."""
 import numpy as np
 import config as cfg
 
@@ -29,21 +35,34 @@ class AntColony:
         self.state = np.zeros(n_ants, dtype=np.int8)          # STATE_SEARCHING
         self.carrying = np.zeros(n_ants, dtype=bool)
 
+        # --- Vòng đời ---
+        self.alive = np.ones(n_ants, dtype=bool)
+        # Tuổi ban đầu rải ngẫu nhiên để đàn không cùng già/chết 1 lượt
+        self.age = rng.uniform(0, cfg.MAX_AGE_TICKS * 0.6, n_ants).astype(np.float32)
+
         # Thống kê tích lũy
         self.total_food_collected = 0
+        self.tick_count = 0
 
     # ------------------------------------------------------------------
     def update(self):
+        self.tick_count += 1
         self._update_surface_ants()
         self._update_underground_ants()
         self.surface.decay_pheromone()
+        self.underground.update_starvation_tracker()
+        self.underground.consume_upkeep(int(np.sum(self.alive)))
+        self._update_lifecycle()
+
+        if self.tick_count % cfg.FOOD_RESPAWN_INTERVAL == 0:
+            self.surface.respawn_random_cluster()
 
     # ------------------------------------------------------------------
     def _wrap_indices(self, arr):
         return np.clip(arr.astype(np.int32), 0, cfg.GRID_SIZE - 1)
 
     def _update_surface_ants(self):
-        on_surface = self.layer == cfg.LAYER_SURFACE
+        on_surface = self.alive & (self.layer == cfg.LAYER_SURFACE)
         if not np.any(on_surface):
             return
 
@@ -136,13 +155,11 @@ class AntColony:
         self.x[idx] = x + dx / safe_dist * step
         self.y[idx] = y + dy / safe_dist * step
         self.z[idx] = z + dz / safe_dist * step
-        # cập nhật góc quay (theta) chỉ theo mặt phẳng ngang, để nếu kiến
-        # trồi lên mặt đất thì hướng nhìn vẫn hợp lý
         self.theta[idx] = np.arctan2(dy, dx)
         return dist
 
     def _update_underground_ants(self):
-        ug = self.layer == cfg.LAYER_UNDERGROUND
+        ug = self.alive & (self.layer == cfg.LAYER_UNDERGROUND)
         if not np.any(ug):
             return
 
@@ -188,13 +205,71 @@ class AntColony:
                 self.theta[arrived] = np.random.uniform(0, 2 * np.pi, len(arrived))
 
     # ------------------------------------------------------------------
+    def _update_lifecycle(self):
+        """Tăng tuổi, tính nguy cơ chết (già/đói), và xử lý sinh sản."""
+        alive_idx = np.where(self.alive)[0]
+        if len(alive_idx) == 0:
+            return
+        self.age[alive_idx] += 1
+
+        # --- Chết vì già: xác suất tăng dần sau MAX_AGE_TICKS ---
+        age = self.age[alive_idx]
+        over = np.clip(age - cfg.MAX_AGE_TICKS, 0, None)
+        old_age_prob = np.where(
+            over > 0,
+            cfg.OLD_AGE_DEATH_RATE * (1.0 + over / cfg.OLD_AGE_DEATH_GROWTH),
+            0.0,
+        )
+
+        # --- Chết vì đói: áp dụng đều cho cả đàn khi ấu trùng thiếu ăn lâu ---
+        starving = self.underground.is_starving()
+        starve_prob = cfg.STARVATION_DEATH_RATE if starving else 0.0
+
+        death_prob = 1.0 - (1.0 - old_age_prob) * (1.0 - starve_prob)
+        rolls = np.random.uniform(0, 1, len(alive_idx))
+        died = alive_idx[rolls < death_prob]
+        if len(died) > 0:
+            self.alive[died] = False
+            self.underground.total_deaths += len(died)
+
+        # --- Sinh sản: chúa thử sinh lứa mới theo chu kỳ, cần đủ thức ăn ---
+        if self.tick_count % cfg.BIRTH_CHECK_INTERVAL == 0:
+            dead_slots = np.where(~self.alive)[0]
+            if len(dead_slots) > 0:
+                got_food = self.underground.try_consume_for_birth(cfg.BIRTH_FOOD_COST)
+                if got_food:
+                    n_new = min(cfg.BIRTH_BATCH_SIZE, len(dead_slots))
+                    new_idx = dead_slots[:n_new]
+                    self._spawn_new_ants(new_idx)
+                    self.underground.total_births += n_new
+
+    def _spawn_new_ants(self, idx):
+        """Tái sử dụng các ô đã chết để tạo kiến mới, xuất hiện tại phòng
+        chúa rồi tự đi lên mặt đất qua giếng."""
+        self.alive[idx] = True
+        self.age[idx] = 0.0
+        self.layer[idx] = cfg.LAYER_UNDERGROUND
+        self.state[idx] = cfg.STATE_UG_TO_SHAFT
+        self.carrying[idx] = False
+        qx, qy, qz = self.underground.queen_room
+        self.x[idx] = qx
+        self.y[idx] = qy
+        self.z[idx] = qz
+        self.theta[idx] = np.random.uniform(0, 2 * np.pi, len(idx))
+
+    # ------------------------------------------------------------------
     def counts(self):
         """Trả về dict thống kê nhanh cho bảng UI."""
+        alive = self.alive
         return {
-            "searching": int(np.sum((self.layer == 0) & (self.state == cfg.STATE_SEARCHING))),
-            "returning": int(np.sum((self.layer == 0) & (self.state == cfg.STATE_RETURNING))),
-            "underground": int(np.sum(self.layer == 1)),
+            "population": int(np.sum(alive)),
+            "searching": int(np.sum(alive & (self.layer == 0) & (self.state == cfg.STATE_SEARCHING))),
+            "returning": int(np.sum(alive & (self.layer == 0) & (self.state == cfg.STATE_RETURNING))),
+            "underground": int(np.sum(alive & (self.layer == 1))),
             "total_food_collected": self.total_food_collected,
             "food_in_storage": self.underground.food_in_storage,
             "food_in_nursery": self.underground.food_in_nursery,
+            "total_births": self.underground.total_births,
+            "total_deaths": self.underground.total_deaths,
+            "is_starving": self.underground.is_starving(),
         }

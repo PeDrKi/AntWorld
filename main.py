@@ -19,6 +19,7 @@ import numpy as np
 import config as cfg
 from world import SurfaceWorld, UndergroundWorld
 from ants import AntColony
+from enemy import EnemyManager
 
 
 def rgb255(r, g, b, a=255):
@@ -42,6 +43,7 @@ AmbientLight(color=rgb255(200, 200, 210, 140))
 surface_world = SurfaceWorld()
 underground_world = UndergroundWorld()
 colony = AntColony(cfg.NUM_ANTS, surface_world, underground_world)
+enemy = EnemyManager()
 
 CENTER = cfg.GRID_SIZE / 2.0
 
@@ -158,6 +160,16 @@ COLOR_UNDERGROUND = rgb255(220, 220, 220)
 COLOR_CARRY_UNDERGROUND = rgb255(235, 190, 70)
 
 # ---------------------------------------------------------------------
+# Kẻ thù tự nhiên - hình khác biệt (bát diện) + màu đỏ để dễ nhận ra ngay
+# ---------------------------------------------------------------------
+enemy_entity = Entity(
+    model="diamond",
+    scale=1.4,
+    color=rgb255(220, 30, 30),
+    enabled=False,
+)
+
+# ---------------------------------------------------------------------
 # Camera xoay quỹ đạo tự do quanh khối thế giới
 # ---------------------------------------------------------------------
 # Cố tình giữ pivot ở đúng gốc tọa độ (0,0,0) - giống hệt cách
@@ -187,17 +199,27 @@ STATS_EVERY_N_FRAMES = 15
 def update():
     global frame_counter
     colony.update()
+    enemy.update(colony)
 
     xs, ys, zs = colony.x, colony.y, colony.z
     carrying = colony.carrying
     layer = colony.layer
+    alive = colony.alive
 
     for i, ent in enumerate(ant_entities):
+        if not alive[i]:
+            ent.enabled = False
+            continue
+        ent.enabled = True
         ent.position = sim_to_world(xs[i], ys[i], zs[i])
         if layer[i] == cfg.LAYER_SURFACE:
             ent.color = COLOR_CARRY_SURFACE if carrying[i] else COLOR_SEARCH
         else:
             ent.color = COLOR_CARRY_UNDERGROUND if carrying[i] else COLOR_UNDERGROUND
+
+    enemy_entity.enabled = enemy.active
+    if enemy.active:
+        enemy_entity.position = sim_to_world(enemy.x, enemy.y, cfg.SURFACE_Z + 0.5)
 
     frame_counter += 1
     if frame_counter % STATS_EVERY_N_FRAMES == 0:
@@ -205,11 +227,15 @@ def update():
             ent.enabled = surface_world.food[gx, gy] > 0.05
 
         c = colony.counts()
+        canh_bao = "  *** DAN KIEN DANG DOI ***" if c["is_starving"] else ""
+        ke_thu = "  *** CO KE THU TREN MAT DAT ***" if enemy.active else ""
         hud.text = (
+            f"Dan so: {c['population']}/{colony.n}   Sinh: {c['total_births']}   "
+            f"Chet: {c['total_deaths']}   Ke thu da giet: {enemy.total_kills}\n"
             f"Tim an: {c['searching']}   Dang tha ve: {c['returning']}   "
             f"Duoi ham: {c['underground']}\n"
-            f"Tong thuc an da thu: {c['total_food_collected']}\n"
-            f"Kho: {c['food_in_storage']}   Phong au trung: {c['food_in_nursery']}\n"
+            f"Kho: {c['food_in_storage']:.0f}   Phong au trung: {c['food_in_nursery']:.0f}"
+            f"{canh_bao}{ke_thu}\n"
             f"Chuot phai+keo: xoay | Lan chuot: zoom | G: xuyen mat dat | Esc: thoat"
         )
 

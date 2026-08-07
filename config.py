@@ -1,7 +1,7 @@
 """Cấu hình chung cho mô phỏng thế giới kiến (bản 2D - từng lớp/tầng)."""
 
 # ----- Kích thước bản đồ (mặt phẳng ngang X/Y, dùng chung cho MỌI tầng) -----
-GRID_SIZE = 50
+GRID_SIZE = 40               # đã giảm 20% so với bản trước (50 -> 40)
 BASE_CELL_PX = 16           # kích thước 1 ô lưới tính bằng pixel ở mức zoom 1x
 
 # ----- Cửa sổ -----
@@ -224,9 +224,10 @@ RAID_MAX_LOOT_TICKS = 220    # tối đa đứng cướp phá bấy nhiêu tick 
                             # tự rút quân về (dù kho đối thủ chưa cạn hẳn)
 
 # ----- Tổ kiến đối thủ (cạnh tranh tài nguyên trên cùng bản đồ) -----
-RIVAL_NEST_POS = (14, 36)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
+RIVAL_NEST_POS = (11, 29)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
                             # để không bị bất lợi hình học (diện tích kiếm
-                            # ăn khả dụng thấp hơn hẳn tổ chính ở giữa)
+                            # ăn khả dụng thấp hơn hẳn tổ chính ở giữa) -
+                            # tỉ lệ tương đương (14,36) trên bản đồ 50 ô cũ
 NUM_RIVAL_ANTS = 20         # CÙNG quy mô khởi tạo với tổ chính - đàn nào
                             # sinh sản/kiếm ăn tốt hơn sẽ tự lớn nhanh hơn
 MAX_ANTS_PER_COLONY = 1000  # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ cấp phát

@@ -259,14 +259,23 @@ class UndergroundWorld:
     bằng 1 đoạn hành lang phẳng trong CÙNG tầng (không có đường chéo cắt
     xuyên qua nhiều tầng như bản 3D cũ)."""
 
-    def __init__(self, nest_pos=None, label_prefix=""):
+    def __init__(self, nest_pos=None, label_prefix="", mirror=1):
         nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         nest_x, nest_y = nest_pos
         self.nest_pos = nest_pos
         self.shaft_xy = np.array([nest_x, nest_y], dtype=np.float32)
 
+        # `mirror`: +1 cho tổ chính, -1 cho tổ đối thủ - LẬT NGƯỢC hướng
+        # offset (x, y) khi bố trí phòng, để hầm của 2 tổ vươn ra 2 hướng
+        # NGƯỢC NHAU thay vì cùng 1 hướng tuyệt đối như trước. Lý do: nếu
+        # dùng chung y hệt 1 bảng offset cho cả 2 tổ (không đối xứng), khi
+        # 2 lỗ tổ nằm khá gần nhau trên bản đồ (xem RIVAL_NEST_POS), rất dễ
+        # xảy ra tình huống 1 phòng của tổ này offset THEO ĐÚNG HƯỚNG tiến
+        # về phía tổ kia, khiến 2 phòng của 2 tổ khác nhau đè lên nhau khi
+        # phóng to ROOM_LAYOUT_SCALE - lật gương đảm bảo hầm luôn "xòe ra"
+        # tránh xa tổ đối phương, bất kể tăng kích thước bao nhiêu.
         def offset(off_xy):
-            return np.array([nest_x + off_xy[0], nest_y + off_xy[1]], dtype=np.float32)
+            return np.array([nest_x + mirror * off_xy[0], nest_y + mirror * off_xy[1]], dtype=np.float32)
 
         self.storage = offset(cfg.STORAGE_OFFSET_XY)
         self.nursery = offset(cfg.NURSERY_OFFSET_XY)

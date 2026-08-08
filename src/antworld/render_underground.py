@@ -77,15 +77,45 @@ def _grid_positions(n, cx, cy, r_px, icon_r, group_size=5):
     (cx, cy), THAY VÌ rải ngẫu nhiên như trước - để có thể ĐẾM BẰNG MẮT
     THƯỜNG dễ dàng. Cứ mỗi `group_size` icon liên tiếp trong 1 hàng thì
     cách thêm 1 khoảng nhỏ (giống cách đếm "5 que 1 bó") để nhìn phát biết
-    ngay số lượng gần đúng mà không cần đếm từng cái một. Tự động giới hạn
-    số icon/hàng theo đường kính phòng khả dụng để khối lưới luôn nằm gọn
-    trong phòng dù zoom xa/gần."""
+    ngay số lượng gần đúng mà không cần đếm từng cái một.
+
+    Trả về (positions, icon_r_dung) - icon_r_dung có thể NHỎ HƠN icon_r
+    truyền vào: hàm tự kiểm tra xem khối lưới (rộng LẪN cao) có vừa trong
+    đường kính khả dụng của phòng hay không; nếu số icon quá nhiều khiến
+    khối lưới tràn ra (dễ xảy ra khi kho gần đầy VÀ ENTITY_SPRITE_SCALE
+    lớn - icon to hơn nhưng số hàng cần thiết không đổi), tự động THU NHỎ
+    TOÀN BỘ icon (giữ đều kích thước với nhau) cho tới khi vừa khít, thay
+    vì để icon tràn ra ngoài viền phòng. Nơi gọi PHẢI dùng icon_r trả về
+    này để vẽ, không dùng icon_r ban đầu truyền vào nữa."""
     if n <= 0:
-        return []
-    spacing = icon_r * 2.3
-    group_gap = icon_r * 1.15
-    usable_w = r_px * 1.3
-    per_row = max(group_size, int(usable_w / spacing))
+        return [], icon_r
+
+    # Vùng khả dụng bên trong phòng để xếp icon - hình VUÔNG nội tiếp gần
+    # đúng bên trong hình tròn bán kính r_px, chừa biên an toàn (phòng vẽ
+    # dạng "khối u" méo mó chứ không tròn tuyệt đối - xem _blob_points).
+    usable = r_px * 1.3
+
+    def layout_metrics(radius):
+        spacing = radius * 2.3
+        group_gap = radius * 1.15
+        per_row = max(1, int(usable / spacing))
+        n_rows = math.ceil(n / per_row)
+        # Bề rộng thật của 1 hàng ĐẦY ĐỦ (per_row icon, cộng khoảng cách
+        # nhóm mỗi group_size icon) - dùng để kiểm tra tràn ngang
+        cols_in_full_row = min(n, per_row)
+        row_w = (cols_in_full_row - 1) * spacing + (cols_in_full_row // group_size) * group_gap if cols_in_full_row > 0 else 0
+        col_h = (n_rows - 1) * spacing
+        return spacing, group_gap, per_row, row_w, col_h
+
+    radius = icon_r
+    spacing, group_gap, per_row, row_w, col_h = layout_metrics(radius)
+    # Hệ số thu nhỏ cần thiết để CẢ bề rộng lẫn chiều cao khối lưới đều
+    # nằm trong `usable` - lấy hệ số NHỎ HƠN (khắt khe hơn) trong 2 chiều.
+    shrink = min(usable / row_w if row_w > 0 else 1.0, usable / col_h if col_h > 0 else 1.0, 1.0)
+    if shrink < 1.0:
+        radius = max(1.0, radius * shrink)
+        spacing, group_gap, per_row, row_w, col_h = layout_metrics(radius)
+
     positions = []
     for i in range(n):
         row = i // per_row
@@ -97,7 +127,7 @@ def _grid_positions(n, cx, cy, r_px, icon_r, group_size=5):
     ys = [p[1] for p in positions]
     off_x = cx - (min(xs) + max(xs)) / 2
     off_y = cy - (min(ys) + max(ys)) / 2
-    return [(x + off_x, y + off_y) for x, y in positions]
+    return [(x + off_x, y + off_y) for x, y in positions], radius
 
 
 def draw_storage_pile(state, surf, cx, cy, r_px, amount, seed_key):
@@ -113,11 +143,13 @@ def draw_storage_pile(state, surf, cx, cy, r_px, amount, seed_key):
     if n_icons <= 0:
         return
     r = max(2, int(r_px * 0.085 * cfg.ENTITY_SPRITE_SCALE))
+    positions, r = _grid_positions(n_icons, cx, cy, r_px, r)
+    r = max(2, int(r))
     sprite = state.sprites.get_static("food.png", r * 2) if state.sprites.has("food.png") else None
     rng_local = np.random.RandomState(seed_key * 733 + 5)
     shade_jitter = rng_local.uniform(-22, 22, n_icons)
     base = cfg.FOOD_TYPE_COLOR[cfg.FOOD_TYPE_SEED]
-    for i, (px, py) in enumerate(_grid_positions(n_icons, cx, cy, r_px, r)):
+    for i, (px, py) in enumerate(positions):
         px, py = int(px), int(py)
         if sprite is not None:
             surf.blit(sprite, sprite.get_rect(center=(px, py)))
@@ -206,7 +238,13 @@ def draw_queen(state, surf, cx, cy, r_px, room_rgb, frame_counter):
     bob = math.sin(frame_counter * 0.03) * r_px * 0.03
     qy = cy + bob
     if state.sprites.has("queen.png"):
-        size = max(6, int(r_px * 1.3 * cfg.ENTITY_SPRITE_SCALE))
+        # Trần 1.6*r_px (= 80% đường kính phòng) dù ENTITY_SPRITE_SCALE lớn
+        # cỡ nào - PHẢI luôn chừa biên quanh chúa cho lính hộ vệ đứng cạnh,
+        # không được to gần bằng/hơn cả đường kính phòng (từng xảy ra ở
+        # ENTITY_SPRITE_SCALE cao: 1.3*r_px*1.6 = 2.08*r_px, VƯỢT cả đường
+        # kính 2*r_px, khiến chúa tràn hẳn ra ngoài viền phòng).
+        size = min(int(r_px * 1.3 * cfg.ENTITY_SPRITE_SCALE), int(r_px * 1.6))
+        size = max(6, size)
         sprite = state.sprites.get_static("queen.png", size)
         surf.blit(sprite, sprite.get_rect(center=(int(cx), int(qy))))
         return
@@ -234,8 +272,10 @@ def draw_water_drops(state, surf, cx, cy, r_px, amount, seed_key):
     if n_icons <= 0:
         return
     r = max(3, int(r_px * 0.09 * cfg.ENTITY_SPRITE_SCALE))
+    positions, r = _grid_positions(n_icons, cx, cy, r_px, r)
+    r = max(3, int(r))
     sprite = state.sprites.get_static("water.png", r * 2) if state.sprites.has("water.png") else None
-    for px, py in _grid_positions(n_icons, cx, cy, r_px, r):
+    for px, py in positions:
         px, py = int(px), int(py)
         if sprite is not None:
             surf.blit(sprite, sprite.get_rect(center=(px, py)))
@@ -325,13 +365,56 @@ def draw_trophallaxis(state, surf, colony_obj, depth):
         pygame.draw.circle(surf, col, (int(sx2), int(sy2)), dot_r)
 
 
+def draw_underground_grid_lines(state, surf):
+    """Lưới ô vuông NỀN cho tầng ngầm - KHÔNG dùng chung render_surface.
+    draw_grid_lines() (hàm đó cố định theo đúng kích thước bản đồ MẶT ĐẤT
+    cfg.GRID_SIZE, vốn không liên quan gì tới vị trí/kích thước các phòng
+    dưới hầm). Hầm không phải lưới ô vuông thật (phòng là các "khối u" tự
+    do, không neo theo ô lưới rời rạc như mặt đất) - lưới này CHỈ mang
+    tính tham chiếu thị giác (cảm nhận khoảng cách/tỉ lệ), nên phải tự tính
+    vùng bao BAO TRỌN mọi phòng của CẢ 2 tổ (kể cả bán kính phòng, không
+    chỉ tâm) rồi mới vẽ - nếu không, khi ROOM_LAYOUT_SCALE lớn, phòng sẽ
+    tràn ra ngoài hẳn vùng lưới (đã từng xảy ra khi lưới bị "đóng cứng"
+    theo kích thước bản đồ mặt đất)."""
+    camera = state.camera
+    cell = camera.cell_px()
+
+    xs, ys = [], []
+    for uworld in (state.underground_world, state.rival_underground):
+        for (_id, _name, center, radius, _color, _depth) in uworld.rooms:
+            xs.append(float(center[0]) - float(radius))
+            xs.append(float(center[0]) + float(radius))
+            ys.append(float(center[1]) - float(radius))
+            ys.append(float(center[1]) + float(radius))
+        xs.append(float(uworld.shaft_xy[0]))
+        ys.append(float(uworld.shaft_xy[1]))
+    if not xs:
+        return
+    pad = 2.0  # đơn vị lưới - chừa biên ngoài phòng ngoài cùng
+    min_x, max_x = min(xs) - pad, max(xs) + pad
+    min_y, max_y = min(ys) - pad, max(ys) + pad
+
+    x0, y0 = camera.world_to_screen(min_x, min_y, state.CENTER_X, state.CENTER_Y)
+    x1, y1 = camera.world_to_screen(max_x, max_y, state.CENTER_X, state.CENTER_Y)
+    step = cell
+    gx = x0
+    while gx <= x1 + 0.5:
+        if gx >= -step:
+            pygame.draw.line(surf, (0, 0, 0, 40), (gx, max(0, y0)), (gx, min(state.CANVAS_H, y1)), 1)
+        gx += step
+    gy = y0
+    while gy <= y1 + 0.5:
+        if gy >= -step:
+            pygame.draw.line(surf, (0, 0, 0, 40), (max(0, x0), gy), (min(state.SCREEN_W, x1), gy), 1)
+        gy += step
+
+
 def draw_underground_layer(state, surf, depth):
     camera = state.camera
     pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
     cell = camera.cell_px()
     if state.grid_visible and cell >= 3:
-        from .render_surface import draw_grid_lines
-        draw_grid_lines(state, surf)
+        draw_underground_grid_lines(state, surf)
 
     for colony_idx, (uworld, colony_obj, base_rgb) in enumerate((
         (state.underground_world, state.colony, (0, 200, 255)),

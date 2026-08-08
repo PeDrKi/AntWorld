@@ -40,7 +40,7 @@ def build_toolbar(state):
     (vd đang resize cửa sổ), GIỮ NGUYÊN vị trí/trạng thái thu gọn người
     chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
     old_positions = {}
-    for key in ("toolbar_panel", "stats_panel", "graph_panel"):
+    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel"):
         p = getattr(state, key, None)
         if p is not None:
             old_positions[key] = (p.x, p.y, p.collapsed)
@@ -49,8 +49,13 @@ def build_toolbar(state):
     state.tool_buttons = []
 
     SIDEBAR_W = 232
+    LAYER_MAP_W = 158  # dùng lại bên dưới khi tạo layer_map_panel
     toolbar_panel = Panel(state.SCREEN_W - SIDEBAR_W - 10, 8, SIDEBAR_W, 10, "Cong cu")
-    stats_panel = Panel(8, 8, 740, 150, "Thong tin dan kien (2 to)")
+    # Bảng thống kê nhường 1 cột hẹp bên trái cho mini-map tầng (tạo bên
+    # dưới) - dời sang phải đúng bằng bề rộng mini-map + khoảng hở, để 2
+    # panel này KHÔNG đè lên nhau ở vị trí mặc định (vẫn kéo đi đâu tùy ý
+    # được như mọi panel khác nếu người chơi muốn sắp xếp lại).
+    stats_panel = Panel(8 + LAYER_MAP_W + 10, 8, 740, 150, "Thong tin dan kien (2 to)")
     graph_panel = Panel(8, state.SCREEN_H - 214 - 10, 310, 178, "Dan so theo thoi gian")
 
     # --- Xây SIDEBAR bằng 1 "con trỏ dọc" (cursor_y) - mỗi phần tử thêm
@@ -128,13 +133,128 @@ def build_toolbar(state):
     state.toolbar_section_labels = section_labels
     state.stats_panel = stats_panel
     state.graph_panel = graph_panel
-    state.panels = [toolbar_panel, stats_panel, graph_panel]
 
-    for key, panel in (("toolbar_panel", toolbar_panel), ("stats_panel", stats_panel), ("graph_panel", graph_panel)):
+    # -------------------------------------------------------------------
+    # MINI-MAP TẦNG (dọc, mặc định bên TRÁI màn hình - đối diện sidebar
+    # công cụ bên phải): xem TOÀN BỘ tầng cùng lúc như thanh "current
+    # level" của Dwarf Fortress, thay vì chỉ đọc số tầng ở góc màn hình.
+    # Tầng NÔNG nhất (mặt đất) vẽ TRÊN CÙNG, sâu nhất ở DƯỚI CÙNG - đúng
+    # trực giác nhìn cắt lớp từ trên xuống. Bấm trực tiếp vào 1 ô để nhảy
+    # thẳng tới tầng đó (không cần bấm Tang^/Tang v nhiều lần). Dùng chung
+    # cơ chế Panel/Button có sẵn (kéo di chuyển + thu gọn được) cho nhất
+    # quán với toolbar/stats/graph, dù nội dung mỗi "nút" ở đây được TỰ VẼ
+    # riêng (dải màu đại diện + 2 dòng chữ) thay vì Button.draw() mặc định
+    # - xem draw_layer_map() bên dưới.
+    LAYER_BOX_H = 42
+    LAYER_BOX_GAP = 5
+    max_depth = state.max_layer_overall()
+    n_layers = max_depth + 1
+    # Vị trí mặc định: góc TRÊN-TRÁI (cột riêng, KHÔNG dùng chung cột với
+    # bảng thống kê/biểu đồ - 2 panel đó đã tự nhường chỗ, xem stats_panel
+    # ở trên) - dọc hết chiều cao cần thiết theo số tầng thực tế của ván
+    # chơi, không cố định cứng.
+    layer_map_panel = Panel(8, 8, LAYER_MAP_W,
+                             n_layers * (LAYER_BOX_H + LAYER_BOX_GAP) + 4, "Ban do tang")
+    state.layer_map_buttons = []
+    for i, depth in enumerate(range(0, n_layers)):
+        rel_y = 6 + i * (LAYER_BOX_H + LAYER_BOX_GAP)
+        btn = Button((0, 0, LAYER_MAP_W - 20, LAYER_BOX_H), "", on_click=lambda d=depth: state.set_layer(d), style="nav")
+        btn.depth = depth
+        btn.swatches = _layer_swatches(state, depth)
+        btn.bind_to_panel(layer_map_panel, 10, rel_y)
+        state.layer_map_buttons.append(btn)
+    state.layer_map_panel = layer_map_panel
+
+    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel]
+
+    for key, panel in (
+        ("toolbar_panel", toolbar_panel), ("stats_panel", stats_panel),
+        ("graph_panel", graph_panel), ("layer_map_panel", layer_map_panel),
+    ):
         if key in old_positions:
             x, y, collapsed = old_positions[key]
             panel.collapsed = collapsed
             panel.move_to(x, y, state.SCREEN_W, state.SCREEN_H)
+
+
+def _layer_swatches(state, depth):
+    """Danh sách (mau, ten) đại diện cho tầng `depth` - dùng bởi mini-map
+    tầng (xem build_toolbar/draw_layer_map). Tầng 0 (mặt đất) không nằm
+    trong world.rooms nên xử lý riêng; các tầng ngầm CHUNG NHAU (vd Kho
+    thức ăn + Bể trữ nước cùng ở tầng 2) trả về NHIỀU màu - hiện dải màu
+    riêng cho từng phòng để biết ngay tầng này gồm những gì mà không cần
+    đọc hết chữ (chữ dài dễ bị cắt trong ô nhỏ)."""
+    if depth == 0:
+        return [(cfg.COLOR_GROUND_FILL, "Mat dat")]
+    out = [(color, name) for (_id, name, _pos, _r, color, d) in state.underground_world.rooms if d == depth]
+    return out or [((90, 90, 90), layer_name(depth))]
+
+
+# ---------------------------------------------------------------------
+# Mini-map tầng (dọc) - xem TOÀN BỘ tầng cùng lúc, giống thanh "current
+# level" của Dwarf Fortress, thay vì chỉ đọc số tầng ở góc màn hình.
+# ---------------------------------------------------------------------
+def draw_layer_map(state, surf):
+    panel = state.layer_map_panel
+    # Cập nhật "đang xem tầng nào" mỗi khung hình TRƯỚC khi vẽ - current_layer
+    # có thể đổi bất cứ lúc nào (phím tắt, lăn chuột, camera tự bám kiến),
+    # không riêng gì lúc bấm vào chính mini-map này.
+    for btn in state.layer_map_buttons:
+        btn.active = (btn.depth == state.current_layer)
+
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    for btn in state.layer_map_buttons:
+        _draw_layer_box(state, surf, btn)
+
+
+def _draw_layer_box(state, surf, btn):
+    r = btn.rect
+    is_current = btn.active
+
+    # Nền: tầng ĐANG XEM sáng hẳn lên (vàng đồng, khớp tông "nav" của
+    # 2 nút Tang^/Tang v trong sidebar) để không cần đọc chữ cũng biết
+    # ngay đang ở đâu; các tầng khác tối, không cạnh tranh thị giác.
+    if is_current:
+        pygame.draw.rect(surf, (72, 62, 30), r, border_radius=6)
+        pygame.draw.rect(surf, (225, 180, 70), r, width=2, border_radius=6)
+    else:
+        pygame.draw.rect(surf, (30, 30, 36), r, border_radius=6)
+        pygame.draw.rect(surf, (60, 60, 68), r, width=1, border_radius=6)
+
+    # Dải màu dọc bên trái đại diện (các) phòng thuộc tầng này - biết
+    # ngay tầng này có gì mà không cần đọc hết chữ (chữ dễ bị cắt trong
+    # ô nhỏ, nhất là tầng có tới 3 phòng chung như Trứng/Ấu trùng/Nhộng)
+    swatches = btn.swatches
+    n = len(swatches)
+    seg_h = (r.h - 8) / n
+    for i, (color, _name) in enumerate(swatches):
+        seg = pygame.Rect(r.x + 5, int(r.y + 4 + i * seg_h), 7, max(2, int(seg_h) - 1))
+        pygame.draw.rect(surf, color, seg, border_radius=2)
+
+    text_x = r.x + 5 + 7 + 8
+    depth_label = "Mat dat" if btn.depth == 0 else f"Tang {btn.depth}"
+    l1 = state.font_small.render(depth_label, True, (255, 255, 255) if is_current else (200, 200, 205))
+    surf.blit(l1, (text_x, r.y + 5))
+
+    # Dòng 2: tên (các) phòng nối bằng "/" - CẮT BỚT nếu quá dài để không
+    # tràn ra ngoài ô (ô khá hẹp, nhất là tầng có 3 phòng chung)
+    names_text = "/".join(n for _c, n in swatches)
+    max_w = r.w - (text_x - r.x) - 6
+    while state.font_small.size(names_text)[0] > max_w and len(names_text) > 3:
+        names_text = names_text[:-2]
+    if names_text != "/".join(n for _c, n in swatches):
+        names_text += "…"
+    l2 = state.font_small.render(names_text, True, (215, 195, 140) if is_current else (150, 150, 158))
+    surf.blit(l2, (text_x, r.y + 5 + l1.get_height() + 1))
+
+    # Mũi tên nhỏ chỉ vào tầng đang xem, nhô ra bên PHẢI khung - dấu hiệu
+    # phụ để nhận ra "đang ở đây" ngay cả khi lướt mắt nhanh không đọc chữ
+    if is_current:
+        ax = r.right + 4
+        ay = r.centery
+        pygame.draw.polygon(surf, (225, 180, 70), [(ax, ay - 7), (ax + 9, ay), (ax, ay + 7)])
 
 
 # ---------------------------------------------------------------------

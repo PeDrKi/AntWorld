@@ -83,7 +83,7 @@ class GameState:
         self.colony = AntColony(
             cfg.NUM_ANTS, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.underground_world, cfg.NEST_POS
         )
-        self.rival_underground = UndergroundWorld(cfg.RIVAL_NEST_POS, "Doi thu - ")
+        self.rival_underground = UndergroundWorld(cfg.RIVAL_NEST_POS, "Doi thu - ", mirror=-1)
         self.rival_colony = AntColony(
             cfg.NUM_RIVAL_ANTS, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.rival_underground, cfg.RIVAL_NEST_POS
         )
@@ -181,6 +181,15 @@ class GameState:
     def change_layer(self, delta):
         new_layer = int(np.clip(self.current_layer + delta, 0, self.max_layer_overall()))
         if new_layer != self.current_layer:
+            self.current_layer = new_layer
+            self.trigger_layer_fade()
+
+    def set_layer(self, target):
+        """Nhảy THẲNG tới 1 tầng cụ thể (khác với change_layer() vốn CỘNG
+        DỒN theo bước) - dùng cho mini-map tầng (bấm trực tiếp vào 1 ô)."""
+        new_layer = int(np.clip(target, 0, self.max_layer_overall()))
+        if new_layer != self.current_layer:
+            self.stop_follow()
             self.current_layer = new_layer
             self.trigger_layer_fade()
 

@@ -201,21 +201,51 @@ DEHYDRATION_DEATH_RATE = 0.0003        # xác suất chết PHỤ THÊM mỗi ti
 NEST_POS = (GRID_SIZE // 2, GRID_SIZE // 2)   # vị trí lỗ tổ trên mặt đất & giếng hầm
 NEST_RADIUS = 1.2
 
+# Hệ số phóng to TOÀN BỘ bố cục hầm (bán kính từng phòng LẪN khoảng cách
+# giữa chúng) - tăng ở ĐÚNG 1 chỗ này để phòng to lên rõ rệt mà không cần
+# sửa từng offset/bán kính riêng lẻ. QUAN TRỌNG: phải nhân vào CẢ offset
+# vị trí (ROOM_*_OFFSET_XY bên dưới) chứ không chỉ bán kính - vì 1 vài cặp
+# phòng chung tầng (Ấu trùng/Phòng nhộng) vốn đã đặt khá sát nhau, nếu chỉ
+# phóng to bán kính mà giữ nguyên khoảng cách thì chúng sẽ ĐÈ LÊN NHAU khi
+# vẽ. Nhân đồng thời cả 2 = phóng to nguyên bố cục như zoom bản vẽ, mọi
+# khoảng hở giữa các phòng vẫn giữ ĐÚNG TỈ LỆ như trước, không bao giờ chồng.
+# (1.35 -> 2.025 = tăng thêm 50% so với bản trước đó, đã kiểm tra kỹ bằng
+# script tính khoảng hở nhỏ nhất giữa MỌI cặp phòng cùng tầng - kể cả giữa
+# 2 tổ - trước khi áp dụng, xem GUARD_OFFSET_XY bên dưới để biết vì sao
+# phải đổi hướng đặt Phòng gác cửa cùng lúc.)
+ROOM_LAYOUT_SCALE = 2.025
+
 # Vị trí các phòng dưới hầm tính THEO OFFSET so với lỗ tổ (không phải tọa độ
 # tuyệt đối) - để có thể dùng chung công thức này cho cả tổ đối thủ đặt ở
 # nơi khác trên bản đồ. Các cặp phòng CHUNG TẦNG (kho/nước, trứng/ấu trùng)
 # được đặt lệch hẳn sang 2 bên (trái/phải) để không đè lên nhau khi vẽ.
-GUARD_OFFSET_XY = (0, 3)       # ngay dưới cửa hang - gần lỗ tổ nhất
-STORAGE_OFFSET_XY = (-6, -2)   # cùng tầng với bể nước - đặt bên TRÁI
-WATER_OFFSET_XY = (6, -2)      # cùng tầng với kho - đặt bên PHẢI
-EGG_OFFSET_XY = (-5, -6)       # cùng tầng với ấu trùng/nhộng - đặt bên TRÁI
-NURSERY_OFFSET_XY = (5, -6)    # cùng tầng với trứng/nhộng - đặt bên PHẢI
-PUPA_OFFSET_XY = (0, -2)       # cùng tầng với trứng/ấu trùng - đặt Ở GIỮA,
+# world.UndergroundWorld nhận thêm tham số `mirror` (+1 cho tổ chính, -1
+# cho tổ đối thủ) LẬT NGƯỢC dấu các offset này khi dựng hầm đối thủ - để
+# hầm 2 tổ luôn "xòe ra" 2 hướng ngược nhau thay vì cùng hướng, tránh đè
+# lên nhau khi ROOM_LAYOUT_SCALE lớn (2 tổ vốn đặt khá gần nhau trên bản
+# đồ - xem RIVAL_NEST_POS).
+GUARD_OFFSET_XY = (-3 * ROOM_LAYOUT_SCALE, -4 * ROOM_LAYOUT_SCALE)   # ngay dưới cửa hang - gần lỗ tổ nhất.
+                                # CỐ Ý đặt LỆCH GÓC (không thẳng trục dọc
+                                # như "(0, 3)" hồi trước) - vì hướng thẳng
+                                # trục cũ, sau khi LẬT GƯƠNG cho tổ đối
+                                # thủ, có 1 giá trị ROOM_LAYOUT_SCALE khiến
+                                # 2 phòng gác cửa của 2 tổ tiến THẲNG VÀO
+                                # NHAU (khoảng cách chỉ phụ thuộc 1 trục,
+                                # dễ bị triệt tiêu) - lệch góc đảm bảo
+                                # khoảng cách LUÔN tăng dần theo scale, hết
+                                # hẳn kiểu "vùng chồng lấn" đó (đã kiểm tra
+                                # bằng script dò nhiều hướng/độ lớn khác
+                                # nhau, chọn hướng có khoảng hở lớn nhất).
+STORAGE_OFFSET_XY = (-6 * ROOM_LAYOUT_SCALE, -2 * ROOM_LAYOUT_SCALE)   # cùng tầng với bể nước - đặt bên TRÁI
+WATER_OFFSET_XY = (6 * ROOM_LAYOUT_SCALE, -2 * ROOM_LAYOUT_SCALE)      # cùng tầng với kho - đặt bên PHẢI
+EGG_OFFSET_XY = (-5 * ROOM_LAYOUT_SCALE, -6 * ROOM_LAYOUT_SCALE)       # cùng tầng với ấu trùng/nhộng - đặt bên TRÁI
+NURSERY_OFFSET_XY = (5 * ROOM_LAYOUT_SCALE, -6 * ROOM_LAYOUT_SCALE)    # cùng tầng với trứng/nhộng - đặt bên PHẢI
+PUPA_OFFSET_XY = (0, -2 * ROOM_LAYOUT_SCALE)       # cùng tầng với trứng/ấu trùng - đặt Ở GIỮA,
                                 # gần cửa hang hơn để không chồng lên 2
                                 # phòng kia (đều ở y=-6, đã kiểm tra khoảng
                                 # cách bằng số liệu để không chạm viền nhau)
-QUEEN_OFFSET_XY = (0, -9)      # tầng riêng, sâu nhất
-GRAVEYARD_OFFSET_XY = (0, 7)   # tầng riêng, tách hẳn 1 góc
+QUEEN_OFFSET_XY = (0, -9 * ROOM_LAYOUT_SCALE)      # tầng riêng, sâu nhất
+GRAVEYARD_OFFSET_XY = (0, 7 * ROOM_LAYOUT_SCALE)   # tầng riêng, tách hẳn 1 góc
 
 # ----- Phân vai kiến (caste) -----
 ROLE_MINOR = 0    # thợ nhỏ - đa số, lo tìm ăn/chăm ấu trùng
@@ -386,7 +416,7 @@ MAX_ANTS_PER_COLONY = 200   # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ
                             # sẵn cho mảng NumPy) - đàn khởi tạo NUM_ANTS con,
                             # rồi tự sinh sản lớn lên dần tới tối đa số này
                             # nếu đủ thức ăn/nước/không gian ấu trùng
-ROOM_RADIUS = 3.4            # bán kính MẶC ĐỊNH (dùng cho phòng tự đào)
+ROOM_RADIUS = 3.4 * ROOM_LAYOUT_SCALE            # bán kính MẶC ĐỊNH (dùng cho phòng tự đào)
 # Mỗi phòng CHỨC NĂNG khác nhau có kích thước khác nhau cho hợp lý: kho +
 # bể nước chứa số lượng lớn nên to nhất; phòng chúa đủ rộng; ấu trùng vừa
 # phải; trứng/gác cửa/nghĩa địa nhỏ hơn vì bản chất chỉ chứa ít "vật thể".

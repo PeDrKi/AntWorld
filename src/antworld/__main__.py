@@ -173,6 +173,7 @@ def render(state):
     hud.draw_graph(state, screen)
     hud.draw_hud(state, screen)
     hud.draw_toolbar(state, screen)
+    hud.draw_layer_map(state, screen)
     hud.draw_toasts(state, screen)
     pygame.display.flip()
 

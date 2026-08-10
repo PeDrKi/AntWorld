@@ -122,7 +122,11 @@ class GameState:
             self.current_layer = cfg.DEPTH_QUEEN
             qx, qy = self.underground_world.queen_room
             self.camera.cx, self.camera.cy = float(qx), float(qy)
-            self.camera.zoom = 1.6
+            # Zoom tính theo HỐC LẬP TỔ nhỏ (ROOM_RADIUS_FOUNDING_CHAMBER),
+            # KHÔNG phải "Phòng chúa" đầy đủ (ROOM_RADIUS_QUEEN, to hơn gần
+            # 5 lần) - xem giải thích trong config.py. Zoom gần hơn hẳn so
+            # với phòng chúa trưởng thành vì hốc lúc này bé tí.
+            self.camera.zoom = 3.8
 
         # --- Trạng thái công cụ / thời gian mô phỏng ---
         self.current_tool = None  # None | "food" | "enemy" | "rock" | "water" | "erase" | "follow"

@@ -432,6 +432,14 @@ def draw_underground_layer(state, surf, depth):
             room_id, name, center, radius, room_rgb, room_depth = room
             if room_depth != depth:
                 continue
+            if room_id == 2 and colony_obj.founding_phase:
+                # Đang lập tổ: vẽ HỐC LẬP TỔ nhỏ (chưa phải "Phòng chúa"
+                # đầy đủ) - xem giải thích chi tiết ở ROOM_RADIUS_FOUNDING_
+                # CHAMBER trong config.py. Bán kính "chuẩn" (radius, biến
+                # cục bộ ở trên) chỉ dùng lại NGAY SAU khi lập tổ xong -
+                # không cần code chuyển đổi gì thêm, tick sau founding_phase
+                # tắt là round-trip qua đây tự động dùng radius gốc.
+                radius = cfg.ROOM_RADIUS_FOUNDING_CHAMBER
             cx, cy = camera.world_to_screen(float(center[0]), float(center[1]), state.CENTER_X, state.CENTER_Y)
             # hành lang nối giếng <-> phòng (cùng tầng) - vẽ TRƯỚC, mảnh
             # và mờ hơn, để rõ ràng đây chỉ là đường DI CHUYỂN, không

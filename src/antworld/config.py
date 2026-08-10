@@ -542,7 +542,7 @@ EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG ph�
 # như lập tổ THÀNH CÔNG, chuyển hẳn sang luật chơi bình thường (đẻ trứng
 # lại cần kho thức ăn như cũ).
 # =======================================================================
-FOUNDING_MODE_ENABLED = False  # bật thử bằng cách đổi True - UI bật/tắt
+FOUNDING_MODE_ENABLED = True  # bật thử bằng cách đổi True - UI bật/tắt
                              # trong menu sẽ làm ở bước sau; giá trị này
                              # CHỈ áp dụng cho tổ CHÍNH (người chơi), tổ
                              # đối thủ luôn bắt đầu đã ổn định như cũ để
@@ -561,6 +561,16 @@ QUEEN_ENERGY_PER_EGG = 40.0    # tốn bấy nhiêu dự trữ mỗi trứng lú
 FOUNDING_NANITIC_TARGET = 4    # đủ bấy nhiêu thợ đầu tiên (nanitic - thợ
                              # lứa đầu, nhỏ con hơn hẳn do mẹ ít tài
                              # nguyên nuôi, đúng thực tế) thì lập tổ xong
+ROOM_RADIUS_FOUNDING_CHAMBER = 1.6 * ROOM_LAYOUT_SCALE  # bán kính HỐC LẬP
+                             # TỔ - nhỏ hơn hẳn "Phòng chúa" trưởng thành
+                             # (ROOM_RADIUS_QUEEN, gấp gần 5 lần) - đúng
+                             # thực tế: chúa mới chỉ tự đào 1 hốc bé tí vừa
+                             # đủ chỗ, phòng ĐẦY ĐỦ chỉ hình thành SAU khi
+                             # có thợ thật sự đào rộng ra. Tự "nở to" thành
+                             # ROOM_RADIUS_QUEEN ngay khi lập tổ xong (xem
+                             # room_center_and_radius_by_id trong world.py
+                             # và render_underground.py - áp dụng bán kính
+                             # này CHỈ trong lúc founding_phase còn True).
 NANITIC_SIZE_SCALE = 0.68      # nanitic nhỏ hơn thợ thường bao nhiêu lần
                              # khi vẽ (áp dụng NHÂN THÊM vào MAJOR_SIZE_SCALE
                              # nếu 1 nanitic hiếm khi rơi vào role lính -

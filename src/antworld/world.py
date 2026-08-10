@@ -338,13 +338,26 @@ class UndergroundWorld:
                 return room[2], room[3]
         return None, None
 
-    def room_center_and_radius_by_id(self, room_id):
+    def room_center_and_radius_by_id(self, room_id, founding_phase=False):
         """Tra tâm + bán kính phòng theo ĐÚNG room_id cụ thể (0=kho,
         1=ấu trùng, 2=chúa, 3=nước, 4=trứng, 5=gác cửa, 6=nghĩa địa) -
-        dùng khi tầng có thể chứa NHIỀU phòng, để không bị nhầm phòng."""
+        dùng khi tầng có thể chứa NHIỀU phòng, để không bị nhầm phòng.
+
+        `founding_phase`: khi True VÀ room_id=2 (Phòng chúa), trả về bán
+        kính HỐC LẬP TỔ nhỏ hơn hẳn (cfg.ROOM_RADIUS_FOUNDING_CHAMBER)
+        thay vì bán kính phòng chúa TRƯỞNG THÀNH đầy đủ - để kiến lượn
+        trong phòng (_update_dwelling_ants) KHÔNG BAO GIỜ lượn ra ngoài
+        hốc bé tí đang vẽ (nếu không thì tái diễn đúng lỗi "icon tràn ra
+        ngoài phòng" từng gặp - xem lịch sử sửa lỗi carry-morsel/queen).
+        Không mirror founding_phase làm state riêng trên UndergroundWorld
+        để tránh lệch đồng bộ - luôn nhận từ AntColony (nơi giữ state gốc)
+        qua tham số này."""
         for room in self.rooms:
             if room[0] == room_id:
-                return room[2], room[3]
+                radius = room[3]
+                if room_id == 2 and founding_phase:
+                    radius = cfg.ROOM_RADIUS_FOUNDING_CHAMBER
+                return room[2], radius
         return None, None
 
     def add_corpse(self, count=1):

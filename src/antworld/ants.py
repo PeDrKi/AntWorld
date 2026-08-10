@@ -521,7 +521,9 @@ class AntColony:
         # nhiều phòng dùng chung 1 tầng, 2 phòng khác nhau có thể cùng depth
         # nhưng tâm khác nhau hẳn.
         for room_id_val in np.unique(self.dwell_room_id[idx]):
-            center, radius = self.underground.room_center_and_radius_by_id(int(room_id_val))
+            center, radius = self.underground.room_center_and_radius_by_id(
+                int(room_id_val), founding_phase=self.founding_phase
+            )
             if center is None:
                 continue
             sub = idx[self.dwell_room_id[idx] == room_id_val]

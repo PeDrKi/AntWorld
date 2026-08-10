@@ -354,6 +354,16 @@ def _blit_row(surf, font, x, y, segments):
     return cur_x
 
 
+def _draw_progress_bar(surf, x, y, w, h, frac, fill_color, bg_color=(40, 40, 46)):
+    """Thanh progress đơn giản (khung bo góc + phần lấp đầy theo frac
+    0.0-1.0) - dùng cho năng lượng dự trữ của chúa lúc lập tổ."""
+    frac = max(0.0, min(1.0, frac))
+    pygame.draw.rect(surf, bg_color, (x, y, w, h), border_radius=4)
+    if frac > 0:
+        pygame.draw.rect(surf, fill_color, (x, y, max(3, int(w * frac)), h), border_radius=4)
+    pygame.draw.rect(surf, (90, 90, 100), (x, y, w, h), width=1, border_radius=4)
+
+
 def draw_hud(state, surf):
     colony, rival_colony, enemy = state.colony, state.rival_colony, state.enemy
     c = colony.counts()
@@ -386,7 +396,12 @@ def draw_hud(state, surf):
 
     LINE_H = 22
     # 4 dong/to (dan so, tai nguyen, ton that, phan bo chuc nang) x 2 to + 1 dong ke thu chung
-    n_lines = 4 + 4 + 1 + len(warnings) + (1 if follow_text else 0) + 1
+    # - RIÊNG tổ nào đang lập tổ (founding_phase) chỉ tốn 2 dòng gọn hơn
+    # (xem colony_block) thay vì 4 dòng đầy số "0" vô nghĩa lúc chưa có kho/
+    # ấu trùng/chức năng gì cả.
+    main_lines = 2 if c["founding_phase"] else 4
+    rival_lines = 2 if r["founding_phase"] else 4
+    n_lines = main_lines + rival_lines + 1 + len(warnings) + (1 if follow_text else 0) + 1
     panel = state.stats_panel
     panel.h = max(90, LINE_H * n_lines + 20)
     panel.draw_frame(surf, state.font)
@@ -396,6 +411,28 @@ def draw_hud(state, surf):
         y = [cy + 6]  # dùng list để sửa được trong hàm lồng bên dưới
 
         def colony_block(label, accent, cdata, cobj):
+            if cdata["founding_phase"]:
+                # --- Bản GỌN dành riêng cho lúc đang lập tổ: chỉ 1 chúa
+                # duy nhất, chưa có kho/ấu trùng/phân công gì để hiện -
+                # thay bằng đúng 2 thứ người chơi cần theo dõi lúc này:
+                # còn bao nhiêu năng lượng dự trữ, và đã đủ mấy nanitic. ---
+                _blit_row(surf, state.font_hud, cx + LX, y[0], [
+                    (f"{label}   ", accent),
+                    ("DANG LAP TO", (230, 190, 230)),
+                    ("    Tho dau (nanitic) ", COL_LABEL),
+                    (f"{cdata['population']}/{cfg.FOUNDING_NANITIC_TARGET}", COL_VALUE),
+                ])
+                y[0] += LINE_H
+                energy_frac = cdata["queen_energy"] / cfg.QUEEN_INITIAL_ENERGY if cfg.QUEEN_INITIAL_ENERGY > 0 else 0
+                label_img = state.font_hud.render("Nang luong du tru cua chua ", True, COL_LABEL)
+                surf.blit(label_img, (cx + LX + 18, y[0] + 2))
+                bar_x = cx + LX + 18 + label_img.get_width()
+                _draw_progress_bar(surf, bar_x, y[0] + 3, 140, LINE_H - 8, energy_frac, (200, 130, 210))
+                pct_img = state.font_hud.render(f" {energy_frac * 100:.0f}%", True, COL_VALUE)
+                surf.blit(pct_img, (bar_x + 146, y[0] + 2))
+                y[0] += LINE_H
+                return
+
             _blit_row(surf, state.font_hud, cx + LX, y[0], [
                 (f"{label}   ", accent),
                 ("Dan so ", COL_LABEL), (f"{cdata['population']}/{cobj.n}    ", COL_VALUE),

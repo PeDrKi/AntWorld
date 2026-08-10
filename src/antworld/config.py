@@ -542,7 +542,7 @@ EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG ph�
 # như lập tổ THÀNH CÔNG, chuyển hẳn sang luật chơi bình thường (đẻ trứng
 # lại cần kho thức ăn như cũ).
 # =======================================================================
-FOUNDING_MODE_ENABLED = True  # bật thử bằng cách đổi True - UI bật/tắt
+FOUNDING_MODE_ENABLED = False  # bật thử bằng cách đổi True - UI bật/tắt
                              # trong menu sẽ làm ở bước sau; giá trị này
                              # CHỈ áp dụng cho tổ CHÍNH (người chơi), tổ
                              # đối thủ luôn bắt đầu đã ổn định như cũ để
@@ -561,6 +561,12 @@ QUEEN_ENERGY_PER_EGG = 40.0    # tốn bấy nhiêu dự trữ mỗi trứng lú
 FOUNDING_NANITIC_TARGET = 4    # đủ bấy nhiêu thợ đầu tiên (nanitic - thợ
                              # lứa đầu, nhỏ con hơn hẳn do mẹ ít tài
                              # nguyên nuôi, đúng thực tế) thì lập tổ xong
+NANITIC_SIZE_SCALE = 0.68      # nanitic nhỏ hơn thợ thường bao nhiêu lần
+                             # khi vẽ (áp dụng NHÂN THÊM vào MAJOR_SIZE_SCALE
+                             # nếu 1 nanitic hiếm khi rơi vào role lính -
+                             # dù hiếm, lính "nanitic" vẫn phải nhỏ hơn
+                             # lính thường cùng tỉ lệ này, không phải to
+                             # bằng lính bình thường)
 
 LARVA_MAX_COUNT = 40         # số ấu trùng tối đa cùng lúc trong 1 phòng ấu
                              # trùng (giới hạn không gian + hiệu năng hiển thị)

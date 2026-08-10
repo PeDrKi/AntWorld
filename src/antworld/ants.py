@@ -107,6 +107,18 @@ class AntColony:
         self.alive[:n_start] = True     # chỉ n_start con đầu tiên sống ngay
                                          # từ đầu - phần còn lại là "chỗ
                                          # trống" dự phòng để đàn lớn lên
+        # Kiến "nanitic" - thợ SINH RA TRONG LÚC ĐANG LẬP TỔ (founding_phase
+        # còn True lúc nở), nhỏ con hơn hẳn thợ bình thường vì chúa ít tài
+        # nguyên nuôi lúc đầu (đúng thực tế) - đánh dấu VĨNH VIỄN lúc sinh
+        # ra (không "lớn lên" thành cỡ thường sau này, đúng sinh học thật:
+        # kích thước 1 con kiến cố định suốt đời kể từ lúc rời kén). Xem
+        # _spawn_new_ants() (nơi gắn cờ) và render_surface.py (nơi áp dụng
+        # NANITIC_SIZE_SCALE khi vẽ).
+        self.is_nanitic = np.zeros(self.n, dtype=bool)
+        self.is_nanitic[:n_start] = False  # đàn khởi đầu KHÔNG TÍNH (chỉ
+                                         # áp dụng cho thợ MỚI NỞ qua đường
+                                         # ống trứng->ấu trùng->nhộng, xem
+                                         # _spawn_new_ants)
         # Tuổi ban đầu rải ngẫu nhiên để đàn không cùng già/chết 1 lượt
         self.age = rng.uniform(0, cfg.MAX_AGE_TICKS * 0.6, self.n).astype(np.float32)
 
@@ -1113,6 +1125,9 @@ class AntColony:
         self.carrying[idx] = False
         self.carry_type[idx] = 0
         self.carry_amount[idx] = 0.0
+        # Nếu ĐANG lập tổ lúc lứa này nở, đánh dấu nanitic (nhỏ con hơn hẳn
+        # - xem giải thích đầy đủ ở chỗ khai báo self.is_nanitic)
+        self.is_nanitic[idx] = self.founding_phase
         self.role[idx] = (np.random.uniform(0, 1, len(idx)) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
         self.is_guard[idx] = (self.role[idx] == cfg.ROLE_MAJOR) & (
             np.random.uniform(0, 1, len(idx)) < cfg.GUARD_SHARE_OF_MAJORS
@@ -1201,4 +1216,6 @@ class AntColony:
             ))),
             "nurses_total": int(np.sum(alive & is_minor & (self.job == cfg.JOB_NURSE))),
             "attendants_total": int(np.sum(alive & is_minor & (self.job == cfg.JOB_ATTENDANT))),
+            "founding_phase": self.founding_phase,
+            "queen_energy": self.queen_energy,
         }

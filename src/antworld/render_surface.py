@@ -194,6 +194,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     is_major = colony_obj.role[idx] == cfg.ROLE_MAJOR
     is_guard = colony_obj.is_guard[idx]
     job = colony_obj.job[idx]
+    is_nanitic = colony_obj.is_nanitic[idx]
     is_working = colony_obj.state[idx] == cfg.STATE_DWELL
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
@@ -215,6 +216,9 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         base_r = cell * 0.155 * cfg.ENTITY_SPRITE_SCALE
         major = bool(is_major[i])
         r = base_r * (cfg.MAJOR_SIZE_SCALE if major else 1.0)
+        if is_nanitic[i]:
+            # Thợ lứa đầu (lập tổ) - nhỏ con hơn hẳn, xem NANITIC_SIZE_SCALE
+            r *= cfg.NANITIC_SIZE_SCALE
         color = color_carry if carrying[i] else color_normal
         head_color = tuple(max(0, c - 75) for c in color)
 

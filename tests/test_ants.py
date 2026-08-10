@@ -23,12 +23,12 @@ from antworld.ants import AntColony
 from antworld.world import SurfaceWorld, UndergroundWorld
 
 
-def make_colony(n_start=None, max_ants=None):
+def make_colony(n_start=None, max_ants=None, founding=False):
     n_start = n_start if n_start is not None else cfg.NUM_ANTS
     max_ants = max_ants if max_ants is not None else cfg.MAX_ANTS_PER_COLONY
     surface = SurfaceWorld()
     underground = UndergroundWorld(nest_pos=cfg.NEST_POS)
-    colony = AntColony(n_start, max_ants, surface, underground, nest_pos=cfg.NEST_POS)
+    colony = AntColony(n_start, max_ants, surface, underground, nest_pos=cfg.NEST_POS, founding=founding)
     return colony
 
 
@@ -85,6 +85,88 @@ class TestAntColonySimulationInvariants(unittest.TestCase):
     def test_storage_never_negative(self):
         self.assertGreaterEqual(self.colony.underground.food_in_storage, 0)
         self.assertGreaterEqual(self.colony.underground.water_in_storage, 0)
+
+
+class TestFoundingModeBasics(unittest.TestCase):
+    """Che do lap to (mac dinh TAT - xem cfg.FOUNDING_MODE_ENABLED): dan
+    bat dau tu DUNG 1 chua (population=0 trong AntColony, chua khong phai
+    1 phan tu trong mang), tu de lua trung dau bang nang luong du tru
+    rieng thay vi kho thuc an."""
+
+    def test_default_mode_founding_flag_is_off(self):
+        """Colony mac dinh (founding=False, nhu moi noi khac trong code
+        dang goi) phai co queen_energy=0 va founding_phase=False - dam
+        bao tinh nang moi khong lam thay doi hanh vi cu dang co san."""
+        colony = make_colony()
+        self.assertFalse(colony.founding_phase)
+        self.assertEqual(colony.queen_energy, 0.0)
+
+    def test_founding_starts_with_zero_population(self):
+        colony = make_colony(n_start=0, founding=True)
+        self.assertEqual(int(np.sum(colony.alive)), 0)
+        self.assertTrue(colony.founding_phase)
+        self.assertEqual(colony.queen_energy, cfg.QUEEN_INITIAL_ENERGY)
+
+    def test_lifecycle_update_does_not_crash_at_zero_population(self):
+        """Day chinh la loi tung phat hien khi audit: _update_lifecycle()
+        tung return SOM khi population=0, khien nhanh de trung (ke ca
+        nhanh lap to) khong bao gio chay duoc. Test nay chay 1 vai tick
+        ngay tu dau (population=0 suot) va xac nhan queen_energy PHAI
+        giam dan (chung to nhanh lap to co thuc su duoc goi toi)."""
+        colony = make_colony(n_start=0, founding=True)
+        energy_before = colony.queen_energy
+        for _ in range(10):
+            colony.update()
+        self.assertLess(colony.queen_energy, energy_before,
+                         "queen_energy khong giam - _update_lifecycle() co "
+                         "the dang return som truoc khi toi duoc nhanh lap to.")
+
+    def test_founding_reaches_nanitic_target_and_transitions(self):
+        """Chay du lau (co du 2x margin so voi moc ~3362 tick do duoc thu
+        cong) va xac nhan: (1) dan THUC SU lon len tu 0 con bang chinh
+        nang luong du tru cua chua (khong can kho thuc an - kho luon = 0
+        suot vi khong ai tha moi ve), va (2) founding_phase tu dong tat
+        khi dat FOUNDING_NANITIC_TARGET."""
+        colony = make_colony(n_start=0, founding=True)
+        self.assertEqual(colony.underground.food_in_storage, 0)
+        transitioned_tick = None
+        for tick in range(1, 8000):
+            colony.update()
+            if not colony.founding_phase:
+                transitioned_tick = tick
+                break
+        self.assertIsNotNone(
+            transitioned_tick,
+            "founding_phase khong tat trong 8000 tick - lua tho dau tien "
+            "(nanitic) khong the no ra chi bang nang luong du tru cua chua."
+        )
+        population = int(np.sum(colony.alive))
+        self.assertGreaterEqual(population, cfg.FOUNDING_NANITIC_TARGET)
+        # LUU Y: KHONG assert food_in_storage == 0 o day - nanitic sinh ra
+        # SOM NHAT co the da kip tu di kiem an tren mat dat va mang thuc an
+        # THAT ve kho truoc khi nanitic thu FOUNDING_NANITIC_TARGET hoan
+        # tat chuyen giao (dung y muon: cac tho dau tien bat tay vao viec
+        # NGAY, khong cho ca lu du nguoi moi bat dau) - kho co the > 0 vao
+        # thoi diem nay, day la hanh vi DUNG, khong phai loi.
+
+    def test_founding_queen_energy_never_negative(self):
+        colony = make_colony(n_start=0, founding=True)
+        for _ in range(6000):
+            colony.update()
+            self.assertGreaterEqual(colony.queen_energy, 0.0)
+
+    def test_founding_no_nan_or_population_overflow(self):
+        """Chay dai qua ca giai doan lap to LAN giai doan binh thuong sau
+        chuyen giao - dung lai bat bien nhu TestAntColonySimulationInvariants
+        nhung xuat phat tu population=0 thay vi da on dinh san."""
+        colony = make_colony(n_start=0, founding=True)
+        for _ in range(6000):
+            colony.update()
+        self.assertFalse(np.isnan(colony.x).any())
+        self.assertFalse(np.isnan(colony.y).any())
+        population = int(np.sum(colony.alive))
+        self.assertGreaterEqual(population, 0)
+        self.assertLessEqual(population, cfg.MAX_ANTS_PER_COLONY)
 
 
 if __name__ == "__main__":

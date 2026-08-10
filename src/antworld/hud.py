@@ -261,15 +261,24 @@ def _draw_layer_box(state, surf, btn):
 # Biểu đồ dân số theo thời gian (Panel nổi, kéo/thu gọn được)
 # ---------------------------------------------------------------------
 def draw_toasts(state, surf):
-    """Vẽ các thông báo nổi bật (toast) - LUÔN CỐ ĐỊNH giữa-trên màn hình,
+    """Vẽ các thông báo nổi bật (toast) - LUÔN CỐ ĐỊNH giữa-DƯỚI màn hình,
     HOÀN TOÀN KHÔNG phụ thuộc panel nào (không bị ẩn dù panel thống kê
     đang thu gọn hay bị kéo đi đâu) - dùng cho cảnh báo sự kiện quan trọng
     (đói/khát/kẻ thù/bị xâm chiếm/tuyệt chủng) VÀ xác nhận lưu/tải ván
-    chơi. Mỗi toast tự nhòe dần vào lúc xuất hiện và trước khi biến mất."""
+    chơi. Mỗi toast tự nhòe dần vào lúc xuất hiện và trước khi biến mất.
+
+    Neo GIỮA-DƯỚI (không phải giữa-trên như trước) vì góc trên luôn có ít
+    nhất 1 panel nổi (thống kê/mini-map tầng) che ngang đúng vùng giữa-
+    trên - dưới màn hình trống trải hơn hẳn (chỉ có panel biểu đồ nằm
+    riêng ở góc DƯỚI-TRÁI, không lấn vào vùng giữa)."""
     if not state.toasts:
         return
-    y = 46  # chừa chỗ dưới nhãn "Tang X" ở góc trên phải, không đụng nhau
-    cx = state.SCREEN_W // 2
+    y = state.CANVAS_H - 54   # đáy toast đầu tiên (mới nhất), các toast cũ
+                               # hơn xếp chồng dần LÊN TRÊN từ đây
+    # Lệch tâm sang phải 1 chút (không đúng giữa tuyệt đối) - né góc DƯỚI-
+    # TRÁI, nơi panel biểu đồ mặc định hay nằm (8, SCREEN_H-224, rộng 310)
+    # - toast dài dễ đè lên góc phải panel đó nếu căn đúng giữa màn hình.
+    cx = int(state.SCREEN_W * 0.56)
     for t in state.toasts:
         age = state.frame_counter - t["created"]
         remaining = cfg.TOAST_TTL_FRAMES - age
@@ -290,9 +299,9 @@ def draw_toasts(state, surf):
         pygame.draw.rect(box, (95, 95, 108), box.get_rect(), width=1)
         box.blit(text_img, (18, 8))
         box.set_alpha(alpha)
-        rect = box.get_rect(midtop=(cx, y))
+        rect = box.get_rect(midbottom=(cx, y))
         surf.blit(box, rect)
-        y += box_h + 6
+        y -= box_h + 6
 
 
 def draw_graph(state, surf):

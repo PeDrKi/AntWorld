@@ -19,12 +19,21 @@ from . import config as cfg
 
 
 class AntColony:
-    def __init__(self, n_start, max_ants, surface, underground, nest_pos=None):
+    def __init__(self, n_start, max_ants, surface, underground, nest_pos=None, founding=False):
         self.n = max_ants   # tổng SỐ CHỖ cấp phát sẵn trong mảng = trần dân số
         self.surface = surface
         self.underground = underground
         self.nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         rng = np.random.default_rng()
+
+        # --- Giai đoạn lập tổ (xem khối config FOUNDING_* trong config.py)
+        # - khi bật, n_start PHẢI = 0 (chưa có thợ nào, chỉ có chúa - chúa
+        # không phải 1 phần tử trong mảng self.alive, chỉ là khái niệm/
+        # phòng). self.founding_phase=True tắt hẳn con đường đẻ trứng bằng
+        # kho thức ăn (chưa có kho) và bật con đường đẻ bằng năng lượng dự
+        # trữ riêng của chúa - xem _update_lifecycle().
+        self.founding_phase = bool(founding)
+        self.queen_energy = cfg.QUEEN_INITIAL_ENERGY if self.founding_phase else 0.0
 
         nest_x, nest_y = self.nest_pos
         # Vị trí ban đầu: rải quanh cửa tổ trên mặt đất (kể cả các "chỗ
@@ -170,7 +179,12 @@ class AntColony:
         self._update_raids(rival)
         self.surface.decay_pheromone()
         population = int(np.sum(self.alive))
-        self.underground.update_starvation_tracker(population)
+        if not self.founding_phase:
+            # Bỏ qua theo dõi "cạn kho" trong lúc lập tổ - kho THẬT SỰ
+            # chưa tồn tại (chưa có ai tha mồi về), tính như bình thường
+            # sẽ báo "cạn kho" giả ngay từ tick đầu tiên (xem giải thích
+            # chi tiết trong _update_lifecycle).
+            self.underground.update_starvation_tracker(population)
         self.underground.consume_upkeep(population)
         self.underground.decay_graveyard()
         if self.surface.has_water_source():
@@ -896,46 +910,63 @@ class AntColony:
 
     # ------------------------------------------------------------------
     def _update_lifecycle(self):
-        """Tăng tuổi, tính nguy cơ chết (già/đói), và xử lý sinh sản."""
+        """Tăng tuổi, tính nguy cơ chết (già/đói), và xử lý sinh sản.
+
+        LƯU Ý QUAN TRỌNG (từng là 1 lỗi tiềm ẩn khi thêm giai đoạn lập
+        tổ): hàm này KHÔNG ĐƯỢC return sớm khi population=0 nữa - lúc mới
+        lập tổ, đàn CHÍNH XÁC có 0 kiến (chúa không phải 1 phần tử trong
+        self.alive), nhưng phần ĐẺ TRỨNG ở cuối hàm vẫn phải chạy (đẻ bằng
+        năng lượng dự trữ của chúa) thì lứa thợ đầu tiên mới có cơ hội ra
+        đời. Phần tăng tuổi/chết vì già-đói-khát ở trên vẫn bỏ qua an toàn
+        khi không có ai sống (không có gì để tính)."""
         alive_idx = np.where(self.alive)[0]
-        if len(alive_idx) == 0:
-            return
-        self.age[alive_idx] += 1
+        if len(alive_idx) > 0:
+            self.age[alive_idx] += 1
 
-        # --- Chết vì già: xác suất tăng dần sau MAX_AGE_TICKS ---
-        age = self.age[alive_idx]
-        over = np.clip(age - cfg.MAX_AGE_TICKS, 0, None)
-        old_age_prob = np.where(
-            over > 0,
-            cfg.OLD_AGE_DEATH_RATE * (1.0 + over / cfg.OLD_AGE_DEATH_GROWTH),
-            0.0,
-        )
+            # --- Chết vì già: xác suất tăng dần sau MAX_AGE_TICKS ---
+            age = self.age[alive_idx]
+            over = np.clip(age - cfg.MAX_AGE_TICKS, 0, None)
+            old_age_prob = np.where(
+                over > 0,
+                cfg.OLD_AGE_DEATH_RATE * (1.0 + over / cfg.OLD_AGE_DEATH_GROWTH),
+                0.0,
+            )
 
-        # --- Chết vì đói: áp dụng đều cho cả đàn khi ấu trùng thiếu ăn lâu ---
-        starving = self.underground.is_starving()
-        starve_prob = cfg.STARVATION_DEATH_RATE if starving else 0.0
+            # --- Chết vì đói/khát: áp dụng đều cho cả đàn khi thiếu ăn/
+            # nước lâu - BỎ QUA HẲN trong lúc đang lập tổ (self.founding_
+            # phase): nền kinh tế kho/nurse thức ăn chưa vận hành (chưa có
+            # ai tha mồi về), nếu tính như bình thường thì is_starving()
+            # gần như LUÔN True ngay từ đầu (kho=0 từ tick đầu tiên) và sẽ
+            # giết ngay lứa nanitic vừa nở - trong khi rủi ro ĐÚNG của giai
+            # đoạn này phải đến từ năng lượng dự trữ của chúa cạn kiệt
+            # (self.queen_energy), không phải từ kho thức ăn chưa kịp có.
+            if self.founding_phase:
+                starve_prob = 0.0
+                dehydrate_prob = 0.0
+            else:
+                starve_prob = cfg.STARVATION_DEATH_RATE if self.underground.is_starving() else 0.0
+                dehydrate_prob = cfg.DEHYDRATION_DEATH_RATE if self.underground.is_dehydrated() else 0.0
 
-        # --- Chết vì khát: áp dụng đều cho cả đàn khi hết nước dự trữ lâu ---
-        dehydrated = self.underground.is_dehydrated()
-        dehydrate_prob = cfg.DEHYDRATION_DEATH_RATE if dehydrated else 0.0
+            death_prob = 1.0 - (1.0 - old_age_prob) * (1.0 - starve_prob) * (1.0 - dehydrate_prob)
+            rolls = np.random.uniform(0, 1, len(alive_idx))
+            died = alive_idx[rolls < death_prob]
+            if len(died) > 0:
+                self.alive[died] = False
+                self.underground.total_deaths += len(died)
+                self.underground.add_corpse(len(died))
 
-        death_prob = 1.0 - (1.0 - old_age_prob) * (1.0 - starve_prob) * (1.0 - dehydrate_prob)
-        rolls = np.random.uniform(0, 1, len(alive_idx))
-        died = alive_idx[rolls < death_prob]
-        if len(died) > 0:
-            self.alive[died] = False
-            self.underground.total_deaths += len(died)
-            self.underground.add_corpse(len(died))
-
-        # --- Đẻ trứng: chúa thử đẻ 1 trứng mới theo chu kỳ, cần đủ thức ăn
-        # + nước TRONG KHO, VÀ kho phải dư ra 1 khoản dự trữ an toàn tỉ lệ
-        # với sĩ số đàn hiện tại (EGG_MIN_STORAGE_BUFFER_PER_ANT) - đây là
-        # "phanh" mật độ dân số: đàn càng đông, ngưỡng an toàn để đẻ tiếp
-        # càng cao, tự nhiên hãm sinh sản lại TRƯỚC KHI kho cạn hẳn, thay vì
-        # cứ đẻ tới khi kho về 0 rồi cả đàn chết đói hàng loạt cùng lúc.
-        # Trứng được ủ trong PHÒNG TRỨNG (_update_eggs) rồi mới "chuyển" qua
-        # phòng ấu trùng để lớn lên thật sự. ---
-        if self.tick_count % cfg.EGG_LAY_INTERVAL == 0:
+        # --- Đẻ trứng ---
+        if self.founding_phase:
+            self._update_founding_egg_laying()
+        elif self.tick_count % cfg.EGG_LAY_INTERVAL == 0:
+            # Chúa thử đẻ 1 trứng mới theo chu kỳ, cần đủ thức ăn + nước
+            # TRONG KHO, VÀ kho phải dư ra 1 khoản dự trữ an toàn tỉ lệ với
+            # sĩ số đàn hiện tại (EGG_MIN_STORAGE_BUFFER_PER_ANT) - đây là
+            # "phanh" mật độ dân số: đàn càng đông, ngưỡng an toàn để đẻ
+            # tiếp càng cao, tự nhiên hãm sinh sản lại TRƯỚC KHI kho cạn
+            # hẳn, thay vì cứ đẻ tới khi kho về 0 rồi cả đàn chết đói hàng
+            # loạt cùng lúc. Trứng được ủ trong PHÒNG TRỨNG (_update_eggs)
+            # rồi mới "chuyển" qua phòng ấu trùng để lớn lên thật sự.
             free_egg_slots = np.where(~self.egg_active)[0]
             has_ant_capacity = np.any(~self.alive)
             population = len(alive_idx)
@@ -949,6 +980,39 @@ class AntColony:
                     slot = free_egg_slots[0]
                     self.egg_active[slot] = True
                     self.egg_growth[slot] = 0.0
+
+    def _update_founding_egg_laying(self):
+        """Nhánh đẻ trứng RIÊNG cho giai đoạn lập tổ - dùng NĂNG LƯỢNG DỰ
+        TRỮ của chúa (self.queen_energy) thay vì kho thức ăn (chưa tồn
+        tại lúc này). Chạy MỖI TICK (không theo chu kỳ EGG_LAY_INTERVAL
+        như bình thường) vì tần suất đẻ ở đây phải khác hẳn - lứa đầu chỉ
+        cần vài trứng là đủ, không cần nhịp đẻ liên tục dài hạn như 1 đàn
+        đã ổn định. Đồng thời đây là nơi DUY NHẤT kiểm tra điều kiện
+        CHUYỂN GIAO: đủ FOUNDING_NANITIC_TARGET thợ đầu tiên còn sống thì
+        coi như lập tổ THÀNH CÔNG, tắt hẳn founding_phase - từ tick sau,
+        _update_lifecycle() tự động quay về nhánh đẻ trứng bình thường
+        (cần kho thức ăn), không cần thêm code chuyển đổi gì khác vì mọi
+        nơi khác trong file này đều đọc cờ self.founding_phase trực tiếp.
+        """
+        # Dự trữ luôn hao mòn dần MỖI TICK, kể cả khi không đẻ trứng tick
+        # này - đúng thực tế: chúa vẫn "sống" bằng mỡ/cơ cánh suốt cả giai
+        # đoạn, không chỉ lúc đẻ.
+        self.queen_energy = max(0.0, self.queen_energy - cfg.QUEEN_ENERGY_DECAY_PER_TICK)
+
+        population = int(np.sum(self.alive))
+        if population >= cfg.FOUNDING_NANITIC_TARGET:
+            self.founding_phase = False
+            return
+
+        if self.tick_count % cfg.EGG_LAY_INTERVAL == 0:
+            free_egg_slots = np.where(~self.egg_active)[0]
+            has_ant_capacity = np.any(~self.alive)
+            if (len(free_egg_slots) > 0 and has_ant_capacity
+                    and self.queen_energy >= cfg.QUEEN_ENERGY_PER_EGG):
+                self.queen_energy -= cfg.QUEEN_ENERGY_PER_EGG
+                slot = free_egg_slots[0]
+                self.egg_active[slot] = True
+                self.egg_growth[slot] = 0.0
 
     def _update_eggs(self):
         """Trứng trong PHÒNG TRỨNG lớn dần theo THỜI GIAN (không cần ăn) -

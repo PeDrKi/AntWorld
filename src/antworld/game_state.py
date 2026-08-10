@@ -80,8 +80,15 @@ class GameState:
         # chỗ độ sâu giờ là số tầng rời rạc thay vì z liên tục) ---
         self.surface_world = SurfaceWorld(protected_nests=[cfg.NEST_POS, cfg.RIVAL_NEST_POS])
         self.underground_world = UndergroundWorld(cfg.NEST_POS, "")
+        # Giai đoạn lập tổ (xem khối config FOUNDING_* trong config.py) -
+        # CHỈ áp dụng cho tổ CHÍNH (người chơi); n_start PHẢI = 0 khi bật
+        # (chưa có thợ nào, đúng thực tế 1 tổ luôn bắt đầu từ đúng 1 chúa).
+        # Tổ đối thủ luôn khởi đầu đã ổn định như cũ dù cờ này bật hay tắt.
+        founding = cfg.FOUNDING_MODE_ENABLED
+        main_n_start = 0 if founding else cfg.NUM_ANTS
         self.colony = AntColony(
-            cfg.NUM_ANTS, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.underground_world, cfg.NEST_POS
+            main_n_start, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.underground_world,
+            cfg.NEST_POS, founding=founding,
         )
         self.rival_underground = UndergroundWorld(cfg.RIVAL_NEST_POS, "Doi thu - ", mirror=-1)
         self.rival_colony = AntColony(
@@ -103,6 +110,19 @@ class GameState:
         # LAYER_FADE_TICKS trong config.py. 0 = không có lớp phủ (bình
         # thường); > 0 = đang mờ dần, đếm ngược mỗi khung hình render tới 0.
         self.layer_fade_tick = 0
+
+        # Đang lập tổ (xem cfg.FOUNDING_MODE_ENABLED): mặc định camera +
+        # tầng đang xem trỏ vào MẶT ĐẤT trống trơn - vì lúc này chưa có
+        # con thợ nào để thấy, người chơi sẽ tưởng nhầm là game bị lỗi/
+        # trống rỗng nếu không được đưa thẳng xuống chỗ chúa ngay từ đầu.
+        # Tự động focus vào "Phòng chúa" (nơi con chúa DUY NHẤT đang ở,
+        # xem draw_queen trong render_underground.py - luôn vẽ chúa bất kể
+        # dân số) với zoom vừa đủ để nhìn rõ cả phòng.
+        if self.colony.founding_phase:
+            self.current_layer = cfg.DEPTH_QUEEN
+            qx, qy = self.underground_world.queen_room
+            self.camera.cx, self.camera.cy = float(qx), float(qy)
+            self.camera.zoom = 1.6
 
         # --- Trạng thái công cụ / thời gian mô phỏng ---
         self.current_tool = None  # None | "food" | "enemy" | "rock" | "water" | "erase" | "follow"
@@ -145,6 +165,16 @@ class GameState:
         self.toolbar_panel = None
         self.stats_panel = None
         self.graph_panel = None
+
+        # Toast giải thích tình huống lúc mới lập tổ - đưa RA CUỐI __init__
+        # (không phải chỗ vừa focus camera ở trên) vì add_toast() cần
+        # self.frame_counter đã tồn tại (khởi tạo muộn hơn phía trên).
+        if self.colony.founding_phase:
+            self.add_toast(
+                "Chỉ có 1 chúa duy nhất - đang tự đẻ trứng bằng năng lượng "
+                "dự trữ. Xem Tầng 3 (Phòng trứng) để theo dõi trứng.",
+                color=(230, 190, 230),
+            )
 
     # ------------------------------------------------------------------
     def _set_window_icon(self):
@@ -563,7 +593,17 @@ class GameState:
     def step_simulation(self):
         """1 tick mô phỏng: cập nhật 2 đàn, kẻ thù, tái sinh thức ăn, lấy
         mẫu lịch sử dân số cho biểu đồ. Gọi sim_speed lần mỗi khung hình."""
+        was_founding = self.colony.founding_phase
         self.colony.update(enemy=self.enemy, rival=self.rival_colony)
+        if was_founding and not self.colony.founding_phase:
+            # Vừa chuyển giao xong (đủ FOUNDING_NANITIC_TARGET thợ đầu
+            # tiên) - báo cho người chơi biết, vì họ đang xem "Phòng chúa"
+            # (đã tự focus camera vào đó lúc mới mở game, xem __init__) và
+            # có thể không để ý dân số vừa đổi trong bảng thống kê.
+            self.add_toast(
+                "Lứa thợ đầu tiên đã trưởng thành - tổ chính thức hoạt động!",
+                color=(190, 230, 190),
+            )
         self.rival_colony.update(enemy=self.enemy, rival=self.colony)
         self.enemy.update(self.ALL_COLONIES)
         if self.enemy.active:

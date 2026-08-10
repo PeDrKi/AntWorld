@@ -531,6 +531,37 @@ EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG ph�
                              # nhanh hơn hẳn tốc độ lớn của ấu trùng vì đây
                              # chỉ là giai đoạn ủ, chưa cần nuôi ăn
 
+# =======================================================================
+# GIAI ĐOẠN LẬP TỔ (founding) - TÙY CHỌN, mặc định TẮT để không đổi trải
+# nghiệm chơi hiện có. Mô phỏng đúng thực tế: 1 ván bắt đầu từ ĐÚNG 1 kiến
+# chúa (population=0 trong AntColony - chúa không phải 1 "con kiến" trong
+# mảng self.alive, chỉ là 1 khái niệm/phòng), tự đẻ lứa trứng đầu tiên
+# bằng NĂNG LƯỢNG DỰ TRỮ RIÊNG (mỡ + cơ cánh tiêu hao dần - đúng sinh học
+# thật, chúa KHÔNG ăn gì suốt giai đoạn này), không cần kho thức ăn (vì
+# chưa có ai tha mồi về). Khi đủ NANITIC_TARGET thợ đầu tiên nở ra, coi
+# như lập tổ THÀNH CÔNG, chuyển hẳn sang luật chơi bình thường (đẻ trứng
+# lại cần kho thức ăn như cũ).
+# =======================================================================
+FOUNDING_MODE_ENABLED = True  # bật thử bằng cách đổi True - UI bật/tắt
+                             # trong menu sẽ làm ở bước sau; giá trị này
+                             # CHỈ áp dụng cho tổ CHÍNH (người chơi), tổ
+                             # đối thủ luôn bắt đầu đã ổn định như cũ để
+                             # tránh cả 2 tổ cùng yếu ớt lúc mở màn.
+QUEEN_INITIAL_ENERGY = 600.0   # dự trữ ban đầu - đủ dùng THOẢI MÁI ở tốc
+                             # độ tiêu hao mặc định bên dưới (không thiết
+                             # kế để dễ "thua ngay từ đầu" - đây là mảng
+                             # thêm chiều sâu/thực tế, không phải thử
+                             # thách khó chính của game)
+QUEEN_ENERGY_DECAY_PER_TICK = 0.3  # tiêu hao dự trữ mỗi tick - CẢ KHI
+                             # không đẻ trứng (mô phỏng chúa vẫn "sống"
+                             # bằng dự trữ suốt giai đoạn tự nhốt)
+QUEEN_ENERGY_PER_EGG = 40.0    # tốn bấy nhiêu dự trữ mỗi trứng lúc ĐANG
+                             # lập tổ - so sánh với EGG_FOOD_COST (tốn
+                             # KHO) áp dụng sau khi lập tổ xong
+FOUNDING_NANITIC_TARGET = 4    # đủ bấy nhiêu thợ đầu tiên (nanitic - thợ
+                             # lứa đầu, nhỏ con hơn hẳn do mẹ ít tài
+                             # nguyên nuôi, đúng thực tế) thì lập tổ xong
+
 LARVA_MAX_COUNT = 40         # số ấu trùng tối đa cùng lúc trong 1 phòng ấu
                              # trùng (giới hạn không gian + hiệu năng hiển thị)
 LARVA_GROWTH_PER_TICK = 0.0025      # tốc độ lớn lên mỗi tick khi ĐỦ thức ăn

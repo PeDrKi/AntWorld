@@ -16,6 +16,7 @@ from . import fonts
 from .world import SurfaceWorld, UndergroundWorld
 from .ants import AntColony
 from .enemy import EnemyManager
+from .invasion import InvasionManager
 from .camera import Camera2D
 from .sprite_manager import SpriteManager
 
@@ -78,24 +79,23 @@ class GameState:
 
         # --- Thế giới mô phỏng (logic không đổi so với bản 3D, chỉ khác ở
         # chỗ độ sâu giờ là số tầng rời rạc thay vì z liên tục) ---
-        self.surface_world = SurfaceWorld(protected_nests=[cfg.NEST_POS, cfg.RIVAL_NEST_POS])
+        self.surface_world = SurfaceWorld(protected_nests=[cfg.NEST_POS])
         self.underground_world = UndergroundWorld(cfg.NEST_POS, "")
         # Giai đoạn lập tổ (xem khối config FOUNDING_* trong config.py) -
-        # CHỈ áp dụng cho tổ CHÍNH (người chơi); n_start PHẢI = 0 khi bật
-        # (chưa có thợ nào, đúng thực tế 1 tổ luôn bắt đầu từ đúng 1 chúa).
-        # Tổ đối thủ luôn khởi đầu đã ổn định như cũ dù cờ này bật hay tắt.
+        # n_start PHẢI = 0 khi bật (chưa có thợ nào, đúng thực tế 1 tổ luôn
+        # bắt đầu từ đúng 1 chúa).
         founding = cfg.FOUNDING_MODE_ENABLED
         main_n_start = 0 if founding else cfg.NUM_ANTS
         self.colony = AntColony(
             main_n_start, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.underground_world,
             cfg.NEST_POS, founding=founding,
         )
-        self.rival_underground = UndergroundWorld(cfg.RIVAL_NEST_POS, "Doi thu - ", mirror=-1)
-        self.rival_colony = AntColony(
-            cfg.NUM_RIVAL_ANTS, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.rival_underground, cfg.RIVAL_NEST_POS
-        )
         self.enemy = EnemyManager()
-        self.ALL_COLONIES = [self.colony, self.rival_colony]
+        # Đàn kiến NGOẠI LAI - xuất hiện theo đợt để cướp phá rồi rút, KHÔNG
+        # phải 1 tổ cố định thứ 2 (xem invasion.py). Chỉ có ĐÚNG 1 tổ trên
+        # bản đồ (của người chơi).
+        self.invasion = InvasionManager()
+        self.ALL_COLONIES = [self.colony]
 
         self.camera = Camera2D(cfg.GRID_SIZE / 2.0, cfg.GRID_SIZE / 2.0, zoom=1.0)
 
@@ -139,7 +139,6 @@ class GameState:
         self.frame_counter = 0
         self.history_tick = 0
         self.pop_history_main = []
-        self.pop_history_rival = []
 
         # --- Thông báo nổi bật (toast) - xem TOAST_* trong config.py ---
         self.toasts = []            # list các dict {msg, color, created}
@@ -153,8 +152,8 @@ class GameState:
         self.drag_cooldown = 0
 
         # --- Camera theo dõi 1 con kiến cụ thể ---
-        # follow_colony: tham chiếu trực tiếp tới self.colony hoặc
-        # self.rival_colony (đối tượng, so sánh bằng "is"); follow_idx: vị
+        # follow_colony: tham chiếu trực tiếp tới self.colony (đối tượng,
+        # so sánh bằng "is"); follow_idx: vị
         # trí của con kiến đó TRONG MẢNG NumPy của đàn đó. None/None nghĩa
         # là không theo dõi con nào.
         self.follow_colony = None
@@ -210,7 +209,7 @@ class GameState:
 
     # ------------------------------------------------------------------
     def max_layer_overall(self):
-        return max(self.underground_world.max_depth(), self.rival_underground.max_depth())
+        return self.underground_world.max_depth()
 
     def change_layer(self, delta):
         new_layer = int(np.clip(self.current_layer + delta, 0, self.max_layer_overall()))
@@ -418,7 +417,6 @@ class GameState:
         if not self.is_following():
             return None
         colony, idx = self.follow_colony, self.follow_idx
-        ten_to = "Doi thu" if colony is self.rival_colony else "Chinh"
         role = "Linh gac" if bool(colony.is_guard[idx]) else (
             "Y ta" if bool(colony.carrying[idx]) and int(colony.carry_type[idx]) == 0 else "Tho"
         )
@@ -426,7 +424,7 @@ class GameState:
         if bool(colony.carrying[idx]):
             ct = int(colony.carry_type[idx])
             mang = " | dang mang: " + ("thuc an" if ct == 1 else "nuoc" if ct == 2 else "au trung/khac")
-        return f"Theo doi: to {ten_to}, {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
+        return f"Theo doi: {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
 
     # ------------------------------------------------------------------
     def set_tool(self, name):
@@ -482,35 +480,23 @@ class GameState:
         ]
 
     def check_alerts(self):
-        """So sánh các tình trạng quan trọng (đói/khát/kẻ thù/bị xâm chiếm/
+        """So sánh các tình trạng quan trọng (đói/khát/kẻ thù/đàn ngoại lai/
         tuyệt chủng) với khung hình TRƯỚC - chỉ bắn ra 1 toast đúng lúc
         CHUYỂN từ bình thường sang có vấn đề, không báo liên tục mỗi khung
         hình trong lúc tình trạng đó vẫn đang tiếp diễn (xem
         _prev_alert_flags). Gọi 1 lần mỗi khung hình render, SAU khi mô
         phỏng đã chạy xong các tick của khung hình đó."""
         c = self.colony.counts()
-        r = self.rival_colony.counts()
-        main_invaded = bool(np.any(
-            self.rival_colony.alive & (self.rival_colony.state == cfg.STATE_RAID_LOOT)
-        ))
-        rival_invaded = bool(np.any(
-            self.colony.alive & (self.colony.state == cfg.STATE_RAID_LOOT)
-        ))
 
         col_bad = (255, 95, 90)
         col_warn = (255, 190, 70)
-        col_info = (140, 190, 255)
 
         flags = {
-            "main_starving": (c["is_starving"], "To chinh dang doi thuc an!", col_bad),
-            "main_dehydrated": (c["is_dehydrated"], "To chinh dang khat nuoc!", col_warn),
-            "rival_starving": (r["is_starving"], "To doi thu dang doi thuc an", col_info),
-            "rival_dehydrated": (r["is_dehydrated"], "To doi thu dang khat nuoc", col_info),
+            "main_starving": (c["is_starving"], "To dang doi thuc an!", col_bad),
+            "main_dehydrated": (c["is_dehydrated"], "To dang khat nuoc!", col_warn),
             "enemy_active": (self.enemy.active, "Ke thu xuat hien tren mat dat!", col_warn),
-            "main_invaded": (main_invaded, "To chinh dang bi xam chiem!", col_bad),
-            "rival_invaded": (rival_invaded, "To doi thu dang bi xam chiem", col_info),
-            "main_extinct": (c["population"] == 0, "To chinh da tuyet chung!", col_bad),
-            "rival_extinct": (r["population"] == 0, "To doi thu da tuyet chung!", col_info),
+            "invasion_active": (self.invasion.active, "Dan kien ngoai lai dang tien ve to!", col_bad),
+            "main_extinct": (c["population"] == 0, "To da tuyet chung!", col_bad),
         }
         for key, (active, msg, color) in flags.items():
             was_active = self._prev_alert_flags.get(key, False)
@@ -527,11 +513,13 @@ class GameState:
     # ------------------------------------------------------------------
     def save_game(self):
         data = {
-            "version": 1,
+            "version": 2,   # v2: bỏ tổ đối thủ cố định, thêm đàn kiến ngoại
+                             # lai (invasion) - KHÔNG tương thích ngược với
+                             # file lưu v1 (xem load_game)
             "colony": self.colony,
-            "rival_colony": self.rival_colony,
             "surface_world": self.surface_world,
             "enemy": self.enemy,
+            "invasion": self.invasion,
             "camera_cx": self.camera.cx,
             "camera_cy": self.camera.cy,
             "camera_zoom": self.camera.zoom,
@@ -542,7 +530,6 @@ class GameState:
             "food_respawn_tick": self.food_respawn_tick,
             "history_tick": self.history_tick,
             "pop_history_main": list(self.pop_history_main),
-            "pop_history_rival": list(self.pop_history_rival),
         }
         try:
             tmp_path = SAVE_PATH + ".tmp"
@@ -565,13 +552,21 @@ class GameState:
         try:
             with open(SAVE_PATH, "rb") as f:
                 data = pickle.load(f)
+            if data.get("version", 1) < 2:
+                # File lưu từ bản CŨ (còn tổ đối thủ cố định) - không tương
+                # thích với cấu trúc ván chơi hiện tại (chỉ 1 tổ + đàn kiến
+                # ngoại lai theo đợt), từ chối tải thay vì tải lỗi/crash.
+                self.add_toast(
+                    "File luu tu ban cu khong con tuong thich - hay bat dau van moi",
+                    (255, 190, 70),
+                )
+                return False
             self.colony = data["colony"]
-            self.rival_colony = data["rival_colony"]
             self.surface_world = data["surface_world"]
             self.underground_world = self.colony.underground
-            self.rival_underground = self.rival_colony.underground
             self.enemy = data["enemy"]
-            self.ALL_COLONIES = [self.colony, self.rival_colony]
+            self.invasion = data.get("invasion", InvasionManager())
+            self.ALL_COLONIES = [self.colony]
             self.camera.cx = data["camera_cx"]
             self.camera.cy = data["camera_cy"]
             self.camera.zoom = data["camera_zoom"]
@@ -582,7 +577,6 @@ class GameState:
             self.food_respawn_tick = data.get("food_respawn_tick", 0)
             self.history_tick = data.get("history_tick", 0)
             self.pop_history_main = list(data.get("pop_history_main", []))
-            self.pop_history_rival = list(data.get("pop_history_rival", []))
             self.stop_follow()  # tránh tham chiếu "lơ lửng" tới đàn kiến cũ
             self._prev_alert_flags = {}  # để tình trạng cảnh báo tính lại
                                           # đúng từ đầu, không báo nhầm ngay
@@ -595,10 +589,11 @@ class GameState:
 
     # ------------------------------------------------------------------
     def step_simulation(self):
-        """1 tick mô phỏng: cập nhật 2 đàn, kẻ thù, tái sinh thức ăn, lấy
-        mẫu lịch sử dân số cho biểu đồ. Gọi sim_speed lần mỗi khung hình."""
+        """1 tick mô phỏng: cập nhật đàn kiến, kẻ thù tự nhiên, đàn ngoại
+        lai (nếu đang có đợt xâm nhập), tái sinh thức ăn, lấy mẫu lịch sử
+        dân số cho biểu đồ. Gọi sim_speed lần mỗi khung hình."""
         was_founding = self.colony.founding_phase
-        self.colony.update(enemy=self.enemy, rival=self.rival_colony)
+        self.colony.update(enemy=self.enemy, invasion=self.invasion)
         if was_founding and not self.colony.founding_phase:
             # Vừa chuyển giao xong (đủ FOUNDING_NANITIC_TARGET thợ đầu
             # tiên) - báo cho người chơi biết, vì họ đang xem "Phòng chúa"
@@ -608,7 +603,18 @@ class GameState:
                 "Lứa thợ đầu tiên đã trưởng thành - tổ chính thức hoạt động!",
                 color=(190, 230, 190),
             )
-        self.rival_colony.update(enemy=self.enemy, rival=self.colony)
+
+        was_invasion_active = self.invasion.active
+        self.invasion.update(self.colony)
+        if was_invasion_active and not self.invasion.active:
+            # Đợt xâm nhập vừa kết thúc (rút lui hết hoặc bị đánh bại hoàn
+            # toàn) - báo kết quả để người chơi không phải tự đoán.
+            if self.invasion.total_invaders_killed > 0 and self.invasion.total_food_stolen < 0.01 \
+                    and self.invasion.total_brood_stolen == 0:
+                self.add_toast("Da danh lui dan kien ngoai lai!", color=(190, 230, 190))
+            else:
+                self.add_toast("Dan kien ngoai lai da rut lui, mang theo chien loi pham", color=(255, 190, 70))
+
         self.enemy.update(self.ALL_COLONIES)
         if self.enemy.active:
             self.surface_world.deposit_danger(self.enemy.x, self.enemy.y)
@@ -620,7 +626,5 @@ class GameState:
         self.history_tick += 1
         if self.history_tick % cfg.HISTORY_SAMPLE_INTERVAL == 0:
             self.pop_history_main.append(int(self.colony.alive.sum()))
-            self.pop_history_rival.append(int(self.rival_colony.alive.sum()))
             if len(self.pop_history_main) > cfg.HISTORY_MAX_POINTS:
                 del self.pop_history_main[0]
-                del self.pop_history_rival[0]

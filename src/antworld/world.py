@@ -259,23 +259,14 @@ class UndergroundWorld:
     bằng 1 đoạn hành lang phẳng trong CÙNG tầng (không có đường chéo cắt
     xuyên qua nhiều tầng như bản 3D cũ)."""
 
-    def __init__(self, nest_pos=None, label_prefix="", mirror=1):
+    def __init__(self, nest_pos=None, label_prefix=""):
         nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         nest_x, nest_y = nest_pos
         self.nest_pos = nest_pos
         self.shaft_xy = np.array([nest_x, nest_y], dtype=np.float32)
 
-        # `mirror`: +1 cho tổ chính, -1 cho tổ đối thủ - LẬT NGƯỢC hướng
-        # offset (x, y) khi bố trí phòng, để hầm của 2 tổ vươn ra 2 hướng
-        # NGƯỢC NHAU thay vì cùng 1 hướng tuyệt đối như trước. Lý do: nếu
-        # dùng chung y hệt 1 bảng offset cho cả 2 tổ (không đối xứng), khi
-        # 2 lỗ tổ nằm khá gần nhau trên bản đồ (xem RIVAL_NEST_POS), rất dễ
-        # xảy ra tình huống 1 phòng của tổ này offset THEO ĐÚNG HƯỚNG tiến
-        # về phía tổ kia, khiến 2 phòng của 2 tổ khác nhau đè lên nhau khi
-        # phóng to ROOM_LAYOUT_SCALE - lật gương đảm bảo hầm luôn "xòe ra"
-        # tránh xa tổ đối phương, bất kể tăng kích thước bao nhiêu.
         def offset(off_xy):
-            return np.array([nest_x + mirror * off_xy[0], nest_y + mirror * off_xy[1]], dtype=np.float32)
+            return np.array([nest_x + off_xy[0], nest_y + off_xy[1]], dtype=np.float32)
 
         self.storage = offset(cfg.STORAGE_OFFSET_XY)
         self.nursery = offset(cfg.NURSERY_OFFSET_XY)
@@ -317,11 +308,8 @@ class UndergroundWorld:
         self.water_in_storage = 0.0
         self.ticks_nursery_empty = 0   # số tick liên tiếp phòng ấu trùng rỗng
         self.ticks_water_empty = 0     # số tick liên tiếp hết nước dự trữ
-        self.ticks_storage_low = 0     # số tick liên tiếp kho CHỈ CÒN ÍT
         self.total_births = 0
         self.total_deaths = 0
-        self.total_food_looted = 0.0    # tổng thức ăn CƯỚP ĐƯỢC từ tổ đối
-                                         # thủ qua các đợt xâm chiếm
         # Nghĩa địa: số "nắm xác" đang hiển thị (giảm dần theo thời gian -
         # xem GRAVEYARD_DECAY_PER_TICK - để không phình to vô hạn)
         self.corpse_count = 0.0
@@ -387,12 +375,7 @@ class UndergroundWorld:
         """Gọi mỗi tick (kèm sĩ số đàn HIỆN TẠI): theo dõi xem TOÀN BỘ
         nguồn thức ăn (cả kho lẫn phòng ấu trùng) và nguồn nước có đang cạn
         kiệt kéo dài không - dùng để tính nguy cơ chết đói/chết khát cho cả
-        đàn. Đồng thời theo dõi RIÊNG việc kho CHỈ CÒN ÍT (chưa hẳn về 0)
-        kéo dài - tín hiệu "khan hiếm" nhẹ hơn, dùng để cân nhắc phát động
-        xâm chiếm tổ đối thủ (is_starving là khủng hoảng NẶNG hơn hẳn, ít
-        khi xảy ra). Ngưỡng "ít" TỈ LỆ THEO DÂN SỐ (xem
-        RAID_STORAGE_THRESHOLD_PER_ANT) thay vì 1 hằng số cố định, để tín
-        hiệu khan hiếm vẫn có ý nghĩa dù đàn còn nhỏ hay đã lớn."""
+        đàn."""
         if self.food_in_nursery <= 0 and self.food_in_storage <= 0:
             self.ticks_nursery_empty += 1
         else:
@@ -402,19 +385,6 @@ class UndergroundWorld:
             self.ticks_water_empty += 1
         else:
             self.ticks_water_empty = 0
-
-        scarce_threshold = max(
-            cfg.RAID_STORAGE_THRESHOLD_MIN, population * cfg.RAID_STORAGE_THRESHOLD_PER_ANT
-        )
-        if self.food_in_storage < scarce_threshold:
-            self.ticks_storage_low += 1
-        else:
-            self.ticks_storage_low = 0
-
-    def is_food_scarce(self):
-        """Kho CHỈ CÒN ÍT kéo dài đủ lâu - tín hiệu để cân nhắc xâm chiếm
-        tổ đối thủ (không cần khủng hoảng nặng như is_starving)."""
-        return self.ticks_storage_low > cfg.RAID_SCARCITY_GRACE_TICKS
 
     def consume_upkeep(self, population):
         """Mỗi kiến còn sống tiêu hao 1 lượng nhỏ thức ăn VÀ nước từ kho

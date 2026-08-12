@@ -23,7 +23,7 @@ from .render_underground import layer_name
 COL_LABEL = (145, 148, 158)      # nhãn (chữ nhỏ, mờ hơn giá trị)
 COL_MAIN = (110, 190, 255)       # gắn với TỔ CHÍNH (khớp tông cam/đen của
                                   # kiến tổ chính trong render_surface)
-COL_RIVAL = (255, 140, 100)      # gắn với TỔ ĐỐI THỦ
+COL_INVASION = (255, 140, 100)   # gắn với ĐÀN KIẾN NGOẠI LAI
 COL_VALUE = (232, 232, 235)      # giá trị số liệu trung tính
 COL_GOOD = (120, 230, 140)       # số liệu "tốt" (sinh, đủ tài nguyên...)
 COL_BAD = (255, 110, 100)        # số liệu "xấu" (chết, mất mát...)
@@ -314,7 +314,7 @@ def draw_graph(state, surf):
     cx, cy = panel.content_pos()
     cw, ch = panel.w, panel.h
 
-    max_val = max(max(state.pop_history_main, default=1), max(state.pop_history_rival, default=1), 5)
+    max_val = max(max(state.pop_history_main, default=1), 5)
     pad = 10
     gx0, gx1 = cx + pad, cx + cw - pad
     gy0, gy1 = cy + ch - pad, cy + 16
@@ -330,14 +330,10 @@ def draw_graph(state, surf):
 
     legend_y = cy + 4
     pygame.draw.circle(surf, COL_MAIN, (cx + 10, legend_y + 5), 4)
-    surf.blit(state.font_small.render("To chinh", True, COL_MAIN), (cx + 18, legend_y))
-    pygame.draw.circle(surf, COL_RIVAL, (cx + 110, legend_y + 5), 4)
-    surf.blit(state.font_small.render("Doi thu", True, COL_RIVAL), (cx + 118, legend_y))
+    surf.blit(state.font_small.render("Dan so", True, COL_MAIN), (cx + 18, legend_y))
 
     if len(state.pop_history_main) >= 2:
         pygame.draw.lines(surf, COL_MAIN, False, to_points(state.pop_history_main), 2)
-    if len(state.pop_history_rival) >= 2:
-        pygame.draw.lines(surf, COL_RIVAL, False, to_points(state.pop_history_rival), 2)
 
 
 # ---------------------------------------------------------------------
@@ -365,43 +361,28 @@ def _draw_progress_bar(surf, x, y, w, h, frac, fill_color, bg_color=(40, 40, 46)
 
 
 def draw_hud(state, surf):
-    colony, rival_colony, enemy = state.colony, state.rival_colony, state.enemy
+    colony, enemy, invasion = state.colony, state.enemy, state.invasion
     c = colony.counts()
-    r = rival_colony.counts()
-
-    main_invaded = np.any(rival_colony.alive & (rival_colony.state == cfg.STATE_RAID_LOOT))
-    rival_invaded = np.any(colony.alive & (colony.state == cfg.STATE_RAID_LOOT))
+    inv = invasion.counts()
 
     warnings = []  # (text, color)
     if c["is_starving"]:
-        warnings.append(("*** DAN KIEN TO CHINH DANG DOI ***", COL_BAD))
+        warnings.append(("*** DAN KIEN DANG DOI ***", COL_BAD))
     if c["is_dehydrated"]:
-        warnings.append(("*** DAN KIEN TO CHINH DANG KHAT NUOC ***", (255, 175, 70)))
-    if r["is_starving"]:
-        warnings.append(("*** DAN KIEN TO DOI THU DANG DOI ***", COL_BAD))
-    if r["is_dehydrated"]:
-        warnings.append(("*** DAN KIEN TO DOI THU DANG KHAT NUOC ***", (255, 175, 70)))
+        warnings.append(("*** DAN KIEN DANG KHAT NUOC ***", (255, 175, 70)))
     if enemy.active:
         warnings.append(("*** CO KE THU TREN MAT DAT ***", (255, 210, 70)))
-    if main_invaded:
-        warnings.append(("*** TO CHINH DANG BI XAM CHIEM! ***", COL_BAD))
-    if rival_invaded:
-        warnings.append(("*** TO DOI THU DANG BI XAM CHIEM! ***", (255, 165, 90)))
-    if c["raiders_out"] > 0:
-        warnings.append((f"To chinh dang cu {c['raiders_out']} quan di xam chiem", (255, 220, 120)))
-    if r["raiders_out"] > 0:
-        warnings.append((f"To doi thu dang cu {r['raiders_out']} quan di xam chiem", (255, 220, 120)))
+    if inv["active"]:
+        warnings.append((f"*** DAN KIEN NGOAI LAI DANG XAM NHAP ({inv['raiders_left']} con) ***", COL_BAD))
 
     follow_text = state.follow_status_text()
 
     LINE_H = 22
-    # 4 dong/to (dan so, tai nguyen, ton that, phan bo chuc nang) x 2 to + 1 dong ke thu chung
-    # - RIÊNG tổ nào đang lập tổ (founding_phase) chỉ tốn 2 dòng gọn hơn
-    # (xem colony_block) thay vì 4 dòng đầy số "0" vô nghĩa lúc chưa có kho/
-    # ấu trùng/chức năng gì cả.
+    # 4 dòng (dân số, tài nguyên, tổn thất, phân bố chức năng) - RIÊNG lúc
+    # đang lập tổ (founding_phase) chỉ tốn 2 dòng gọn hơn (xem colony_block)
+    # thay vì 4 dòng đầy số "0" vô nghĩa lúc chưa có kho/ấu trùng.
     main_lines = 2 if c["founding_phase"] else 4
-    rival_lines = 2 if r["founding_phase"] else 4
-    n_lines = main_lines + rival_lines + 1 + len(warnings) + (1 if follow_text else 0) + 1
+    n_lines = main_lines + 2 + len(warnings) + (1 if follow_text else 0) + 1
     panel = state.stats_panel
     panel.h = max(90, LINE_H * n_lines + 20)
     panel.draw_frame(surf, state.font)
@@ -451,8 +432,7 @@ def draw_hud(state, surf):
             ])
             y[0] += LINE_H
             _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [
-                ("Nghia dia ", COL_LABEL), (f"{cdata['corpse_count']:.0f} xac    ", COL_VALUE),
-                ("Da cuop duoc ", COL_LABEL), (f"{cdata['total_food_looted']:.0f}", (255, 210, 120)),
+                ("Nghia dia ", COL_LABEL), (f"{cdata['corpse_count']:.0f} xac", COL_VALUE),
             ])
             y[0] += LINE_H
             _blit_row(surf, state.font_hud, cx + LX + 18, y[0], [
@@ -463,22 +443,34 @@ def draw_hud(state, surf):
             y[0] += LINE_H
 
         colony_block("TO CHINH", COL_MAIN, c, colony)
-        y[0] += 3
-        pygame.draw.line(surf, (70, 70, 78), (cx + LX, y[0]), (cx + panel.w - LX, y[0]), 1)
-        y[0] += 5
-        colony_block("TO DOI THU", COL_RIVAL, r, rival_colony)
 
         y[0] += 3
         pygame.draw.line(surf, (70, 70, 78), (cx + LX, y[0]), (cx + panel.w - LX, y[0]), 1)
         y[0] += 5
 
-        # Kẻ thù ngoài tự nhiên là 1 thực thể DUY NHẤT DÙNG CHUNG cho cả
-        # bản đồ (không thuộc riêng tổ nào) nên hiển thị 1 dòng riêng
+        # Kẻ thù ngoài tự nhiên + đàn kiến ngoại lai đều là thực thể DÙNG
+        # CHUNG cho cả bản đồ (không thuộc/gắn với đàn nào) nên hiển thị
+        # riêng, tách khỏi khối thống kê của tổ.
         _blit_row(surf, state.font_hud, cx + LX, y[0], [
             ("Ke thu tren mat dat ", COL_LABEL),
             ("CO" if enemy.active else "KHONG", (255, 210, 70) if enemy.active else COL_VALUE),
             ("    Tong so da bi kien giet ", COL_LABEL), (f"{enemy.total_kills}", (255, 150, 150)),
         ])
+        y[0] += LINE_H
+
+        if inv["active"]:
+            _blit_row(surf, state.font_hud, cx + LX, y[0], [
+                ("Dan ngoai lai ", COL_LABEL),
+                (f"DOT {inv['wave_number'] + 1} - con {inv['raiders_left']} quan", COL_INVASION),
+                ("    Da cuop ", COL_LABEL), (f"{inv['total_food_stolen']:.0f} thuc an, {inv['total_brood_stolen']} trung/au trung", (255, 210, 120)),
+            ])
+        else:
+            ticks_left = max(0, inv["next_wave_tick"] - colony.tick_count)
+            secs_left = ticks_left / cfg.FPS
+            _blit_row(surf, state.font_hud, cx + LX, y[0], [
+                ("Dan ngoai lai ", COL_LABEL),
+                (f"dot tiep theo sau ~{secs_left:.0f}s ({inv['next_wave_size']} quan)", COL_VALUE),
+            ])
         y[0] += LINE_H
 
         for wtext, wcolor in warnings:

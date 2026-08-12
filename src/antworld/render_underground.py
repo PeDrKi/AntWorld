@@ -372,22 +372,22 @@ def draw_underground_grid_lines(state, surf):
     dưới hầm). Hầm không phải lưới ô vuông thật (phòng là các "khối u" tự
     do, không neo theo ô lưới rời rạc như mặt đất) - lưới này CHỈ mang
     tính tham chiếu thị giác (cảm nhận khoảng cách/tỉ lệ), nên phải tự tính
-    vùng bao BAO TRỌN mọi phòng của CẢ 2 tổ (kể cả bán kính phòng, không
-    chỉ tâm) rồi mới vẽ - nếu không, khi ROOM_LAYOUT_SCALE lớn, phòng sẽ
-    tràn ra ngoài hẳn vùng lưới (đã từng xảy ra khi lưới bị "đóng cứng"
-    theo kích thước bản đồ mặt đất)."""
+    vùng bao BAO TRỌN mọi phòng (kể cả bán kính phòng, không chỉ tâm) rồi
+    mới vẽ - nếu không, khi ROOM_LAYOUT_SCALE lớn, phòng sẽ tràn ra ngoài
+    hẳn vùng lưới (đã từng xảy ra khi lưới bị "đóng cứng" theo kích thước
+    bản đồ mặt đất)."""
     camera = state.camera
     cell = camera.cell_px()
 
     xs, ys = [], []
-    for uworld in (state.underground_world, state.rival_underground):
-        for (_id, _name, center, radius, _color, _depth) in uworld.rooms:
-            xs.append(float(center[0]) - float(radius))
-            xs.append(float(center[0]) + float(radius))
-            ys.append(float(center[1]) - float(radius))
-            ys.append(float(center[1]) + float(radius))
-        xs.append(float(uworld.shaft_xy[0]))
-        ys.append(float(uworld.shaft_xy[1]))
+    uworld = state.underground_world
+    for (_id, _name, center, radius, _color, _depth) in uworld.rooms:
+        xs.append(float(center[0]) - float(radius))
+        xs.append(float(center[0]) + float(radius))
+        ys.append(float(center[1]) - float(radius))
+        ys.append(float(center[1]) + float(radius))
+    xs.append(float(uworld.shaft_xy[0]))
+    ys.append(float(uworld.shaft_xy[1]))
     if not xs:
         return
     pad = 2.0  # đơn vị lưới - chừa biên ngoài phòng ngoài cùng
@@ -416,63 +416,60 @@ def draw_underground_layer(state, surf, depth):
     if state.grid_visible and cell >= 3:
         draw_underground_grid_lines(state, surf)
 
-    for colony_idx, (uworld, colony_obj, base_rgb) in enumerate((
-        (state.underground_world, state.colony, (0, 200, 255)),
-        (state.rival_underground, state.rival_colony, (255, 120, 90)),
-    )):
-        # giếng (thang máy) - chỉ hiện nếu tổ này CÓ phòng ở tầng này
-        has_room_here = any(r[5] == depth for r in uworld.rooms)
-        if has_room_here:
-            sx, sy = camera.world_to_screen(float(uworld.shaft_xy[0]), float(uworld.shaft_xy[1]), state.CENTER_X, state.CENTER_Y)
-            r = max(3, int(cell * 0.8))
-            pygame.draw.circle(surf, cfg.COLOR_SHAFT, (int(sx), int(sy)), r)
-            pygame.draw.circle(surf, (90, 90, 90), (int(sx), int(sy)), r, 1)
+    uworld, colony_obj = state.underground_world, state.colony
+    # giếng (thang máy) - chỉ hiện nếu có phòng ở tầng này
+    has_room_here = any(r[5] == depth for r in uworld.rooms)
+    if has_room_here:
+        sx, sy = camera.world_to_screen(float(uworld.shaft_xy[0]), float(uworld.shaft_xy[1]), state.CENTER_X, state.CENTER_Y)
+        r = max(3, int(cell * 0.8))
+        pygame.draw.circle(surf, cfg.COLOR_SHAFT, (int(sx), int(sy)), r)
+        pygame.draw.circle(surf, (90, 90, 90), (int(sx), int(sy)), r, 1)
 
-        for room in uworld.rooms:
-            room_id, name, center, radius, room_rgb, room_depth = room
-            if room_depth != depth:
-                continue
-            if room_id == 2 and colony_obj.founding_phase:
-                # Đang lập tổ: vẽ HỐC LẬP TỔ nhỏ (chưa phải "Phòng chúa"
-                # đầy đủ) - xem giải thích chi tiết ở ROOM_RADIUS_FOUNDING_
-                # CHAMBER trong config.py. Bán kính "chuẩn" (radius, biến
-                # cục bộ ở trên) chỉ dùng lại NGAY SAU khi lập tổ xong -
-                # không cần code chuyển đổi gì thêm, tick sau founding_phase
-                # tắt là round-trip qua đây tự động dùng radius gốc.
-                radius = cfg.ROOM_RADIUS_FOUNDING_CHAMBER
-            cx, cy = camera.world_to_screen(float(center[0]), float(center[1]), state.CENTER_X, state.CENTER_Y)
-            # hành lang nối giếng <-> phòng (cùng tầng) - vẽ TRƯỚC, mảnh
-            # và mờ hơn, để rõ ràng đây chỉ là đường DI CHUYỂN, không
-            # phải nơi kiến "ở lại hoạt động"
-            sx, sy = camera.world_to_screen(float(uworld.shaft_xy[0]), float(uworld.shaft_xy[1]), state.CENTER_X, state.CENTER_Y)
-            pygame.draw.line(surf, (95, 85, 78), (int(sx), int(sy)), (int(cx), int(cy)), max(1, int(cell * 0.09)))
+    for room in uworld.rooms:
+        room_id, name, center, radius, room_rgb, room_depth = room
+        if room_depth != depth:
+            continue
+        if room_id == 2 and colony_obj.founding_phase:
+            # Đang lập tổ: vẽ HỐC LẬP TỔ nhỏ (chưa phải "Phòng chúa"
+            # đầy đủ) - xem giải thích chi tiết ở ROOM_RADIUS_FOUNDING_
+            # CHAMBER trong config.py. Bán kính "chuẩn" (radius, biến
+            # cục bộ ở trên) chỉ dùng lại NGAY SAU khi lập tổ xong -
+            # không cần code chuyển đổi gì thêm, tick sau founding_phase
+            # tắt là round-trip qua đây tự động dùng radius gốc.
+            radius = cfg.ROOM_RADIUS_FOUNDING_CHAMBER
+        cx, cy = camera.world_to_screen(float(center[0]), float(center[1]), state.CENTER_X, state.CENTER_Y)
+        # hành lang nối giếng <-> phòng (cùng tầng) - vẽ TRƯỚC, mảnh
+        # và mờ hơn, để rõ ràng đây chỉ là đường DI CHUYỂN, không
+        # phải nơi kiến "ở lại hoạt động"
+        sx, sy = camera.world_to_screen(float(uworld.shaft_xy[0]), float(uworld.shaft_xy[1]), state.CENTER_X, state.CENTER_Y)
+        pygame.draw.line(surf, (95, 85, 78), (int(sx), int(sy)), (int(cx), int(cy)), max(1, int(cell * 0.09)))
 
-            r_px = max(10, int(radius * cell))
-            seed_key = room_id * 10 + colony_idx
-            draw_room_floor(surf, int(cx), int(cy), r_px, room_rgb, seed_key)
+        r_px = max(10, int(radius * cell))
+        seed_key = room_id * 10
+        draw_room_floor(surf, int(cx), int(cy), r_px, room_rgb, seed_key)
 
-            # --- mỗi phòng THỰC SỰ làm đúng chức năng của nó ---
-            if room_id == 0:  # Kho thức ăn: vẽ đống thức ăn tồn kho thật
-                draw_storage_pile(state, surf, int(cx), int(cy), r_px, uworld.food_in_storage, seed_key)
-            elif room_id == 1:  # Phòng ấu trùng: vẽ các ấu trùng đang lớn thật
-                draw_larvae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
-            elif room_id == 2:  # Phòng chúa: vẽ 1 con kiến chúa thật
-                draw_queen(state, surf, int(cx), int(cy), r_px, room_rgb, state.frame_counter)
-            elif room_id == 3:  # Bể trữ nước: vẽ các giọt nước tồn trữ thật
-                draw_water_drops(state, surf, int(cx), int(cy), r_px, uworld.water_in_storage, seed_key)
-            elif room_id == 4:  # Phòng trứng: vẽ các trứng đang ủ thật
-                draw_eggs(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
-            elif room_id == 6:  # Nghĩa địa: vẽ các nắm xác thật
-                draw_graveyard(state, surf, int(cx), int(cy), r_px, uworld.corpse_count, seed_key)
-            elif room_id == 7:  # Phòng nhộng: vẽ các kén nhộng đang biến thái thật
-                draw_pupae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
-            # room_id == 5 (Phòng gác cửa): không cần vẽ thêm gì đặc biệt
-            # - lính gác đóng quân ở đây đã tự hiện ra qua draw_ants() bên
-            # dưới (vì depth của họ = DEPTH_GUARD), giống như trong bất kỳ
-            # phòng nào khác.
+        # --- mỗi phòng THỰC SỰ làm đúng chức năng của nó ---
+        if room_id == 0:  # Kho thức ăn: vẽ đống thức ăn tồn kho thật
+            draw_storage_pile(state, surf, int(cx), int(cy), r_px, uworld.food_in_storage, seed_key)
+        elif room_id == 1:  # Phòng ấu trùng: vẽ các ấu trùng đang lớn thật
+            draw_larvae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+        elif room_id == 2:  # Phòng chúa: vẽ 1 con kiến chúa thật
+            draw_queen(state, surf, int(cx), int(cy), r_px, room_rgb, state.frame_counter)
+        elif room_id == 3:  # Bể trữ nước: vẽ các giọt nước tồn trữ thật
+            draw_water_drops(state, surf, int(cx), int(cy), r_px, uworld.water_in_storage, seed_key)
+        elif room_id == 4:  # Phòng trứng: vẽ các trứng đang ủ thật
+            draw_eggs(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+        elif room_id == 6:  # Nghĩa địa: vẽ các nắm xác thật
+            draw_graveyard(state, surf, int(cx), int(cy), r_px, uworld.corpse_count, seed_key)
+        elif room_id == 7:  # Phòng nhộng: vẽ các kén nhộng đang biến thái thật
+            draw_pupae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
+        # room_id == 5 (Phòng gác cửa): không cần vẽ thêm gì đặc biệt
+        # - lính gác đóng quân ở đây đã tự hiện ra qua draw_ants() bên
+        # dưới (vì depth của họ = DEPTH_GUARD), giống như trong bất kỳ
+        # phòng nào khác.
 
-            label = state.font_small.render(name, True, (235, 235, 235))
-            surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
+        label = state.font_small.render(name, True, (235, 235, 235))
+        surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
 
     # Màu kiến dưới hầm GẦN GIỐNG HỆT màu thật trên mặt đất (chỉ nhỉnh sáng
     # hơn 1 chút để vẫn có hình khối trên nền hành lang rất tối) - trước
@@ -480,6 +477,5 @@ def draw_underground_layer(state, surf, depth):
     # như đổi loài giữa 2 khu vực. Viền sáng (underground=True) đã đủ để
     # nổi trên nền tối, không cần đổi màu thân nữa.
     draw_ants(state, surf, state.colony, (45, 40, 36), (215, 120, 30), depth_filter=depth, underground=True)
-    draw_ants(state, surf, state.rival_colony, (110, 40, 33), (230, 140, 40), depth_filter=depth, underground=True)
+    draw_ants(state, surf, state.invasion, (80, 15, 15), (150, 40, 20), depth_filter=depth, underground=True)
     draw_trophallaxis(state, surf, state.colony, depth)
-    draw_trophallaxis(state, surf, state.rival_colony, depth)

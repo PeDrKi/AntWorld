@@ -133,20 +133,16 @@ def draw_surface_layer(state, surf):
                     fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
                     pygame.draw.rect(surf, fc, (sx - food_size / 2, sy - food_size / 2, food_size, food_size))
 
-    # --- lỗ tổ 2 bên - dùng sprite nest_main.png/nest_rival.png tùy chỉnh
-    # nếu có, không thì vẽ vòng tròn màu như trước ---
-    for pos, color, sprite_name in (
-        (cfg.NEST_POS, (30, 22, 14), "nest_main.png"),
-        (cfg.RIVAL_NEST_POS, (45, 20, 18), "nest_rival.png"),
-    ):
-        sx, sy = camera.world_to_screen(pos[0], pos[1], state.CENTER_X, state.CENTER_Y)
-        r = max(3, int(cell * 1.4 * cfg.ENTITY_SPRITE_SCALE))
-        if state.sprites.has(sprite_name):
-            sprite = state.sprites.get_static(sprite_name, r * 2)
-            surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
-        else:
-            pygame.draw.circle(surf, color, (int(sx), int(sy)), r)
-            pygame.draw.circle(surf, (0, 0, 0), (int(sx), int(sy)), r, 2)
+    # --- lỗ tổ - dùng sprite nest_main.png tùy chỉnh nếu có, không thì vẽ
+    # vòng tròn màu như trước ---
+    sx, sy = camera.world_to_screen(cfg.NEST_POS[0], cfg.NEST_POS[1], state.CENTER_X, state.CENTER_Y)
+    r = max(3, int(cell * 1.4 * cfg.ENTITY_SPRITE_SCALE))
+    if state.sprites.has("nest_main.png"):
+        sprite = state.sprites.get_static("nest_main.png", r * 2)
+        surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
+    else:
+        pygame.draw.circle(surf, (30, 22, 14), (int(sx), int(sy)), r)
+        pygame.draw.circle(surf, (0, 0, 0), (int(sx), int(sy)), r, 2)
 
     # --- kẻ thù - dùng sprite enemy.png tùy chỉnh nếu có (tự xoay theo
     # đúng hướng di chuyển thật, giống kiến), không thì vẽ hình thoi đỏ ---
@@ -162,7 +158,7 @@ def draw_surface_layer(state, surf):
             pygame.draw.polygon(surf, (220, 30, 30), pts)
 
     draw_ants(state, surf, state.colony, (25, 25, 25), (215, 120, 30))
-    draw_ants(state, surf, state.rival_colony, (120, 30, 25), (230, 140, 40))
+    draw_ants(state, surf, state.invasion, (80, 15, 15), (150, 40, 20))
 
 
 def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0, underground=False):
@@ -199,13 +195,13 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
 
-    # Tên sprite TÙY CHỌN cho đàn này (ant_worker_main*/ant_worker_rival*) -
-    # xem sprite_manager.py. None nếu colony_obj không phải 1 trong 2 đàn
-    # đã biết (an toàn phòng hờ) - khi đó luôn vẽ vector như cũ.
+    # Tên sprite TÙY CHỌN cho đàn này (ant_worker_main*/ant_invader*) - xem
+    # sprite_manager.py. None nếu colony_obj không xác định (an toàn phòng
+    # hờ) - khi đó luôn vẽ vector như cũ.
     if colony_obj is state.colony:
         sprite_prefix = "ant_worker_main"
-    elif colony_obj is state.rival_colony:
-        sprite_prefix = "ant_worker_rival"
+    elif colony_obj is state.invasion:
+        sprite_prefix = "ant_invader"
     else:
         sprite_prefix = None
 

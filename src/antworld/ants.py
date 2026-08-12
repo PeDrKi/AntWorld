@@ -57,11 +57,6 @@ class AntColony:
         # ngẫu nhiên mỗi tick) - xem _avoid_obstacles()
         self.avoid_cooldown = np.zeros(self.n, dtype=np.int16)
         self.avoid_side = np.ones(self.n, dtype=np.float32)
-        # Xâm chiếm tổ đối thủ: raid_loot_ticks = số tick đã đứng cướp phá
-        # tại tổ đối thủ (để biết khi nào tự rút quân); raid_cooldown = số
-        # tick còn lại trước khi CẢ ĐÀN được cân nhắc phát động đợt mới
-        self.raid_loot_ticks = np.zeros(self.n, dtype=np.int16)
-        self.raid_cooldown = 0
         # Dùng cho STATE_DWELL (lượn trong phòng): dwell_ticks = số tick còn
         # lại trước khi tiếp tục hành trình; next_state = trạng thái sẽ
         # chuyển sang ngay khi hết giờ lượn (đã được quyết định từ lúc vừa
@@ -177,7 +172,7 @@ class AntColony:
         self.trophallaxis_events = []
 
     # ------------------------------------------------------------------
-    def update(self, enemy=None, rival=None):
+    def update(self, enemy=None, invasion=None):
         self.tick_count += 1
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
         if self.trophallaxis_events:
@@ -187,8 +182,7 @@ class AntColony:
         self._update_underground_ants()
         self._update_nurses()
         self._update_attendants()
-        self._update_guards(enemy, rival)
-        self._update_raids(rival)
+        self._update_guards(enemy, invasion)
         self.surface.decay_pheromone()
         population = int(np.sum(self.alive))
         if not self.founding_phase:
@@ -725,15 +719,14 @@ class AntColony:
                 self.state[arrived] = cfg.STATE_ATTENDANT_AT_QUEEN
 
     # ------------------------------------------------------------------
-    def _update_guards(self, enemy, rival=None):
+    def _update_guards(self, enemy, invasion=None):
         """Lính gác (self.is_guard): mặc định lượn vô thời hạn trong phòng
         gác cửa (STATE_GUARD_DUTY); nếu có kẻ thù TỰ NHIÊN xuất hiện đủ gần
-        lỗ tổ HOẶC quân xâm chiếm của tổ đối thủ đang cướp phá ngay tại tổ
-        mình, LAO LÊN mặt đất nghênh chiến (việc gây/nhận sát thương với kẻ
-        thù tự nhiên đã được enemy.py tự xử lý; với quân xâm chiếm thì được
-        xử lý trong _update_raids của chính tổ đối thủ - lính gác chỉ cần
-        CÓ MẶT trên mặt đất gần tổ để tính là "phòng thủ"); hết mối đe dọa
-        thì tự quay về đóng quân lại."""
+        lỗ tổ HOẶC đàn kiến NGOẠI LAI đang tiến/đánh ngay tại cửa hang, LAO
+        LÊN mặt đất nghênh chiến (việc giao chiến với đàn ngoại lai được xử
+        lý trong InvasionManager - lính gác chỉ cần CÓ MẶT trên mặt đất gần
+        tổ để tính là "phòng thủ"); hết mối đe dọa thì tự quay về đóng quân
+        lại."""
         guard_mask = self.alive & self.is_guard
         if not np.any(guard_mask):
             return
@@ -742,8 +735,11 @@ class AntColony:
         threat_natural = enemy is not None and enemy.active and (
             (enemy.x - nest_x) ** 2 + (enemy.y - nest_y) ** 2 < cfg.GUARD_ALERT_RADIUS ** 2
         )
-        threat_raid = rival is not None and np.any(rival.alive & (rival.state == cfg.STATE_RAID_LOOT))
-        threat_near_nest = threat_natural or threat_raid
+        threat_invasion = invasion is not None and invasion.active and np.any(
+            invasion.alive & (invasion.layer == cfg.LAYER_SURFACE)
+            & ((invasion.x - nest_x) ** 2 + (invasion.y - nest_y) ** 2 < cfg.GUARD_ALERT_RADIUS ** 2)
+        )
+        threat_near_nest = threat_natural or threat_invasion
 
         # --- Đóng quân: lượn quanh phòng gác VÔ THỜI HẠN, trừ khi có báo động ---
         duty_mask = guard_mask & (self.state == cfg.STATE_GUARD_DUTY)
@@ -784,8 +780,8 @@ class AntColony:
                 self._move_towards_2d(idx, (enemy.x, enemy.y), cfg.GUARD_SPEED)
                 self._bounce_walls(idx)
                 self._avoid_obstacles(idx, prev_x, prev_y)
-            elif threat_raid:
-                pass  # quân xâm chiếm tự tìm đến tổ mình - lính gác cứ đứng yên tại tổ để nghênh chiến
+            elif threat_invasion:
+                pass  # đàn ngoại lai tự tìm đến tổ - lính gác đứng yên tại tổ để nghênh chiến
             else:
                 self.state[idx] = cfg.STATE_GUARD_RETURN  # hết mối đe dọa - rút về
 
@@ -804,123 +800,6 @@ class AntColony:
                 self.x[arrived] = self.underground.shaft_xy[0]
                 self.y[arrived] = self.underground.shaft_xy[1]
                 self.state[arrived] = cfg.STATE_GUARD_DUTY
-
-    # ------------------------------------------------------------------
-    def _update_raids(self, rival):
-        """Khi kho CẠN KIỆT và đàn thật sự đang đói (is_starving), tổ tự
-        cử 1 đội (ưu tiên lính) hành quân sang XÂM CHIẾM tổ đối thủ: giao
-        chiến với lính phòng thủ của họ ngay tại tổ, cướp thức ăn mang về
-        nếu còn sống. Đây là hành vi đối kháng THẬT giữa 2 đàn, khác với
-        việc chỉ cạnh tranh gián tiếp qua tìm thức ăn trên mặt đất."""
-        if rival is None:
-            return
-
-        self.raid_cooldown = max(0, self.raid_cooldown - 1)
-
-        # --- Phát động đợt xâm chiếm mới nếu đang khan hiếm thức ăn ---
-        if self.tick_count % cfg.RAID_CHECK_INTERVAL == 0 and self.raid_cooldown <= 0:
-            if self.underground.is_food_scarce():
-                eligible = np.where(
-                    self.alive
-                    & (self.layer == cfg.LAYER_SURFACE)
-                    & (self.state == cfg.STATE_SEARCHING)
-                    & (~self.carrying)
-                )[0]
-                if len(eligible) > 0:
-                    # ưu tiên cử lính (ROLE_MAJOR) đi trước, thợ thường bù sau
-                    order = np.argsort(-(self.role[eligible] == cfg.ROLE_MAJOR).astype(np.int8))
-                    party = eligible[order[: cfg.RAID_PARTY_SIZE]]
-                    self.state[party] = cfg.STATE_RAID_TO_ENEMY
-                    self.raid_loot_ticks[party] = 0
-                    self.raid_cooldown = cfg.RAID_COOLDOWN_TICKS
-
-        # --- Đang hành quân tới tổ đối thủ ---
-        mask = self.alive & (self.state == cfg.STATE_RAID_TO_ENEMY)
-        if np.any(mask):
-            idx = np.where(mask)[0]
-            prev_x, prev_y = self.x[idx].copy(), self.y[idx].copy()
-            rx, ry = rival.nest_pos
-            dist = self._move_towards_2d(idx, (rx, ry), cfg.RAID_SPEED)
-            self._bounce_walls(idx)
-            self._avoid_obstacles(idx, prev_x, prev_y)
-            arrived = idx[dist < cfg.ARRIVE_THRESHOLD * 3]
-            if len(arrived) > 0:
-                self.state[arrived] = cfg.STATE_RAID_LOOT
-
-        # --- Đang giao chiến/cướp phá tại tổ đối thủ ---
-        mask = self.alive & (self.state == cfg.STATE_RAID_LOOT)
-        if not np.any(mask):
-            return
-        idx = np.where(mask)[0]
-        self.raid_loot_ticks[idx] += 1
-
-        rx, ry = rival.nest_pos
-        defenders = np.where(
-            rival.alive
-            & (rival.layer == cfg.LAYER_SURFACE)
-            & ((rival.x - rx) ** 2 + (rival.y - ry) ** 2 < cfg.RAID_KILL_RADIUS ** 2)
-        )[0]
-
-        if len(defenders) > 0:
-            # --- Quân xâm chiếm hạ lính phòng thủ ---
-            is_def_major = rival.role[defenders] == cfg.ROLE_MAJOR
-            kill_prob = np.where(
-                is_def_major,
-                cfg.RAID_ATTACKER_KILL_PROB * cfg.MAJOR_DEFENSE_FACTOR,
-                cfg.RAID_ATTACKER_KILL_PROB,
-            )
-            kill_roll = np.random.uniform(0, 1, len(defenders))
-            killed_defenders = defenders[kill_roll < kill_prob]
-            if len(killed_defenders) > 0:
-                rival.alive[killed_defenders] = False
-                rival.underground.total_deaths += len(killed_defenders)
-                rival.underground.add_corpse(len(killed_defenders))
-
-            # --- Phòng thủ (lợi thế sân nhà) hạ quân xâm chiếm ---
-            is_att_major = self.role[idx] == cfg.ROLE_MAJOR
-            def_kill_prob = np.where(
-                is_att_major,
-                cfg.RAID_DEFENDER_KILL_PROB * cfg.MAJOR_DEFENSE_FACTOR,
-                cfg.RAID_DEFENDER_KILL_PROB,
-            )
-            # Càng ít phòng thủ so với quân xâm chiếm thì tỉ lệ gây sát
-            # thương ngược lại càng thấp (không đủ người để chống trả)
-            def_kill_prob = def_kill_prob * min(1.0, len(defenders) / max(1, len(idx)))
-            kill_roll2 = np.random.uniform(0, 1, len(idx))
-            killed_mask = kill_roll2 < def_kill_prob
-            killed_attackers = idx[killed_mask]
-            if len(killed_attackers) > 0:
-                self.alive[killed_attackers] = False
-                self.underground.total_deaths += len(killed_attackers)
-                self.underground.add_corpse(len(killed_attackers))
-                idx = idx[~killed_mask]
-                if len(idx) == 0:
-                    return
-
-        # --- Cướp thức ăn: rút dần từ kho đối thủ, chia đều quân còn sống ---
-        if rival.underground.food_in_storage > 0.01:
-            steal_total = min(rival.underground.food_in_storage, cfg.RAID_STEAL_PER_TICK * len(idx))
-            rival.underground.food_in_storage -= steal_total
-            self.underground.total_food_looted += steal_total
-            per_ant = steal_total / len(idx)
-            self.carry_amount[idx] += per_ant
-            self.carrying[idx] = True
-            self.carry_type[idx] = 1
-            self.carry_food_type[idx] = cfg.FOOD_TYPE_SEED  # nhãn cho thức ăn cướp được
-
-        # --- Rút quân: đã cướp đủ lâu, HOẶC kho đối thủ đã cạn hẳn ---
-        done = idx[
-            (self.raid_loot_ticks[idx] >= cfg.RAID_MAX_LOOT_TICKS)
-            | (rival.underground.food_in_storage <= 0.01)
-        ]
-        if len(done) > 0:
-            self.raid_loot_ticks[done] = 0
-            looted = done[self.carrying[done]]
-            empty_handed = done[~self.carrying[done]]
-            if len(looted) > 0:
-                self.state[looted] = cfg.STATE_RETURNING  # có mồi - về nộp kho như bình thường
-            if len(empty_handed) > 0:
-                self.state[empty_handed] = cfg.STATE_SEARCHING  # tay không - đi tìm ăn tiếp luôn
 
     # ------------------------------------------------------------------
     def _update_lifecycle(self):
@@ -1209,10 +1088,6 @@ class AntColony:
             "corpse_count": self.underground.corpse_count,
             "guards_on_duty": int(np.sum(alive & self.is_guard & (self.state == cfg.STATE_GUARD_DUTY))),
             "guards_total": int(np.sum(alive & self.is_guard)),
-            "total_food_looted": self.underground.total_food_looted,
-            "raiders_out": int(np.sum(alive & (
-                (self.state == cfg.STATE_RAID_TO_ENEMY) | (self.state == cfg.STATE_RAID_LOOT)
-            ))),
             "foragers_total": int(np.sum(alive & (~self.is_guard) & (
                 (self.role == cfg.ROLE_MAJOR) | (is_minor & (self.job == cfg.JOB_FORAGER))
             ))),

@@ -12,8 +12,9 @@ render_surface.py và render_underground.py).
 QUY ƯỚC TÊN FILE (đặt trong assets/sprites/, đuôi .png, nền trong suốt):
     ant_worker_main.png        - kiến tổ chính, bình thường (không tha mồi)
     ant_worker_main_carry.png  - kiến tổ chính, đang tha mồi
-    ant_worker_rival.png       - kiến tổ đối thủ, bình thường
-    ant_worker_rival_carry.png - kiến tổ đối thủ, đang tha mồi
+    ant_invader.png            - kiến NGOẠI LAI (đàn xâm nhập theo đợt),
+                                  bình thường
+    ant_invader_carry.png      - kiến ngoại lai, đang tha/cướp mồi
     food.png                   - 1 miếng thức ăn (dùng CẢ trên mặt đất LẪN
                                   trong đống thức ăn ở kho dưới hầm)
     rock.png                   - 1 ô đá (vật cản)
@@ -24,8 +25,7 @@ QUY ƯỚC TÊN FILE (đặt trong assets/sprites/, đuôi .png, nền trong su�
     pupa.png                   - 1 kén nhộng
     queen.png                  - kiến chúa
     enemy.png                  - kẻ thù tự nhiên trên mặt đất
-    nest_main.png               - lỗ tổ CHÍNH trên mặt đất
-    nest_rival.png              - lỗ tổ ĐỐI THỦ trên mặt đất
+    nest_main.png               - lỗ tổ trên mặt đất
     corpse.png                  - 1 "nắm xác" trong nghĩa địa
 
 Ảnh kiến (ant_worker_*) và kẻ thù (enemy.png) sẽ được TỰ ĐỘNG XOAY theo

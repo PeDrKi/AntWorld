@@ -216,26 +216,14 @@ NEST_RADIUS = 1.2
 ROOM_LAYOUT_SCALE = 2.025
 
 # Vị trí các phòng dưới hầm tính THEO OFFSET so với lỗ tổ (không phải tọa độ
-# tuyệt đối) - để có thể dùng chung công thức này cho cả tổ đối thủ đặt ở
-# nơi khác trên bản đồ. Các cặp phòng CHUNG TẦNG (kho/nước, trứng/ấu trùng)
-# được đặt lệch hẳn sang 2 bên (trái/phải) để không đè lên nhau khi vẽ.
-# world.UndergroundWorld nhận thêm tham số `mirror` (+1 cho tổ chính, -1
-# cho tổ đối thủ) LẬT NGƯỢC dấu các offset này khi dựng hầm đối thủ - để
-# hầm 2 tổ luôn "xòe ra" 2 hướng ngược nhau thay vì cùng hướng, tránh đè
-# lên nhau khi ROOM_LAYOUT_SCALE lớn (2 tổ vốn đặt khá gần nhau trên bản
-# đồ - xem RIVAL_NEST_POS).
-GUARD_OFFSET_XY = (-3 * ROOM_LAYOUT_SCALE, -4 * ROOM_LAYOUT_SCALE)   # ngay dưới cửa hang - gần lỗ tổ nhất.
-                                # CỐ Ý đặt LỆCH GÓC (không thẳng trục dọc
-                                # như "(0, 3)" hồi trước) - vì hướng thẳng
-                                # trục cũ, sau khi LẬT GƯƠNG cho tổ đối
-                                # thủ, có 1 giá trị ROOM_LAYOUT_SCALE khiến
-                                # 2 phòng gác cửa của 2 tổ tiến THẲNG VÀO
-                                # NHAU (khoảng cách chỉ phụ thuộc 1 trục,
-                                # dễ bị triệt tiêu) - lệch góc đảm bảo
-                                # khoảng cách LUÔN tăng dần theo scale, hết
-                                # hẳn kiểu "vùng chồng lấn" đó (đã kiểm tra
-                                # bằng script dò nhiều hướng/độ lớn khác
-                                # nhau, chọn hướng có khoảng hở lớn nhất).
+# tuyệt đối). Các cặp phòng CHUNG TẦNG (kho/nước, trứng/ấu trùng) được đặt
+# lệch hẳn sang 2 bên (trái/phải) để không đè lên nhau khi vẽ. LƯU Ý LỊCH
+# SỬ: hướng lệch góc của GUARD_OFFSET_XY (thay vì thẳng trục dọc đơn giản)
+# là di sản từ thời còn 2 tổ (tổ đối thủ LẬT GƯƠNG offset của tổ chính,
+# cần tránh 2 phòng gác cửa của 2 tổ chồng lên nhau) - từ khi bỏ tổ đối
+# thủ cố định (xem khối "Đàn kiến ngoại lai" ở trên), ràng buộc đó không
+# còn nhưng giữ nguyên giá trị vì vẫn hoạt động tốt, không cần đổi lại.
+GUARD_OFFSET_XY = (-3 * ROOM_LAYOUT_SCALE, -4 * ROOM_LAYOUT_SCALE)   # ngay dưới cửa hang - gần lỗ tổ nhất
 STORAGE_OFFSET_XY = (-6 * ROOM_LAYOUT_SCALE, -2 * ROOM_LAYOUT_SCALE)   # cùng tầng với bể nước - đặt bên TRÁI
 WATER_OFFSET_XY = (6 * ROOM_LAYOUT_SCALE, -2 * ROOM_LAYOUT_SCALE)      # cùng tầng với kho - đặt bên PHẢI
 EGG_OFFSET_XY = (-5 * ROOM_LAYOUT_SCALE, -6 * ROOM_LAYOUT_SCALE)       # cùng tầng với ấu trùng/nhộng - đặt bên TRÁI
@@ -347,71 +335,77 @@ TROPHALLAXIS_TTL_TICKS = 22  # 1 "khoảnh khắc mớm mồi" (xem
                              # dần) - ngắn, chỉ là 1 điểm nhấn thoáng qua
                              # chứ không phải hiệu ứng thường trực
 
-# ----- Xâm chiếm/phá tổ đối thủ khi khan hiếm thức ăn -----
-# Khi kho CẠN KIỆT và đàn đang thật sự đói (không chỉ tạm thời ít), tổ sẽ tự
-# cử 1 đội (ưu tiên lính) hành quân sang XÂM CHIẾM tổ đối thủ: giao chiến
-# với lính phòng thủ của họ ngay tại tổ, và cướp thức ăn mang về nếu còn
-# sống. Đây là hành vi ĐỐI KHÁNG THẬT giữa 2 đàn, không phải chỉ cạnh tranh
-# gián tiếp qua tìm thức ăn như trước.
-# NGƯỠNG "khan hiếm" giờ TỈ LỆ THEO SĨ SỐ ĐÀN HIỆN TẠI (giống tinh thần
-# EGG_MIN_STORAGE_BUFFER_PER_ANT ở trên) thay vì 1 hằng số cố định như bản
-# trước - lý do: hằng số cố định (15) gần như không bao giờ đạt tới nữa chỉ
-# sau vài nghìn tick đầu ván (kho tăng vượt xa mức 15 rất nhanh rồi cứ thế
-# tăng dần suốt ván, đàn 100-300 con vẫn có kho hàng nghìn) - đã kiểm thử
-# thực nghiệm: với hằng số cố định, xâm chiếm CHỈ xảy ra đúng 1 lần lúc mới
-# vào ván (kho = 0 lúc khởi tạo), sau đó KHÔNG BAO GIỜ lặp lại nữa. Đặt tỉ
-# lệ theo dân số (gần bằng EGG_MIN_STORAGE_BUFFER_PER_ANT) khiến ngưỡng
-# "khan hiếm" bám sát mức kho mà đàn thực tế duy trì khi đang tăng trưởng
-# gần hết công suất kiếm ăn - tức là xâm chiếm có thể xảy ra LẶP LẠI tự
-# nhiên trong lối chơi mặc định mỗi khi đàn tăng dân nhanh hơn khả năng
-# kiếm ăn thực tế, không chỉ đúng 1 lần lúc đầu ván.
-RAID_STORAGE_THRESHOLD_PER_ANT = 2.0  # kho dưới (dân số hiện tại x số
-                            # này) coi là "ít" (xem ticks_storage_low/
-                            # is_food_scarce trong world.py) - ĐÃ KIỂM THỬ
-                            # thực nghiệm nhiều mức: 10.0 khiến 2 tổ liên
-                            # tục xâm chiếm nhau không dứt, cả 2 bị kẹt ở
-                            # dân số rất thấp (~10-20 con) suốt ván, không
-                            # bao giờ lớn lên nổi; 2.0 tạo ra xâm chiếm
-                            # THẬT trong giai đoạn đầu ván (khi đàn còn nhỏ/
-                            # yếu, kho chưa kịp tích lũy) nhưng KHÔNG còn
-                            # xảy ra nữa 1 khi đàn đã phát triển ổn định -
-                            # giống nhịp độ 1 game thật: đầu ván rủi ro
-                            # cạnh tranh cao, càng về sau càng an toàn hơn.
-RAID_STORAGE_THRESHOLD_MIN = 15  # sàn TỐI THIỂU (áp dụng cả khi đàn còn
-                            # rất nhỏ lúc mới vào ván, để không phát động
-                            # xâm chiếm chỉ vì kho vài đơn vị lúc mới sinh)
-RAID_SCARCITY_GRACE_TICKS = 300  # kho phải LIÊN TỤC ở mức thấp bấy nhiêu
-                            # tick (~5 giây ở tốc độ x1) mới coi là khan
-                            # hiếm THẬT SỰ (tránh phát động chỉ vì 1 khoảnh
-                            # khắc kho tạm thời thấp)
-RAID_CHECK_INTERVAL = 90     # cứ mỗi bấy nhiêu tick, kiểm tra 1 lần có nên
-                            # phát động đợt xâm chiếm mới không
-RAID_PARTY_SIZE = 6          # số kiến (ưu tiên lính) cử đi mỗi đợt xâm chiếm
-RAID_COOLDOWN_TICKS = 900     # sau 1 đợt phát động, nghỉ bấy nhiêu tick mới
-                            # cân nhắc phát động đợt tiếp theo
-RAID_SPEED = 0.16            # tốc độ hành quân sang tổ đối thủ
-RAID_KILL_RADIUS = 3.5       # phạm vi quanh tổ đối thủ được coi là "chiến
-                            # trường" - phòng thủ của họ trong phạm vi này
-                            # mới bị lôi vào giao chiến
-RAID_ATTACKER_KILL_PROB = 0.015  # xác suất/tick 1 kiến xâm chiếm hạ được 1
-                            # lính phòng thủ (nhân đôi nếu phòng thủ không
-                            # phải lính - xem MAJOR_DEFENSE_FACTOR áp dụng
-                            # cho phe phòng thủ)
-RAID_DEFENDER_KILL_PROB = 0.02   # phòng thủ có lợi thế sân nhà nên xác suất
-                            # hạ được quân xâm chiếm/tick cao hơn 1 chút
-RAID_STEAL_PER_TICK = 3.0    # mỗi tick còn đứng cướp phá thì rút được bấy
-                            # nhiêu thức ăn từ kho đối thủ (chia đều số
-                            # quân xâm chiếm còn sống)
-RAID_MAX_LOOT_TICKS = 220    # tối đa đứng cướp phá bấy nhiêu tick trước khi
-                            # tự rút quân về (dù kho đối thủ chưa cạn hẳn)
+# ----- Đàn kiến ngoại lai (xâm nhập theo đợt, không có tổ cố định) -----
+# Thay vì nuôi song song 1 tổ đối thủ tồn tại vĩnh viễn, bản đồ giờ chỉ có
+# ĐÚNG 1 tổ (của người chơi). Thỉnh thoảng 1 đàn kiến LẠ (không có tổ/nhà
+# riêng - xuất hiện từ rìa bản đồ, không phải sinh ra từ đâu cả) sẽ kéo về
+# tổ của người chơi để CƯỚP PHÁ: cướp thức ăn trong kho VÀ tấn công/cướp
+# trứng+ấu trùng, rồi rút lui mang theo những gì cướp được (hoặc bị đánh
+# bại hoàn toàn nếu lính gác đủ mạnh). Xem invasion.py (InvasionManager).
+INVASION_ENABLED = True
+INVASION_FIRST_WAVE_TICK = 4800   # đợt đầu tiên chỉ tới sau bấy nhiêu tick
+                            # (~80s ở tốc độ x1) - ĐÃ TĂNG so với thử nghiệm
+                            # đầu (2400): 1 tổ mới lập/còn rất nhỏ (5-10
+                            # con, CHƯA CÓ lính gác) gần như không có khả
+                            # năng chống đỡ đợt đầu nếu tới quá sớm - kiểm
+                            # thử thực nghiệm cho thấy với mốc 2400, đàn bị
+                            # xóa sổ dần đều tới tuyệt chủng hoàn toàn dù
+                            # không cần người chơi làm gì (so sánh: tắt hẳn
+                            # invasion thì đàn TỰ PHÁT TRIỂN khỏe mạnh từ
+                            # 6 lên tới 25-29 con trong cùng khoảng thời
+                            # gian) - dời đợt đầu ra xa hơn để đàn có cơ hội
+                            # tự nhiên có vài lính gác trước khi bị thử thách.
+INVASION_BASE_INTERVAL_TICKS = 4800  # khoảng cách GIỮA 2 đợt lúc đầu ván
+                            # (~80s ở tốc độ x1) - tăng cùng tỉ lệ với mốc
+                            # đợt đầu ở trên
+INVASION_INTERVAL_MIN_TICKS = 1500   # khoảng cách TỐI THIỂU giữa 2 đợt dù
+                            # đàn đã phát triển rất lâu (không dồn dập vô
+                            # hạn - vẫn phải có khoảng thở)
+INVASION_INTERVAL_DECAY_PER_WAVE = 100  # mỗi đợt trôi qua, khoảng cách tới
+                            # đợt SAU rút ngắn thêm bấy nhiêu tick (tăng
+                            # tần suất dần theo thời gian, xem
+                            # InvasionManager._schedule_next_wave)
+INVASION_BASE_SWARM_SIZE = 2     # số quân đợt ĐẦU TIÊN - CỐ TÌNH rất nhẹ
+                            # (giảm từ 4 xuống 2): đợt đầu tiên đóng vai trò
+                            # "cảnh báo/dạy người chơi", không phải thử
+                            # thách sinh tử ngay khi đàn còn chưa kịp có
+                            # lính gác nào
+INVASION_MAX_SWARM_SIZE = 24     # trần số quân dù đàn đã phát triển rất lâu
+INVASION_SWARM_GROWTH_PER_WAVE = 1.15  # mỗi đợt sau đông hơn đợt trước bấy
+                            # nhiêu lần (giảm từ 1.6 xuống 1.15 - tăng dần
+                            # CHẬM VÀ ĐỀU hơn hẳn, để người chơi có đủ thời
+                            # gian đầu tư thêm lính gác theo kịp áp lực,
+                            # thay vì áp lực vọt lên quá nhanh)
+INVASION_SPEED = 0.17             # tốc độ hành quân trên mặt đất
+INVASION_UG_SPEED = 0.05          # tốc độ di chuyển dưới hầm (chậm hơn mặt
+                            # đất - hành lang chật, phải len lỏi)
+INVASION_ENTRANCE_FIGHT_TICKS = 260  # tối đa giao chiến với lính gác ở cửa
+                            # hang bấy nhiêu tick trước khi TỰ ĐỘNG coi là
+                            # đã vượt qua (tránh kẹt vô hạn nếu 2 bên hòa)
+INVASION_ATTACKER_KILL_PROB = 0.016   # xác suất/tick 1 quân xâm nhập hạ
+                            # được 1 lính gác (nhân MAJOR_DEFENSE_FACTOR
+                            # nếu lính gác là ROLE_MAJOR, như raid cũ)
+INVASION_DEFENDER_KILL_PROB = 0.032   # lính gác có lợi thế sân nhà, xác
+                            # suất hạ quân xâm nhập/tick cao hơn hẳn (tăng
+                            # từ 0.024 - ĐẦU TƯ VÀO LÍNH GÁC phải thực sự
+                            # đáng giá: có phòng thủ phải cản được hầu hết
+                            # 1 đợt xâm nhập cỡ vừa, không chỉ làm chậm lại)
+INVASION_FOOD_STEAL_PER_TICK = 3.0    # mỗi tick còn cướp phá kho thì rút
+                            # được bấy nhiêu thức ăn (chia đều số quân)
+INVASION_EGG_STEAL_INTERVAL = 90      # cứ mỗi bấy nhiêu tick còn cướp phá ở
+                            # phòng trứng/ấu trùng, bắt/phá 1 quả trứng
+                            # (tăng từ 45 - giảm bớt tốc độ tàn phá brood,
+                            # từng đủ sức xóa sổ TOÀN BỘ trứng/ấu trùng của
+                            # 1 đàn nhỏ chỉ trong 1 đợt duy nhất)
+INVASION_LARVA_STEAL_INTERVAL = 110   # ...và 1 con ấu trùng (ấu trùng "đắt"
+                            # hơn trứng nên bắt chậm hơn 1 chút)
+INVASION_MAX_LOOT_TICKS = 140         # tối đa cướp phá 1 phòng bấy nhiêu
+                            # tick trước khi tự rút (giảm từ 200 - hạn chế
+                            # tổng thiệt hại tối đa mỗi lượt cướp phá)
+INVASION_RETREAT_SPEED = 0.20         # rút lui nhanh hơn lúc tiến quân (vội
+                            # chạy khi đã cướp được đồ / bị đánh lui)
 
-# ----- Tổ kiến đối thủ (cạnh tranh tài nguyên trên cùng bản đồ) -----
-RIVAL_NEST_POS = (11, 29)   # lệch khỏi trung tâm nhưng KHÔNG ở góc bản đồ,
-                            # để không bị bất lợi hình học (diện tích kiếm
-                            # ăn khả dụng thấp hơn hẳn tổ chính ở giữa) -
-                            # tỉ lệ tương đương (14,36) trên bản đồ 50 ô cũ
-NUM_RIVAL_ANTS = 10          # CÙNG quy mô khởi tạo với tổ chính - đàn nào
-                            # sinh sản/kiếm ăn tốt hơn sẽ tự lớn nhanh hơn
+# ----- (Đã bỏ tổ đối thủ cố định - xem khối "Đàn kiến ngoại lai" ở trên) -----
 MAX_ANTS_PER_COLONY = 200   # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ cấp phát
                             # sẵn cho mảng NumPy) - đàn khởi tạo NUM_ANTS con,
                             # rồi tự sinh sản lớn lên dần tới tối đa số này
@@ -445,8 +439,11 @@ STATE_GUARD_DUTY = 6       # lính gác đang đóng quân, lượn trong phòng
 STATE_GUARD_RUSH = 7       # lính gác đang lao lên mặt đất nghênh chiến
 STATE_GUARD_RETURN = 8     # lính gác xong việc, đang quay về giếng để
                            # xuống lại phòng gác
-STATE_RAID_TO_ENEMY = 9    # đội xâm chiếm đang hành quân sang tổ đối thủ
-STATE_RAID_LOOT = 10       # đang giao chiến/cướp phá tại tổ đối thủ
+STATE_RAID_TO_ENEMY = 9    # (không còn dùng - từng là "đội xâm chiếm hành
+                            # quân sang tổ đối thủ", đã bỏ khi chuyển sang
+                            # cơ chế đàn kiến ngoại lai - giữ số hiệu để
+                            # không xáo trộn các state khác)
+STATE_RAID_LOOT = 10       # (không còn dùng - lý do như trên)
 
 # --- Vòng lặp RIÊNG của JOB_NURSE (không bao giờ lên mặt đất) ---
 STATE_NURSE_AT_STORAGE = 11   # đang ở kho, chờ/lượn, sẵn sàng lấy chuyến kế
@@ -542,7 +539,7 @@ EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG ph�
 # như lập tổ THÀNH CÔNG, chuyển hẳn sang luật chơi bình thường (đẻ trứng
 # lại cần kho thức ăn như cũ).
 # =======================================================================
-FOUNDING_MODE_ENABLED = True  # bật thử bằng cách đổi True - UI bật/tắt
+FOUNDING_MODE_ENABLED = False  # bật thử bằng cách đổi True - UI bật/tắt
                              # trong menu sẽ làm ở bước sau; giá trị này
                              # CHỈ áp dụng cho tổ CHÍNH (người chơi), tổ
                              # đối thủ luôn bắt đầu đã ổn định như cũ để

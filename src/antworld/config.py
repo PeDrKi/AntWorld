@@ -51,9 +51,46 @@ NUM_ANTS = 10                # số kiến KHỞI TẠO (không còn là giới 
 ANT_SPEED = 0.14            # số ô di chuyển mỗi tick (mặt phẳng ngang)
 UG_SPEED = 0.22             # tốc độ di chuyển trong hầm (đường thẳng 3D nên
                             # nhanh hơn 1 chút để không mất quá lâu xuống sâu)
-TURN_NOISE = 0.35           # độ nhiễu góc quay mỗi tick (radian)
-SENSE_DIST = 1.6            # khoảng cách "ngửi" pheromone phía trước
-SENSE_ANGLE = 0.6           # góc lệch 2 bên khi ngửi pheromone
+TURN_NOISE = 0.35           # độ nhiễu góc quay mỗi tick (radian) - CHỈ còn
+                            # dùng cho vài hành vi "lượn tại chỗ" (DWELL,
+                            # đóng quân...), không còn dùng cho việc tìm
+                            # đường trên mặt đất (xem PATH_* bên dưới)
+SENSE_DIST = 1.6            # (KHÔNG CÒN DÙNG - giữ lại tương thích ngược,
+                            # xem PATH_* bên dưới thay cho cơ chế "ngửi"
+                            # pheromone cũ)
+SENSE_ANGLE = 0.6           # (KHÔNG CÒN DÙNG - như trên)
+
+# ----- Tìm đường (pathfinding.py): kiến trên mặt đất (SEARCHING/RETURNING)
+# và lính gác rút về tổ giờ đi theo ĐƯỜNG ĐI TÍNH SẴN (any-angle, ngắn
+# nhất, dựng từ visibility graph các góc vật cản) thay vì "dò mùi + né vật
+# cản kiểu bám tường" như trước - xem AntColony._follow_paths/_assign_new_path.
+PATH_MAX_WAYPOINTS = 24      # số điểm rẽ hướng tối đa lưu cho 1 đường đi
+                            # (thực tế hiếm khi vượt quá vài điểm với bản
+                            # đồ 40x40 và vài chục vật cản)
+PATH_REPLAN_BUDGET_PER_TICK = 40   # số lần tính đường đi MỚI tối đa cho
+                            # phép mỗi tick (dùng chung cho cả tìm ăn, tha
+                            # mồi về tổ, lính gác rút quân) - tránh giật
+                            # khung hình khi rất nhiều kiến cùng cần đường
+                            # đi mới trong 1 tick (vd lúc mới khởi động);
+                            # kiến chưa tới lượt sẽ đứng yên, thử lại tick sau
+WAYPOINT_ARRIVE_THRESHOLD = 0.22   # coi là "đã tới" 1 điểm rẽ hướng khi
+                            # còn cách chừng này - nhỏ hơn ARRIVE_THRESHOLD
+                            # (mốc tới ĐÍCH CUỐI, vd cửa tổ) để bo góc sát
+                            # hơn, giảm nguy cơ "cắt góc" đâm vào vật cản
+EXPLORE_TARGET_SAMPLES = 12  # số điểm ứng viên ngẫu nhiên xét mỗi lần 1
+                            # kiến SEARCHING cần chọn điểm khám phá mới
+EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm khi CHỌN
+                            # điểm khám phá (thay cho việc né bằng cách bẻ
+                            # lái từng tick như cơ chế pheromone cũ)
+
+# ----- Tab demo "Tim duong trong me cung" (maze_demo.py) - bam nut "Me
+# cung moi" chi duoc phep tra chi phi build O(V^2) MOT LAN (dung
+# find_path thuong, khong phai find_path_lazy - xem ly do trong
+# maze_demo.py), nen so tuong/do dai phai du THUA de con duoi 0.5s. -----
+MAZE_DEMO_NUM_WALLS = 8            # so buc tuong da dai trong me cung demo
+MAZE_DEMO_WALL_LEN_RANGE = (10, 19)  # (min, max+1) - do dai moi buc tuong
+MAZE_DEMO_TURN_CHANCE = 0.35       # xac suat re huong moi buoc (cang cao
+                                    # cang ngoan ngoeo, giong me cung hon)
 
 # ----- Né vật cản (đá/nước): "bám tường" thay vì dội ngẫu nhiên -----
 # LƯU Ý: nếu chỉ xoay 1 góc ngẫu nhiên rồi lập tức để mùi pheromone/hướng
@@ -76,10 +113,26 @@ RETURN_NEST_WEIGHT_AVOIDING = 0.08  # trong lúc đang né, tỉ trọng "hướ
                              # thẳng về tổ" mỗi tick giảm xuống bấy nhiêu
                              # (bình thường là 0.75 - xem _update_surface_ants)
 
-# ----- Pheromone (mùi dẫn đường về tổ khi tha thức ăn) -----
+# ----- Pheromone (mùi dẫn đường về tổ khi tha thức ăn) - CHỈ CÒN dùng để
+# VẼ vệt mùi trực quan (xem render_surface.py); từ khi chuyển sang
+# pathfinding thật (visibility graph + A*, xem pathfinding.py và
+# AntColony._update_surface_ants trong ants.py), pheromone KHÔNG còn ảnh
+# hưởng gì tới việc kiến chọn hướng đi nữa. -----
 PHEROMONE_DECAY = 0.985     # mỗi tick pheromone giảm còn 98.5%
 PHEROMONE_DEPOSIT = 1.0     # lượng mùi để lại mỗi tick khi đang tha đồ
 PHEROMONE_MAX = 8.0
+
+# ----- "Bản đồ nhiệt" nơi kiến đã ghé qua gần đây - THAY vai trò dẫn
+# hướng tìm ăn mà pheromone từng đảm nhiệm: khi 1 kiến đang tìm ăn (SEARCHING)
+# cần chọn điểm khám phá mới, nó ưu tiên vùng CÒN Ít NHIỆT (chưa ai mới đi
+# qua) để đàn tự nhiên tỏa ra phủ khắp bản đồ thay vì dẫm chân lên nhau,
+# rồi mới tính đường đi NGẮN NHẤT any-angle (pathfinding.py) tới đó -
+# xem AntColony._pick_explore_target.
+VISIT_HEAT_DEPOSIT = 0.5    # lượng "nhiệt" để lại mỗi tick tại ô đang đứng
+VISIT_HEAT_DECAY = 0.995    # mỗi tick nhiệt giảm còn 99.5% (tan chậm hơn
+                            # pheromone nhiều - cần "nhớ" vùng đã đi qua đủ
+                            # lâu để đàn thực sự tỏa ra khắp bản đồ)
+VISIT_HEAT_MAX = 20.0
 
 # ----- Pheromone báo động (khi có kẻ thù trên mặt đất) -----
 DANGER_PHEROMONE_DECAY = 0.85   # giảm RẤT nhanh - chỉ còn tác dụng ngay

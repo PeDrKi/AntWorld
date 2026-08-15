@@ -77,10 +77,10 @@ def handle_events(state):
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return False
-            elif event.key == pygame.K_UP:
+            elif event.key == pygame.K_UP and state.active_tab == "sim":
                 state.stop_follow()
                 state.change_layer(-1)
-            elif event.key == pygame.K_DOWN:
+            elif event.key == pygame.K_DOWN and state.active_tab == "sim":
                 state.stop_follow()
                 state.change_layer(1)
             elif event.key == pygame.K_s and ctrl_held:
@@ -89,8 +89,10 @@ def handle_events(state):
                 state.load_game()
         elif event.type == pygame.MOUSEWHEEL:
             mx, my = pygame.mouse.get_pos()
-            if any(p.contains((mx, my)) for p in state.panels):
+            if any(p.contains((mx, my)) for p in state.visible_panels()):
                 pass  # con tro dang o tren 1 panel noi - khong tac dong len camera/tang
+            elif state.active_tab != "sim":
+                pass  # tab Demo me cung khong pan/zoom - luon vua khung nhin
             elif ctrl_held:
                 state.stop_follow()
                 state.change_layer(-1 if event.y > 0 else 1)
@@ -100,29 +102,29 @@ def handle_events(state):
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
                 handled = False
-                for panel in state.panels:
+                for panel in state.visible_panels():
                     if panel.handle_mousedown(event.pos):
                         handled = True
                         break
-                if not handled and state.current_tool is not None:
+                if not handled and state.active_tab == "sim" and state.current_tool is not None:
                     pos = state.get_canvas_sim_xy(event.pos)
                     if pos is not None:
                         state.perform_tool_action(state.current_tool, pos[0], pos[1], state.current_layer)
             elif event.button == 3:
                 # Chỉ bắt đầu kéo (pan) camera nếu KHÔNG bấm trúng 1 panel
                 # nổi nào - tránh vừa kéo camera vừa kéo panel bên trên nó
-                if not any(p.contains(event.pos) for p in state.panels):
+                if state.active_tab == "sim" and not any(p.contains(event.pos) for p in state.visible_panels()):
                     state.stop_follow()
                     state.panning = True
                     state.last_mouse = event.pos
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
-                for panel in state.panels:
+                for panel in state.visible_panels():
                     panel.handle_mouseup()
             elif event.button == 3:
                 state.panning = False
         elif event.type == pygame.MOUSEMOTION:
-            for panel in state.panels:
+            for panel in state.visible_panels():
                 panel.handle_mousemotion(event.pos, state.SCREEN_W, state.SCREEN_H)
             if state.panning:
                 dx = event.pos[0] - state.last_mouse[0]
@@ -130,10 +132,11 @@ def handle_events(state):
                 state.camera.pan(dx, dy)
                 state.last_mouse = event.pos
 
-    # --- kéo chuột trái liên tục để rải (thức ăn/đá/nước/xóa) ---
-    if state.current_tool in state.DRAG_TOOLS and pygame.mouse.get_pressed()[0]:
+    # --- kéo chuột trái liên tục để rải (thức ăn/đá/nước/xóa) - chỉ ở tab
+    # Mo phong, tab Demo me cung không có công cụ đặt/rải ---
+    if state.active_tab == "sim" and state.current_tool in state.DRAG_TOOLS and pygame.mouse.get_pressed()[0]:
         mp = pygame.mouse.get_pos()
-        over_panel = any(p.contains(mp) for p in state.panels)
+        over_panel = any(p.contains(mp) for p in state.visible_panels())
         if over_panel:
             pass
         elif state.drag_cooldown <= 0:
@@ -151,6 +154,15 @@ def handle_events(state):
 
 def render(state):
     screen = state.screen
+    if state.active_tab == "maze":
+        screen.fill(cfg.COLOR_BG_SURFACE)
+        state.maze_demo.render(state, screen)
+        hud.draw_tab_panel(state, screen)
+        hud.draw_maze_panel(state, screen)
+        hud.draw_toasts(state, screen)
+        pygame.display.flip()
+        return
+
     if state.current_layer == 0:
         screen.fill(cfg.COLOR_BG_SURFACE)
         draw_surface_layer(state, screen)
@@ -174,6 +186,7 @@ def render(state):
     hud.draw_hud(state, screen)
     hud.draw_toolbar(state, screen)
     hud.draw_layer_map(state, screen)
+    hud.draw_tab_panel(state, screen)
     hud.draw_toasts(state, screen)
     pygame.display.flip()
 
@@ -194,6 +207,9 @@ def main(max_frames=None):
         if not state.sim_paused:
             for _ in range(state.sim_speed):
                 state.step_simulation()
+
+        if state.active_tab == "maze":
+            state.maze_demo.step()
 
         state.update_follow_camera()
         state.check_alerts()

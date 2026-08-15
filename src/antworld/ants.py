@@ -16,6 +16,7 @@ SỰ trong phòng ấu trùng (ăn đúng thức ăn nurse mang tới), và ch�
 1 kiến thợ mới khi đủ lớn (xem _update_larvae)."""
 import numpy as np
 from . import config as cfg
+from . import pathfinding
 
 
 class AntColony:
@@ -73,6 +74,21 @@ class AntColony:
         # Loại thức ăn CỤ THỂ đang tha (hạt/côn trùng/mật hoa) - chỉ dùng để
         # VẼ đúng màu miếng mồi trên lưng kiến, không ảnh hưởng mô phỏng
         self.carry_food_type = np.zeros(self.n, dtype=np.int8)
+
+        # --- Tìm đường trên mặt đất (pathfinding.py): mỗi kiến giữ sẵn 1
+        # "hàng đợi" điểm rẽ hướng (waypoint) của đường đi any-angle NGẮN
+        # NHẤT đang đi theo (tới điểm khám phá ngẫu nhiên nếu đang
+        # SEARCHING, hoặc tới cửa tổ nếu đang RETURNING/lính gác rút quân)
+        # - xem _assign_new_path/_follow_paths. path_len=0 nghĩa là CHƯA
+        # có đường đi (cần tính đường mới, xem PATH_REPLAN_BUDGET_PER_TICK
+        # trong update() để tránh giật khung hình khi quá nhiều kiến cùng
+        # cần đường mới 1 lúc).
+        self.path_x = np.zeros((self.n, cfg.PATH_MAX_WAYPOINTS), dtype=np.float32)
+        self.path_y = np.zeros((self.n, cfg.PATH_MAX_WAYPOINTS), dtype=np.float32)
+        self.path_len = np.zeros(self.n, dtype=np.int16)
+        self.path_idx = np.zeros(self.n, dtype=np.int16)
+        self.pathfinder = pathfinding.VisibilityPathfinder(surface)
+        self._path_budget = 0
 
         # --- Phân vai: đa số thợ nhỏ, 1 phần nhỏ là lính (thợ lớn) ---
         self.role = (rng.uniform(0, 1, self.n) < cfg.MAJOR_WORKER_RATIO).astype(np.int8)
@@ -175,6 +191,7 @@ class AntColony:
     def update(self, enemy=None, invasion=None):
         self.tick_count += 1
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
+        self._path_budget = cfg.PATH_REPLAN_BUDGET_PER_TICK
         if self.trophallaxis_events:
             cutoff = self.tick_count - cfg.TROPHALLAXIS_TTL_TICKS
             self.trophallaxis_events = [e for e in self.trophallaxis_events if e[4] > cutoff]
@@ -184,6 +201,7 @@ class AntColony:
         self._update_attendants()
         self._update_guards(enemy, invasion)
         self.surface.decay_pheromone()
+        self.surface.decay_visit()
         population = int(np.sum(self.alive))
         if not self.founding_phase:
             # Bỏ qua theo dõi "cạn kho" trong lúc lập tổ - kho THẬT SỰ
@@ -216,144 +234,189 @@ class AntColony:
         searching = on_surface & (self.state == cfg.STATE_SEARCHING)
         returning = on_surface & (self.state == cfg.STATE_RETURNING)
 
-        # --- Kiến đang tìm ăn: dò pheromone 3 hướng rồi lệch theta ---
         if np.any(searching):
-            idx = np.where(searching)[0]
-            theta = self.theta[idx]
-            x, y = self.x[idx], self.y[idx]
-            prev_x, prev_y = x.copy(), y.copy()
-
-            def sense(offset):
-                sx = x + np.cos(theta + offset) * cfg.SENSE_DIST
-                sy = y + np.sin(theta + offset) * cfg.SENSE_DIST
-                xi = self._wrap_indices(sx)
-                yi = self._wrap_indices(sy)
-                return self.surface.sample_pheromone(xi, yi)
-
-            def sense_danger(offset):
-                sx = x + np.cos(theta + offset) * cfg.SENSE_DIST
-                sy = y + np.sin(theta + offset) * cfg.SENSE_DIST
-                xi = self._wrap_indices(sx)
-                yi = self._wrap_indices(sy)
-                return self.surface.sample_danger(xi, yi)
-
-            left = sense(-cfg.SENSE_ANGLE)
-            center = sense(0.0)
-            right = sense(cfg.SENSE_ANGLE)
-
-            bias = np.zeros_like(theta)
-            bias = np.where(left > center, bias - cfg.SENSE_ANGLE, bias)
-            bias = np.where(right > np.maximum(left, center), bias + cfg.SENSE_ANGLE, bias)
-
-            # --- Né tránh mùi báo động nguy hiểm (kẻ thù) - hướng NGƯỢC
-            # lại phía có mùi báo động đậm hơn, độc lập với việc tìm ăn ---
-            d_left = sense_danger(-cfg.SENSE_ANGLE)
-            d_center = sense_danger(0.0)
-            d_right = sense_danger(cfg.SENSE_ANGLE)
-            danger_bias = np.zeros_like(theta)
-            danger_bias = np.where(d_left > d_center, danger_bias + cfg.SENSE_ANGLE, danger_bias)
-            danger_bias = np.where(d_right > np.maximum(d_left, d_center), danger_bias - cfg.SENSE_ANGLE, danger_bias)
-            danger_present = np.maximum(d_left, np.maximum(d_center, d_right)) > cfg.DANGER_PRESENCE_THRESHOLD
-            bias = bias + np.where(danger_present, danger_bias * cfg.DANGER_AVOID_WEIGHT, 0.0)
-
-            noise = np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(idx)).astype(np.float32)
-            # Đang né vật cản -> giảm hẳn lực kéo theo mùi, để có thời gian
-            # thật sự trượt ra khỏi rìa vật cản thay vì bị kéo lại ngay
-            avoiding = self.avoid_cooldown[idx] > 0
-            bias_scale = np.where(avoiding, cfg.SEARCH_BIAS_SUPPRESS_FACTOR, 1.0).astype(np.float32)
-            self.theta[idx] = theta + bias * 0.5 * bias_scale + noise
-
-            self.x[idx] += np.cos(self.theta[idx]) * cfg.ANT_SPEED
-            self.y[idx] += np.sin(self.theta[idx]) * cfg.ANT_SPEED
-            self._bounce_walls(idx)
-            self._avoid_obstacles(idx, prev_x, prev_y)
-
-            # Kiểm tra ô có thức ăn không -> nhặt (giá trị tùy loại thức ăn)
-            xi = self._wrap_indices(self.x[idx])
-            yi = self._wrap_indices(self.y[idx])
-            got_food, food_types = self.surface.take_food(xi, yi, amount=1.0)
-            got_idx = idx[got_food]
-            if len(got_idx) > 0:
-                values = np.array(
-                    [cfg.FOOD_TYPE_VALUE[t] for t in food_types[got_food]],
-                    dtype=np.float32,
-                )
-                self.carrying[got_idx] = True
-                self.carry_type[got_idx] = 1
-                self.carry_amount[got_idx] = values
-                self.carry_food_type[got_idx] = food_types[got_food]
-                self.state[got_idx] = cfg.STATE_RETURNING
-                self.total_food_collected += len(got_idx)
-
-            # --- "Uống" nước tại mép nước: kiến tìm ăn đi tình cờ NGANG
-            # SÁT mép nước có thể tranh thủ uống 1 ngụm mang về tổ, y hệt
-            # nhặt thức ăn - chỉ xét những con VẪN CÒN đang STATE_SEARCHING
-            # thật sự (tay không, chưa vừa nhặt được thức ăn ở trên) để
-            # không "vừa nhặt thức ăn vừa uống nước" cùng 1 tick. Xác suất
-            # nhỏ mỗi tick (WATER_PICKUP_PROB) thay vì uống ngay lập tức -
-            # kiến thường lượn/né quanh mép nước khá nhiều tick liền (xem
-            # _avoid_obstacles), nên qua vài chục tick gần như chắc chắn sẽ
-            # có lúc "tranh thủ" uống được, không cần xác suất cao mỗi tick.
-            still_searching = idx[self.state[idx] == cfg.STATE_SEARCHING]
-            if len(still_searching) > 0:
-                wxi = self._wrap_indices(self.x[still_searching])
-                wyi = self._wrap_indices(self.y[still_searching])
-                near_w = self.surface.near_water(wxi, wyi)
-                if np.any(near_w):
-                    candidates = still_searching[near_w]
-                    rolls = np.random.uniform(0, 1, len(candidates))
-                    drink_idx = candidates[rolls < cfg.WATER_PICKUP_PROB]
-                    if len(drink_idx) > 0:
-                        self.carrying[drink_idx] = True
-                        self.carry_type[drink_idx] = 2
-                        self.carry_amount[drink_idx] = cfg.WATER_CARRY_AMOUNT
-                        self.state[drink_idx] = cfg.STATE_RETURNING
-
-        # --- Kiến đang tha thức ăn về tổ ---
+            self._update_searching_ants(np.where(searching)[0])
         if np.any(returning):
-            idx = np.where(returning)[0]
-            x, y = self.x[idx], self.y[idx]
-            prev_x, prev_y = x.copy(), y.copy()
-            nest_x, nest_y = self.nest_pos
-            to_nest_theta = np.arctan2(nest_y - y, nest_x - x)
-            # Đang né vật cản -> gần như bỏ qua lực hút thẳng về tổ 1 lúc,
-            # để thật sự trượt dọc rìa vật cản ra ngoài trước khi lại lao
-            # thẳng về tổ - nếu không, hướng về tổ (trọng số 0.75) sẽ kéo
-            # kiến quay lại đúng chỗ vừa bị chặn ngay tick sau, gây kẹt cứng
-            avoiding = self.avoid_cooldown[idx] > 0
-            nest_weight = np.where(avoiding, cfg.RETURN_NEST_WEIGHT_AVOIDING, 0.75).astype(np.float32)
-            self.theta[idx] = (1.0 - nest_weight) * self.theta[idx] + nest_weight * to_nest_theta
+            self._update_returning_ants(np.where(returning)[0])
 
-            self.x[idx] += np.cos(self.theta[idx]) * cfg.ANT_SPEED
-            self.y[idx] += np.sin(self.theta[idx]) * cfg.ANT_SPEED
-            self._bounce_walls(idx)
-            self._avoid_obstacles(idx, prev_x, prev_y)
+    # ------------------------------------------------------------------
+    def _assign_new_path(self, i, start_xy, target_xy):
+        """Tính đường đi any-angle NGẮN NHẤT (visibility graph + A*, xem
+        pathfinding.py) cho ĐÚNG 1 con kiến (chỉ số i) và lưu vào hàng đợi
+        waypoint của nó. Trả về True nếu tìm được đường (dù rất hiếm khi
+        thất bại - chỉ khi kiến/đích bị vây kín hoàn toàn bởi vật cản)."""
+        path = self.pathfinder.find_path(start_xy, target_xy)
+        if not path:
+            return False
+        path = path[: cfg.PATH_MAX_WAYPOINTS]
+        length = len(path)
+        for k, (wx, wy) in enumerate(path):
+            self.path_x[i, k] = wx
+            self.path_y[i, k] = wy
+        self.path_len[i] = length
+        self.path_idx[i] = 0
+        return True
 
-            # Không củng cố dấu vết pheromone tại chỗ đang né - nếu không,
-            # đúng điểm kẹt cạnh vật cản sẽ liên tục được "tô đậm" mùi,
-            # càng kéo thêm nhiều kiến tìm ăn khác lao vào đúng chỗ kẹt đó
-            not_avoiding = idx[self.avoid_cooldown[idx] == 0]
-            if len(not_avoiding) > 0:
-                xi = self._wrap_indices(self.x[not_avoiding])
-                yi = self._wrap_indices(self.y[not_avoiding])
-                self.surface.deposit_pheromone(xi, yi)
+    def _follow_paths(self, idx, speed):
+        """Di chuyển hàng loạt (vector hóa) các kiến trong idx theo waypoint
+        HIỆN TẠI của đường đi đã tính sẵn - khi tới đủ gần 1 waypoint thì tự
+        chuyển sang waypoint kế tiếp; tới waypoint CUỐI (đích) thì xóa path
+        (path_len=0) để nơi gọi hàm này biết mà xử lý tiếp (nhặt đồ, xuống
+        hầm, chọn điểm khám phá mới...)."""
+        cur_wp = self.path_idx[idx].astype(np.int64)
+        tx = self.path_x[idx, cur_wp]
+        ty = self.path_y[idx, cur_wp]
+        x, y = self.x[idx], self.y[idx]
+        dx, dy = tx - x, ty - y
+        dist = np.sqrt(dx * dx + dy * dy)
+        safe_dist = np.where(dist < 1e-6, 1.0, dist)
+        step = np.minimum(speed, dist)
+        self.x[idx] = x + dx / safe_dist * step
+        self.y[idx] = y + dy / safe_dist * step
+        moved = dist > 1e-6
+        if np.any(moved):
+            self.theta[idx[moved]] = np.arctan2(dy[moved], dx[moved])
 
-            dist = np.hypot(self.x[idx] - nest_x, self.y[idx] - nest_y)
-            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
-            if len(arrived) > 0:
-                # Chui xuống giếng: "thang máy" đưa thẳng xuống ĐÚNG tầng
-                # cần tới - tha thức ăn thì xuống tầng kho, tha nước thì
-                # xuống tầng bể trữ nước (2 tầng RIÊNG BIỆT) - depth đổi tức
-                # thời, xuất hiện ngay tại điểm giếng (vị trí lỗ tổ) trên
-                # tầng đó rồi đi bộ 2D tới phòng.
-                is_water = self.carry_type[arrived] == 2
-                self.layer[arrived] = cfg.LAYER_UNDERGROUND
-                self.depth[arrived] = np.where(
-                    is_water, self.underground.water_depth, self.underground.storage_depth
-                )
-                self.x[arrived] = self.underground.shaft_xy[0]
-                self.y[arrived] = self.underground.shaft_xy[1]
-                self.state[arrived] = cfg.STATE_UG_TO_STORAGE
+        reached = dist < cfg.WAYPOINT_ARRIVE_THRESHOLD
+        if np.any(reached):
+            ridx = idx[reached]
+            nxt = (self.path_idx[ridx] + 1).astype(np.int16)
+            finished = nxt >= self.path_len[ridx]
+            self.path_idx[ridx] = np.where(finished, self.path_idx[ridx], nxt).astype(np.int16)
+            done_idx = ridx[finished]
+            if len(done_idx) > 0:
+                self.path_len[done_idx] = 0
+                self.path_idx[done_idx] = 0
+
+    def _pick_explore_target(self, x, y):
+        """Chọn 1 điểm khám phá mới cho kiến đang SEARCHING - ưu tiên vùng
+        CÒN Ít NHIỆT (visit_heat thấp, xem SurfaceWorld.visit_heat) để đàn
+        tự nhiên tỏa ra phủ khắp bản đồ thay vì dẫm chân lên nhau, đồng
+        thời tránh vùng có mùi báo động nguy hiểm đậm (kẻ thù ở gần) - đây
+        là 2 vai trò mà mùi pheromone dẫn đường từng đảm nhiệm, giờ chuyển
+        sang bước CHỌN ĐÍCH thay vì bẻ lái từng tick."""
+        n = cfg.GRID_SIZE
+        k = cfg.EXPLORE_TARGET_SAMPLES
+        cxs = np.random.uniform(0, n - 1, k).astype(np.float32)
+        cys = np.random.uniform(0, n - 1, k).astype(np.float32)
+        cxi = self._wrap_indices(cxs)
+        cyi = self._wrap_indices(cys)
+        free = ~self.surface.is_blocked(cxi, cyi)
+        if not np.any(free):
+            return None, None
+        cxs, cys, cxi, cyi = cxs[free], cys[free], cxi[free], cyi[free]
+        heat = self.surface.sample_visit(cxi, cyi)
+        danger = self.surface.sample_danger(cxi, cyi)
+        dist_from_here = np.hypot(cxs - x, cys - y)
+        # điểm càng gần vừa đi qua (nhiệt cao)/càng nguy hiểm thì càng bị
+        # "trừ điểm"; cộng thêm chút ưu tiên đi xa hơn 1 chút mỗi lần thay
+        # vì loanh quanh 1 chỗ
+        score = heat + danger * cfg.EXPLORE_DANGER_WEIGHT - 0.1 * np.minimum(dist_from_here, 10.0)
+        best = int(np.argmin(score))
+        return float(cxs[best]), float(cys[best])
+
+    def _update_searching_ants(self, idx):
+        need_target = idx[self.path_len[idx] == 0]
+        if len(need_target) > 0:
+            for i in need_target:
+                if self._path_budget <= 0:
+                    break
+                tx, ty = self._pick_explore_target(self.x[i], self.y[i])
+                if tx is None:
+                    continue
+                if self._assign_new_path(i, (self.x[i], self.y[i]), (tx, ty)):
+                    self._path_budget -= 1
+
+        active = idx[self.path_len[idx] > 0]
+        if len(active) == 0:
+            return
+        self._follow_paths(active, cfg.ANT_SPEED)
+
+        xi = self._wrap_indices(self.x[active])
+        yi = self._wrap_indices(self.y[active])
+        self.surface.deposit_visit(xi, yi)
+
+        # Kiểm tra ô có thức ăn không -> nhặt (giá trị tùy loại thức ăn)
+        got_food, food_types = self.surface.take_food(xi, yi, amount=1.0)
+        got_idx = active[got_food]
+        if len(got_idx) > 0:
+            values = np.array(
+                [cfg.FOOD_TYPE_VALUE[t] for t in food_types[got_food]],
+                dtype=np.float32,
+            )
+            self.carrying[got_idx] = True
+            self.carry_type[got_idx] = 1
+            self.carry_amount[got_idx] = values
+            self.carry_food_type[got_idx] = food_types[got_food]
+            self.state[got_idx] = cfg.STATE_RETURNING
+            self.total_food_collected += len(got_idx)
+            # Vừa nhặt được mồi -> hủy đường khám phá dở dang, tick sau sẽ
+            # tự tính đường mới thẳng về tổ (xem _update_returning_ants)
+            self.path_len[got_idx] = 0
+            self.path_idx[got_idx] = 0
+
+        # --- "Uống" nước tại mép nước: kiến tìm ăn đi tình cờ NGANG SÁT
+        # mép nước có thể tranh thủ uống 1 ngụm mang về tổ, y hệt nhặt
+        # thức ăn - chỉ xét những con VẪN CÒN đang STATE_SEARCHING thật sự
+        # (tay không, chưa vừa nhặt được thức ăn ở trên). Xác suất nhỏ mỗi
+        # tick (WATER_PICKUP_PROB) thay vì uống ngay lập tức.
+        still_searching = active[~got_food]
+        if len(still_searching) > 0:
+            wxi = self._wrap_indices(self.x[still_searching])
+            wyi = self._wrap_indices(self.y[still_searching])
+            near_w = self.surface.near_water(wxi, wyi)
+            if np.any(near_w):
+                candidates = still_searching[near_w]
+                rolls = np.random.uniform(0, 1, len(candidates))
+                drink_idx = candidates[rolls < cfg.WATER_PICKUP_PROB]
+                if len(drink_idx) > 0:
+                    self.carrying[drink_idx] = True
+                    self.carry_type[drink_idx] = 2
+                    self.carry_amount[drink_idx] = cfg.WATER_CARRY_AMOUNT
+                    self.state[drink_idx] = cfg.STATE_RETURNING
+                    self.path_len[drink_idx] = 0
+                    self.path_idx[drink_idx] = 0
+
+    def _update_returning_ants(self, idx):
+        nest_x, nest_y = self.nest_pos
+        need_path = idx[self.path_len[idx] == 0]
+        if len(need_path) > 0:
+            for i in need_path:
+                if self._path_budget <= 0:
+                    break
+                if self._assign_new_path(i, (self.x[i], self.y[i]), (nest_x, nest_y)):
+                    self._path_budget -= 1
+
+        active = idx[self.path_len[idx] > 0]
+        if len(active) == 0:
+            return
+        self._follow_paths(active, cfg.ANT_SPEED)
+
+        # Vẫn để lại vệt mùi pheromone dọc đường (dùng để VẼ trực quan trong
+        # render_surface.py, không còn ảnh hưởng gì tới việc chọn đường)
+        xi = self._wrap_indices(self.x[active])
+        yi = self._wrap_indices(self.y[active])
+        self.surface.deposit_pheromone(xi, yi)
+        self.surface.deposit_visit(xi, yi)
+
+        dist = np.hypot(self.x[active] - nest_x, self.y[active] - nest_y)
+        arrived = active[dist < cfg.ARRIVE_THRESHOLD]
+        if len(arrived) > 0:
+            # Chui xuống giếng: "thang máy" đưa thẳng xuống ĐÚNG tầng cần
+            # tới - tha thức ăn thì xuống tầng kho, tha nước thì xuống tầng
+            # bể trữ nước (2 tầng RIÊNG BIỆT) - depth đổi tức thời, xuất
+            # hiện ngay tại điểm giếng (vị trí lỗ tổ) trên tầng đó rồi đi bộ
+            # 2D tới phòng.
+            is_water = self.carry_type[arrived] == 2
+            self.layer[arrived] = cfg.LAYER_UNDERGROUND
+            self.depth[arrived] = np.where(
+                is_water, self.underground.water_depth, self.underground.storage_depth
+            )
+            self.x[arrived] = self.underground.shaft_xy[0]
+            self.y[arrived] = self.underground.shaft_xy[1]
+            self.state[arrived] = cfg.STATE_UG_TO_STORAGE
+            self.path_len[arrived] = 0
+            self.path_idx[arrived] = 0
 
     def _bounce_walls(self, idx):
         n = cfg.GRID_SIZE - 1
@@ -789,17 +852,25 @@ class AntColony:
         return_mask = guard_mask & (self.state == cfg.STATE_GUARD_RETURN)
         if np.any(return_mask):
             idx = np.where(return_mask)[0]
-            prev_x, prev_y = self.x[idx].copy(), self.y[idx].copy()
-            dist = self._move_towards_2d(idx, (nest_x, nest_y), cfg.GUARD_SPEED)
-            self._bounce_walls(idx)
-            self._avoid_obstacles(idx, prev_x, prev_y)
-            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
-            if len(arrived) > 0:
-                self.layer[arrived] = cfg.LAYER_UNDERGROUND
-                self.depth[arrived] = cfg.DEPTH_GUARD
-                self.x[arrived] = self.underground.shaft_xy[0]
-                self.y[arrived] = self.underground.shaft_xy[1]
-                self.state[arrived] = cfg.STATE_GUARD_DUTY
+            need_path = idx[self.path_len[idx] == 0]
+            for i in need_path:
+                if self._path_budget <= 0:
+                    break
+                if self._assign_new_path(i, (self.x[i], self.y[i]), (nest_x, nest_y)):
+                    self._path_budget -= 1
+            active = idx[self.path_len[idx] > 0]
+            if len(active) > 0:
+                self._follow_paths(active, cfg.GUARD_SPEED)
+                dist = np.hypot(self.x[active] - nest_x, self.y[active] - nest_y)
+                arrived = active[dist < cfg.ARRIVE_THRESHOLD]
+                if len(arrived) > 0:
+                    self.layer[arrived] = cfg.LAYER_UNDERGROUND
+                    self.depth[arrived] = cfg.DEPTH_GUARD
+                    self.x[arrived] = self.underground.shaft_xy[0]
+                    self.y[arrived] = self.underground.shaft_xy[1]
+                    self.state[arrived] = cfg.STATE_GUARD_DUTY
+                    self.path_len[arrived] = 0
+                    self.path_idx[arrived] = 0
 
     # ------------------------------------------------------------------
     def _update_lifecycle(self):

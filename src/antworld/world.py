@@ -15,6 +15,15 @@ class SurfaceWorld:
         self.terrain = np.zeros((n, n), dtype=np.int8)  # 0=đất, 1=đá, 2=nước
         self.terrain_features = []  # [(id, loại, cx, cy, radius), ...] để vẽ 3D
         self._next_feature_id = 0
+        # Tăng mỗi khi địa hình đổi (đặt/xóa đá, nước...) - VisibilityPathfinder
+        # (pathfinding.py) dùng số này để biết lúc nào cần dựng lại
+        # visibility graph, thay vì dựng lại mỗi tick dù địa hình không đổi.
+        self.terrain_version = 0
+        # "Bản đồ nhiệt" ghi nhận nơi kiến đã đi qua gần đây, dùng để chọn
+        # điểm khám phá tiếp theo ưu tiên vùng CHƯA đi (xem
+        # AntColony._pick_explore_target trong ants.py) - thay cho vai trò
+        # dẫn hướng tìm ăn mà pheromone từng đảm nhiệm.
+        self.visit_heat = np.zeros((n, n), dtype=np.float32)
         self.protected_nests = protected_nests if protected_nests else [cfg.NEST_POS]
         self._spawn_food_clusters()
         self._spawn_terrain_obstacles()
@@ -102,6 +111,7 @@ class SurfaceWorld:
             return None
         self.terrain[x, y] = cfg.TERRAIN_ROCK
         self.food[x, y] = 0
+        self.terrain_version += 1
         fid = self._next_feature_id
         self._next_feature_id += 1
         feature = (fid, cfg.TERRAIN_ROCK, x, y, 0.5)
@@ -134,6 +144,7 @@ class SurfaceWorld:
         self.terrain[txs, tys] = terrain_type
         # Xóa thức ăn nếu lỡ trùng vị trí (không cho thức ăn mọc trong đá/nước)
         self.food[txs, tys] = 0
+        self.terrain_version += 1
         fid = self._next_feature_id
         self._next_feature_id += 1
         feature = (fid, terrain_type, int(cx), int(cy), float(radius))
@@ -160,6 +171,8 @@ class SurfaceWorld:
             else:
                 remaining.append(feature)
         self.terrain_features = remaining
+        if removed:
+            self.terrain_version += 1
         return removed
 
     def clear_food_near(self, x, y, radius):
@@ -193,6 +206,16 @@ class SurfaceWorld:
 
     def sample_pheromone(self, xi, yi):
         return self.pheromone[xi, yi]
+
+    def decay_visit(self):
+        self.visit_heat *= cfg.VISIT_HEAT_DECAY
+
+    def deposit_visit(self, xi, yi):
+        np.add.at(self.visit_heat, (xi, yi), cfg.VISIT_HEAT_DEPOSIT)
+        np.clip(self.visit_heat, 0, cfg.VISIT_HEAT_MAX, out=self.visit_heat)
+
+    def sample_visit(self, xi, yi):
+        return self.visit_heat[xi, yi]
 
     def deposit_danger(self, x, y):
         """Phát ra mùi báo động nguy hiểm quanh vị trí (x, y) - dùng khi có

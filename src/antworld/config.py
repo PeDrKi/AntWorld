@@ -51,14 +51,11 @@ NUM_ANTS = 10                # số kiến KHỞI TẠO (không còn là giới 
 ANT_SPEED = 0.14            # số ô di chuyển mỗi tick (mặt phẳng ngang)
 UG_SPEED = 0.22             # tốc độ di chuyển trong hầm (đường thẳng 3D nên
                             # nhanh hơn 1 chút để không mất quá lâu xuống sâu)
-TURN_NOISE = 0.35           # độ nhiễu góc quay mỗi tick (radian) - CHỈ còn
-                            # dùng cho vài hành vi "lượn tại chỗ" (DWELL,
-                            # đóng quân...), không còn dùng cho việc tìm
-                            # đường trên mặt đất (xem PATH_* bên dưới)
-SENSE_DIST = 1.6            # (KHÔNG CÒN DÙNG - giữ lại tương thích ngược,
-                            # xem PATH_* bên dưới thay cho cơ chế "ngửi"
-                            # pheromone cũ)
-SENSE_ANGLE = 0.6           # (KHÔNG CÒN DÙNG - như trên)
+TURN_NOISE = 0.6             # độ nhiễu góc quay mỗi tick (radian) khi
+                             # "lượn tại chỗ" (DWELL, đóng quân... - xem
+                             # AntColony._update_underground_ants/_update_guards).
+                             # KHÔNG dùng cho việc tìm đường trên mặt đất
+                             # (xem PATH_* bên dưới, dùng pathfinding.py thật)
 
 # ----- Tìm đường (pathfinding.py): kiến trên mặt đất (SEARCHING/RETURNING)
 # và lính gác rút về tổ giờ đi theo ĐƯỜNG ĐI TÍNH SẴN (any-angle, ngắn
@@ -83,23 +80,24 @@ EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm kh
                             # điểm khám phá (thay cho việc né bằng cách bẻ
                             # lái từng tick như cơ chế pheromone cũ)
 
-# ----- Tab demo "Tim duong trong me cung" (maze_demo.py) - bam nut "Me
-# cung moi" chi duoc phep tra chi phi build O(V^2) MOT LAN (dung
-# find_path thuong, khong phai find_path_lazy - xem ly do trong
-# maze_demo.py), nen so tuong/do dai phai du THUA de con duoi 0.5s. -----
-MAZE_DEMO_NUM_WALLS = 8            # so buc tuong da dai trong me cung demo
-MAZE_DEMO_WALL_LEN_RANGE = (10, 19)  # (min, max+1) - do dai moi buc tuong
-MAZE_DEMO_TURN_CHANCE = 0.35       # xac suat re huong moi buoc (cang cao
-                                    # cang ngoan ngoeo, giong me cung hon)
+# ----- Sinh me cung THAT (maze_generator.py, nut "Sinh me cung" trong
+# toolbar) - rai truc tiep vao ban do dang choi, dan kien that tu tim
+# duong xuyen bang dung pathfinding.py. Vai tuong dai thay vi me cung
+# "phu kin 100% o" - ly do hieu nang, xem docstring generate_maze_in_world. -----
+MAZE_NUM_WALLS = 8            # so buc tuong da dai
+MAZE_WALL_LEN_RANGE = (10, 19)  # (min, max+1) - do dai moi buc tuong
+MAZE_TURN_CHANCE = 0.35       # xac suat re huong moi buoc (cang cao
+                               # cang ngoan ngoeo, giong me cung hon)
+MAZE_FOOD_AMOUNT = 40.0       # luong thuc an dat o goc xa nhat cua me cung
 
 # ----- Né vật cản (đá/nước): "bám tường" thay vì dội ngẫu nhiên -----
-# LƯU Ý: nếu chỉ xoay 1 góc ngẫu nhiên rồi lập tức để mùi pheromone/hướng
-# về tổ kéo lại như cũ, kiến sẽ dội qua dội lại NGAY TẠI rìa vật cản (kẹt
-# thành từng cụm dài bám sát đá/nước) vì lực kéo về pheromone/tổ mạnh hơn
-# nhiều so với góc né. Cách khắc phục: khi né, kiến "khóa" 1 hướng né cố
-# định (trái HOẶC phải, không đổi ngẫu nhiên mỗi lần) và tạm thời GIẢM HẲN
-# lực kéo về pheromone/tổ trong vài chục tick để có thời gian trượt dọc
-# theo rìa vật cản ra ngoài, giống kiến thật đi vòng quanh chướng ngại vật.
+# Dùng cho lính gác đuổi kẻ thù trên mặt đất (_update_guards/STATE_GUARD_RUSH,
+# mục tiêu đổi liên tục theo vị trí kẻ thù nên không hợp để tính trước 1
+# đường any-angle như pathfinding.py) - kiến tìm ăn/tha mồi về tổ giờ đi
+# theo đường tính sẵn (xem PATH_* ở trên) nên KHÔNG còn dùng cơ chế né này.
+# "Khóa" 1 hướng né cố định (trái HOẶC phải, không đổi ngẫu nhiên mỗi lần)
+# trong suốt cả pha né, để TRƯỢT DỌC rìa vật cản ra ngoài thay vì dội qua
+# dội lại ngay tại chỗ va chạm.
 AVOID_COOLDOWN_TICKS = 25    # số tick "khóa hướng né" mỗi lần chạm vật cản
                              # (được LÀM MỚI lại mỗi lần vẫn còn bị chặn, nên
                              # vật cản càng to thì kiến càng có nhiều thời
@@ -107,11 +105,6 @@ AVOID_COOLDOWN_TICKS = 25    # số tick "khóa hướng né" mỗi lần chạm
 AVOID_TURN_ANGLE = 1.35      # góc né khi vừa chạm vật cản (~77 độ, gần vuông
                              # góc với hướng đang đi - để TRƯỢT DỌC theo rìa
                              # thay vì chỉ hơi chếch)
-SEARCH_BIAS_SUPPRESS_FACTOR = 0.1   # trong lúc đang né, lực kéo theo mùi
-                             # pheromone khi tìm ăn bị giảm còn bấy nhiêu %
-RETURN_NEST_WEIGHT_AVOIDING = 0.08  # trong lúc đang né, tỉ trọng "hướng
-                             # thẳng về tổ" mỗi tick giảm xuống bấy nhiêu
-                             # (bình thường là 0.75 - xem _update_surface_ants)
 
 # ----- Pheromone (mùi dẫn đường về tổ khi tha thức ăn) - CHỈ CÒN dùng để
 # VẼ vệt mùi trực quan (xem render_surface.py); từ khi chuyển sang
@@ -142,14 +135,6 @@ DANGER_DEPOSIT_AMOUNT = 3.0     # lượng mùi báo động kẻ thù để l�
 DANGER_DEPOSIT_RADIUS = 2        # bán kính lan tỏa quanh vị trí kẻ thù -
                                 # hẹp, không phủ kín cả khu vực quanh tổ
 DANGER_PHEROMONE_MAX = 10.0
-DANGER_PRESENCE_THRESHOLD = 1.5  # chỉ né khi mùi đủ đậm (gần kẻ thù thật
-                                # sự), tránh phản ứng thái quá với dấu vết
-                                # mờ nhạt còn sót lại
-DANGER_AVOID_WEIGHT = 0.4        # trọng số né tránh - NHẸ, chỉ là 1 xu
-                                # hướng lệch thêm, không lấn át hẳn hành vi
-                                # tìm ăn bình thường (đã kiểm thử: đặt cao
-                                # hơn nhiều sẽ làm tê liệt việc tìm ăn khi
-                                # kẻ thù ở gần tổ, gây sụp đổ dân số)
 
 # ----- Thức ăn trên mặt đất (1 LOẠI DUY NHẤT - đơn giản hóa: trước đây có
 # 3 loại khác màu/giá trị (hạt/côn trùng/mật hoa), nay chỉ còn 1 loại, 1

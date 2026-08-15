@@ -584,7 +584,7 @@ class AntColony:
             if center is None:
                 continue
             sub = idx[self.dwell_room_id[idx] == room_id_val]
-            self.theta[sub] += np.random.uniform(-0.6, 0.6, len(sub)).astype(np.float32)
+            self.theta[sub] += np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(sub)).astype(np.float32)
             self.x[sub] += np.cos(self.theta[sub]) * cfg.DWELL_SPEED
             self.y[sub] += np.sin(self.theta[sub]) * cfg.DWELL_SPEED
 
@@ -625,7 +625,7 @@ class AntColony:
         có hẹn giờ CỐ ĐỊNH rồi tự chuyển sang trạng thái khác."""
         if len(idx) == 0:
             return
-        self.theta[idx] = self.theta[idx] + np.random.uniform(-0.6, 0.6, len(idx)).astype(np.float32)
+        self.theta[idx] = self.theta[idx] + np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(idx)).astype(np.float32)
         self.x[idx] += np.cos(self.theta[idx]) * cfg.DWELL_SPEED
         self.y[idx] += np.sin(self.theta[idx]) * cfg.DWELL_SPEED
         dx = self.x[idx] - center[0]
@@ -818,7 +818,7 @@ class AntColony:
                 idx = np.where(duty_mask)[0]
                 center, radius = self.underground.room_center_and_radius(cfg.DEPTH_GUARD)
                 if center is not None:
-                    self.theta[idx] += np.random.uniform(-0.6, 0.6, len(idx)).astype(np.float32)
+                    self.theta[idx] += np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(idx)).astype(np.float32)
                     self.x[idx] += np.cos(self.theta[idx]) * cfg.DWELL_SPEED
                     self.y[idx] += np.sin(self.theta[idx]) * cfg.DWELL_SPEED
                     dx = self.x[idx] - center[0]

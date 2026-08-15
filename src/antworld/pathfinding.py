@@ -57,10 +57,9 @@ class VisibilityPathfinder:
 
     # ------------------------------------------------------------------
     def _rebuild_vertices_if_needed(self):
-        """Chỉ trích xuất lại ĐỈNH (rẻ, không có bước O(V^2)) - đủ dùng
-        cho find_path_lazy(). Tách riêng khỏi _rebuild_if_needed() (dựng
-        thêm cả static_edges, O(V^2)) vì 2 cách dùng có đánh đổi khác
-        nhau, xem so sánh chi tiết ở find_path_lazy()."""
+        """Chỉ trích xuất lại ĐỈNH (rẻ, không có bước O(V^2)) - dùng nội bộ
+        trước khi build_static_edges(); tách riêng để có thể tái sử dụng
+        nếu sau này cần 1 chế độ tìm đường không cache."""
         if self._vertices_version == self.surface.terrain_version:
             return
         self._vertices_version = self.surface.terrain_version
@@ -272,7 +271,18 @@ class VisibilityPathfinder:
         return visible
 
     def line_of_sight(self, p, q):
-        """Kiểm tra tầm nhìn giữa đúng 2 điểm (tiện dùng ngoài module)."""
+        """Kiểm tra tầm nhìn giữa đúng 2 điểm (tiện dùng ngoài module).
+
+        Tự đảm bảo dữ liệu hình học (ô vật cản/điểm kẹp chéo/đường ghép)
+        đã sẵn sàng trước khi kiểm tra - KHÔNG dựa vào việc người gọi đã
+        lỡ gọi find_path() trước đó hay chưa. Thiếu bước này, gọi thẳng
+        line_of_sight() trên 1 VisibilityPathfinder vừa khởi tạo (chưa
+        từng find_path() lần nào) sẽ luôn trả về "nhìn thấy" SAI (vì
+        _blocked_cells vẫn đang rỗng từ __init__) - lỗi này chỉ bị phát
+        hiện nhờ viết unit test riêng cho line_of_sight(), không hề gây
+        ảnh hưởng trong game vì nơi gọi duy nhất trước giờ (find_path) đã
+        luôn tự rebuild trước khi gọi hàm này."""
+        self._rebuild_vertices_if_needed()
         target = np.array([[q[0], q[1]]], dtype=np.float32)
         return bool(self._batch_visible(p, target)[0])
 
@@ -364,74 +374,3 @@ class VisibilityPathfinder:
         chain.reverse()
         chain.append(target)
         return chain
-
-    # ------------------------------------------------------------------
-    def find_path_lazy(self, start, target):
-        """Biến thể KHÔNG dựng static_edges (bỏ qua bước O(V^2) trong
-        _build_static_edges) - tại mỗi bước A* mở rộng, kiểm tra tầm nhìn
-        TRỰC TIẾP từ nút hiện tại tới toàn bộ đỉnh, đúng cách "A* on
-        Visibility Graphs" nguyên bản vận hành (không cache).
-
-        Đánh đổi NGƯỢC với find_path(): find_path() trả phí O(V^2) MỘT
-        LẦN rồi mỗi truy vấn sau chỉ còn ~O(V) - lợi khi cùng 1 bản đồ
-        được hỏi đường RẤT NHIỀU LẦN (đúng trường hợp hàng trăm con kiến
-        trong game, xem class docstring). find_path_lazy() không trả phí
-        O(V^2) đó, đổi lại mỗi bước mở rộng của A* đều phải quét lại toàn
-        bộ đỉnh - lợi hơn hẳn khi CHỈ cần 1 (hoặc vài) truy vấn trên 1 bản
-        đồ rồi thôi, đặc biệt với bản đồ dày đặc vật cản (mê cung) nơi số
-        đỉnh V lớn khiến O(V^2) trở nên quá đắt cho chỉ 1 lần dùng - xem
-        maze_demo.py (tab demo tìm đường trong mê cung)."""
-        self._rebuild_vertices_if_needed()
-        n = cfg.GRID_SIZE
-        sx = float(np.clip(start[0], 0, n - 1))
-        sy = float(np.clip(start[1], 0, n - 1))
-        tx = float(np.clip(target[0], 0, n - 1))
-        ty = float(np.clip(target[1], 0, n - 1))
-        start = (sx, sy)
-        target = (tx, ty)
-
-        if self.line_of_sight(start, target):
-            return [target]
-
-        verts = self._vertices
-        if len(verts) == 0:
-            return None
-
-        def heuristic(pt):
-            return math.hypot(pt[0] - target[0], pt[1] - target[1])
-
-        g = {start: 0.0}
-        parent = {start: None}
-        heap = [(heuristic(start), start)]
-        closed = set()
-        while heap:
-            f, u = heapq.heappop(heap)
-            if u in closed:
-                continue
-            closed.add(u)
-            if u == target:
-                break
-            vis = self._batch_visible(u, verts)
-            idxs = np.where(vis)[0]
-            candidates = [tuple(verts[i]) for i in idxs]
-            if self.line_of_sight(u, target):
-                candidates.append(target)
-            for pt in candidates:
-                if pt in closed:
-                    continue
-                dist = math.hypot(pt[0] - u[0], pt[1] - u[1])
-                ng = g[u] + dist
-                if ng < g.get(pt, math.inf):
-                    g[pt] = ng
-                    parent[pt] = u
-                    heapq.heappush(heap, (ng + heuristic(pt), pt))
-
-        if target not in parent:
-            return None
-        chain = []
-        cur = target
-        while cur is not None:
-            chain.append(cur)
-            cur = parent[cur]
-        chain.reverse()
-        return chain[1:]  # bỏ điểm start (giữ đúng quy ước như find_path)

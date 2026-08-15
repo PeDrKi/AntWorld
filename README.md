@@ -173,18 +173,31 @@ vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 t�
 
 ## Thanh công cụ
 
-- **"Dat thuc an" / "Tha ke thu" / "Dao phong" / "Dat da" / "Dat nuoc"**:
-  CHỈ dùng được khi đang xem **Tầng 0 (Mặt đất)** vì đây là thao tác đặt
-  trên mặt đất nhìn từ trên xuống. Nếu chọn công cụ này ở tầng khác, dòng
-  gợi ý dưới màn hình sẽ nhắc bạn quay về Tầng 0.
+- **"Dat thuc an" / "Tha ke thu" / "Dat da" / "Dat nuoc"**: CHỈ dùng được
+  khi đang xem **Tầng 0 (Mặt đất)** vì đây là thao tác đặt trên mặt đất
+  nhìn từ trên xuống. Nếu chọn công cụ này ở tầng khác, dòng gợi ý dưới
+  màn hình sẽ nhắc bạn quay về Tầng 0.
 - **"Xoa"**: dùng được ở MỌI tầng - xóa đúng nội dung của tầng đang xem
   (mặt đất: thức ăn/đá/nước/kiến trên mặt đất; tầng ngầm: phòng tự đào ở
   đúng tầng đó + kiến đang ở tầng đó).
+- **"Theo doi"**: bấm rồi click vào 1 con kiến để camera tự bám theo nó
+  (kể cả khi nó đổi tầng); di chuyển/zoom camera thủ công sẽ tự hủy theo dõi.
+- **"Sinh me cung (xoa da/nuoc cu)"**: xóa sạch đá/nước hiện có trên bản
+  đồ, rải 1 mê cung mới (nhiều bức tường đá dài, ngoằn ngoèo) cùng 1 cụm
+  thức ăn lớn ở góc xa tổ nhất còn tới được, để xem đàn kiến THẬT tự tìm
+  đường xuyên mê cung bằng đúng thuật toán any-angle A* trên visibility
+  graph (`pathfinding.py`) - xem `maze_generator.py`. **Lưu ý**: thao tác
+  này xóa cả nước hiện có và nước KHÔNG tự tái sinh (khác thức ăn), nên
+  tổ sẽ mất nguồn thu nước cho tới khi bạn tự đặt lại bằng "Dat nuoc".
 - **"Tam dung" / "Toc do xN"**: điều khiển thời gian mô phỏng.
+- **"Luu van choi" / "Tai van choi"** (hoặc Ctrl+S / Ctrl+L): lưu/tải lại ván chơi.
 - **"Tai sinh thuc an: BAT/TAT"**: bật/tắt việc thức ăn mới tự xuất hiện
   ngẫu nhiên theo chu kỳ.
-- **"Luoi o vuong"**: bật/tắt lưới ô vuông tham chiếu.
-- **"Bieu do"**: bật/tắt biểu đồ dân số theo thời gian (góc trên phải).
+- **"Luoi o vuong: BAT/TAT"**: bật/tắt lưới ô vuông tham chiếu.
+- **"Bieu do: HIEN/AN"**: bật/tắt biểu đồ dân số theo thời gian (góc dưới-trái).
+- **"Ke thu tu nhien: BAT/TAT"**: bật/tắt việc kẻ thù tự nhiên xuất hiện
+  ngẫu nhiên trên mặt đất.
+- **"Tang ^" / "Tang v"**: chuyển tầng bằng nút (tương đương lăn chuột/Ctrl+lăn chuột).
 
 ## Cấu trúc dự án
 
@@ -218,7 +231,18 @@ AntWorld2D/
 │   │                         (hầm ngầm - mỗi phòng gắn 1 tầng rời rạc)
 │   ├── ants.py                - AntColony: đàn kiến dạng mảng NumPy (di
 │   │                         chuyển, vòng đời, trứng/ấu trùng, lính gác...)
+│   ├── pathfinding.py          - VisibilityPathfinder: tìm đường any-angle
+│   │                         (ngắn nhất thật, không "răng cưa") cho kiến
+│   │                         trên mặt đất - A* trên visibility graph dựng
+│   │                         từ góc lồi vật cản, cache theo terrain_version
+│   │                         để nhiều kiến dùng chung 1 lần dựng đồ thị
+│   ├── maze_generator.py       - rải 1 mê cung (tường đá dài ngoằn ngoèo)
+│   │                         trực tiếp vào bản đồ đang chơi (nút "Sinh me
+│   │                         cung" trong toolbar) để xem đàn kiến thật tự
+│   │                         tìm đường xuyên mê cung bằng pathfinding.py
 │   ├── enemy.py                - kẻ thù tự nhiên trên mặt đất
+│   ├── invasion.py              - đàn kiến xâm lược đột kích theo chu kỳ
+│   │                         (cướp thức ăn/ấu trùng, leo thang độ khó)
 │   │
 │   │   --- Lớp hiển thị/điều khiển (pygame) ---
 │   ├── camera.py                - Camera2D: pan/zoom màn hình <-> lưới
@@ -315,6 +339,15 @@ Nội dung bao trùm:
   NaN/inf trong vị trí, dân số không bao giờ vượt trần
   `MAX_ANTS_PER_COLONY`. Đây là loại lỗi khó bắt bằng mắt vì thường chỉ
   lộ ra sau rất nhiều tick.
+- `test_pathfinding.py` - `VisibilityPathfinder` (any-angle A* trên
+  visibility graph, xem `pathfinding.py`): line-of-sight qua khe nối giữa
+  2 ô vật cản liền kề/sát biên bản đồ, điểm kẹp chéo không bị cắt xuyên,
+  và kiểm chứng thống kê trên nhiều bản đồ ngẫu nhiên rằng KHÔNG đường đi
+  nào thực sự xuyên vật cản - đây chính là 2 lỗi hình học tinh vi từng bị
+  phát hiện qua kiểm thử thủ công (không phải bộ test tự động) trước khi
+  file này tồn tại.
+- `test_invasion.py` - `InvasionManager` (đàn kiến xâm lược đột kích theo
+  chu kỳ, xem `invasion.py`).
 - `test_fonts.py` - file font `.ttf` tồn tại và load được, chữ tiếng
   Việt có dấu render không lỗi (phòng lỗi font tái diễn).
 - `test_pixel_editor.py` - logic vẽ/đối xứng ngang-dọc/đổ màu/undo-redo

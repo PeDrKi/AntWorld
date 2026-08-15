@@ -40,7 +40,7 @@ def build_toolbar(state):
     (vd đang resize cửa sổ), GIỮ NGUYÊN vị trí/trạng thái thu gọn người
     chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
     old_positions = {}
-    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel", "tab_panel", "maze_panel"):
+    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel"):
         p = getattr(state, key, None)
         if p is not None:
             old_positions[key] = (p.x, p.y, p.collapsed)
@@ -95,6 +95,10 @@ def build_toolbar(state):
         ("Xoa", "erase", "tool"), ("Theo doi", "follow", "tool"),
     ]:
         add_full_button(label, lambda t=tool_name: state.set_tool(t), style, tool_name=tool_name)
+
+    cursor["y"] += 4
+    add_section("BAN DO")
+    add_full_button("Sinh me cung (xoa da/nuoc cu)", lambda: state.generate_maze(), "danger")
 
     cursor["y"] += 4
     add_section("THOI GIAN")
@@ -165,73 +169,16 @@ def build_toolbar(state):
         state.layer_map_buttons.append(btn)
     state.layer_map_panel = layer_map_panel
 
-    # -------------------------------------------------------------------
-    # Panel chuyển TAB (luôn hiện, độc lập với tab đang xem) - "Mo phong"
-    # (ván chơi chính) / "Demo me cung" (minh họa thuật toán tìm đường any-
-    # angle trên visibility graph - xem maze_demo.py). Đặt mặc định ở
-    # TRÊN-GIỮA màn hình để không đụng vị trí mặc định của các panel khác.
-    # -------------------------------------------------------------------
-    TAB_PANEL_W = 260
-    tab_panel = Panel(state.SCREEN_W / 2 - TAB_PANEL_W / 2, state.SCREEN_H - 78, TAB_PANEL_W, 38, "Che do xem")
-    sim_tab_btn = Button((0, 0, 118, 30), "Mo phong", style="nav")
-    maze_tab_btn = Button((0, 0, 118, 30), "Demo me cung", style="nav")
-    sim_tab_btn.on_click = lambda: (state.switch_tab("sim"), _sync_tab_buttons(state))
-    maze_tab_btn.on_click = lambda: (state.switch_tab("maze"), _sync_tab_buttons(state))
-    sim_tab_btn.bind_to_panel(tab_panel, 8, 6)
-    maze_tab_btn.bind_to_panel(tab_panel, 8 + 118 + 6, 6)
-    state.buttons += [sim_tab_btn, maze_tab_btn]
-    state.tab_buttons = {"sim": sim_tab_btn, "maze": maze_tab_btn}
-    _sync_tab_buttons(state)
-    state.tab_panel = tab_panel
-
-    # -------------------------------------------------------------------
-    # Panel công cụ riêng cho tab Demo mê cung - CHỈ hiện khi active_tab
-    # == "maze" (xem GameState.visible_panels()).
-    # -------------------------------------------------------------------
-    maze_panel = Panel(8, 8, 234, 10, "Demo me cung: tim duong")
-    mcursor = {"y": 10}
-
-    def m_add_button(label, on_click, style, h=30, active=False):
-        b = Button((0, 0, 214, h), label, on_click=on_click, style=style, active=active)
-        b.bind_to_panel(maze_panel, 10, mcursor["y"])
-        state.buttons.append(b)
-        mcursor["y"] += h + 6
-        return b
-
-    m_add_button("Me cung moi (Sinh lai)", lambda: state.maze_demo.regenerate(), "place")
-    mgraph_btn = m_add_button("Hien dinh visibility graph: BAT", None, "toggle", active=True)
-    mgraph_btn.on_click = lambda: _toggle_maze_flag(state, "show_graph", mgraph_btn)
-    mgrid_btn = m_add_button("Luoi o vuong: BAT", None, "toggle", active=True)
-    mgrid_btn.on_click = lambda: _toggle_maze_flag(state, "show_grid", mgrid_btn)
-
-    mcursor["y"] += 6
-    maze_panel.h = mcursor["y"] + 60  # + chỗ cho vài dòng giải thích ngắn (draw_maze_panel)
-    state.maze_panel = maze_panel
-
-    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel, tab_panel, maze_panel]
+    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel]
 
     for key, panel in (
         ("toolbar_panel", toolbar_panel), ("stats_panel", stats_panel),
         ("graph_panel", graph_panel), ("layer_map_panel", layer_map_panel),
-        ("tab_panel", tab_panel), ("maze_panel", maze_panel),
     ):
         if key in old_positions:
             x, y, collapsed = old_positions[key]
             panel.collapsed = collapsed
             panel.move_to(x, y, state.SCREEN_W, state.SCREEN_H)
-
-
-def _sync_tab_buttons(state):
-    for name, btn in state.tab_buttons.items():
-        btn.active = (state.active_tab == name)
-
-
-def _toggle_maze_flag(state, attr, btn):
-    val = not getattr(state.maze_demo, attr)
-    setattr(state.maze_demo, attr, val)
-    label = btn.text.rsplit(":", 1)[0]
-    btn.text = f"{label}: {'BAT' if val else 'TAT'}"
-    btn.active = val
 
 
 def _layer_swatches(state, depth):
@@ -603,43 +550,5 @@ def draw_toolbar(state, surf):
     hy = cy + panel.h - 16 * len(lines_wrapped) - 8
     for line in lines_wrapped:
         img = state.font_small.render(line, True, (255, 230, 90))
-        surf.blit(img, (cx + 10, hy))
-        hy += 16
-
-
-# ---------------------------------------------------------------------
-# Panel chuyển tab ("Mo phong" <-> "Demo me cung") - luôn hiện, độc lập
-# tab đang xem, xem GameState.switch_tab()/hud.build_toolbar().
-# ---------------------------------------------------------------------
-def draw_tab_panel(state, surf):
-    panel = state.tab_panel
-    panel.draw_frame(surf, state.font)
-    if panel.collapsed:
-        return
-    for b in panel.children:
-        b.draw(surf, state.font)
-
-
-# ---------------------------------------------------------------------
-# Panel công cụ tab "Demo mê cung" - xem maze_demo.py.
-# ---------------------------------------------------------------------
-def draw_maze_panel(state, surf):
-    panel = state.maze_panel
-    panel.draw_frame(surf, state.font)
-    if panel.collapsed:
-        return
-    cx, cy = panel.content_pos()
-    for b in panel.children:
-        b.draw(surf, state.font)
-
-    hint_lines = [
-        "To kien (xanh duong) -> Thuc an (xanh la).",
-        "Duong vang = duong di any-angle tim duoc",
-        "(visibility graph + A*, xem pathfinding.py).",
-        "Cham xanh nhat = dinh goc vat can duoc xet.",
-    ]
-    hy = cy + panel.h - 16 * len(hint_lines) - 10
-    for line in hint_lines:
-        img = state.font_small.render(line, True, (190, 195, 205))
         surf.blit(img, (cx + 10, hy))
         hy += 16

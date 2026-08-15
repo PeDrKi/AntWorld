@@ -19,7 +19,7 @@ from .enemy import EnemyManager
 from .invasion import InvasionManager
 from .camera import Camera2D
 from .sprite_manager import SpriteManager
-from .maze_demo import MazeDemo
+from . import maze_generator
 
 # Khi chạy bình thường từ source (src/antworld/game_state.py): assets/
 # nằm ở THƯ MỤC GỐC dự án (2 cấp trên src/antworld/). Khi được đóng gói
@@ -170,15 +170,6 @@ class GameState:
         self.stats_panel = None
         self.graph_panel = None
 
-        # --- Tab "Demo mê cung": xem game_state.switch_tab()/visible_panels()
-        # và maze_demo.py. Đây là 1 bản đồ MINH HỌA riêng biệt, tách hẳn
-        # khỏi world/colony thật - đổi tab không ảnh hưởng gì tới ván chơi
-        # đang chạy ngầm (mô phỏng vẫn tiếp tục dù đang xem tab nào).
-        self.active_tab = "sim"  # "sim" | "maze"
-        self.maze_demo = MazeDemo()
-        self.maze_panel = None
-        self.tab_panel = None
-
         # Toast giải thích tình huống lúc mới lập tổ - đưa RA CUỐI __init__
         # (không phải chỗ vừa focus camera ở trên) vì add_toast() cần
         # self.frame_counter đã tồn tại (khởi tạo muộn hơn phía trên).
@@ -275,6 +266,14 @@ class GameState:
 
     def do_random_food_respawn(self):
         self.surface_world.respawn_random_cluster()
+
+    def generate_maze(self):
+        """Xóa sạch đá/nước hiện có rồi rải 1 mê cung ngoằn ngoèo (nhiều
+        bức tường đá dài) ra khắp bản đồ THẬT đang chơi, cộng thêm 1 cụm
+        thức ăn lớn ở góc xa tổ nhất còn liên thông - để xem ĐÀN KIẾN THẬT
+        (đúng thuật toán trong pathfinding.py, không phải world minh họa
+        tách biệt) tự tìm đường xuyên mê cung. Xem maze_generator.py."""
+        maze_generator.generate_maze_in_world(self)
 
     # ------------------------------------------------------------------
     # Chuyển đổi tọa độ màn hình <-> tọa độ lưới mô phỏng
@@ -437,28 +436,6 @@ class GameState:
         return f"Theo doi: {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
 
     # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    def switch_tab(self, name):
-        """Chuyển giữa tab \"Mo phong\" (ván chơi chính) và \"Demo me cung\"
-        (minh họa thuật toán tìm đường - xem maze_demo.py). Mô phỏng
-        chính vẫn chạy ngầm bình thường ở cả 2 tab, chỉ phần HIỂN THỊ và
-        các panel/công cụ tương ứng đổi theo."""
-        if name == self.active_tab:
-            return
-        self.active_tab = name
-        self.stop_follow()
-        if name == "sim":
-            self.current_tool = None
-
-    def visible_panels(self):
-        """Danh sách panel THỰC SỰ hiển thị (và nhận sự kiện chuột) ở tab
-        hiện tại - tab_panel (nút chuyển tab) luôn hiện; các panel còn lại
-        tùy thuộc active_tab, xem hud.build_toolbar()."""
-        if self.active_tab == "maze":
-            return [p for p in (self.tab_panel, self.maze_panel) if p is not None]
-        return [p for p in (self.tab_panel, self.toolbar_panel, self.stats_panel,
-                             self.graph_panel, getattr(self, "layer_map_panel", None)) if p is not None]
-
     def set_tool(self, name):
         self.current_tool = None if self.current_tool == name else name
         for b in self.tool_buttons:

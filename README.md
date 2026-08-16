@@ -182,13 +182,19 @@ vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 t�
   đúng tầng đó + kiến đang ở tầng đó).
 - **"Theo doi"**: bấm rồi click vào 1 con kiến để camera tự bám theo nó
   (kể cả khi nó đổi tầng); di chuyển/zoom camera thủ công sẽ tự hủy theo dõi.
-- **"Sinh me cung (xoa da/nuoc cu)"**: xóa sạch đá/nước hiện có trên bản
-  đồ, rải 1 mê cung mới (nhiều bức tường đá dài, ngoằn ngoèo) cùng 1 cụm
-  thức ăn lớn ở góc xa tổ nhất còn tới được, để xem đàn kiến THẬT tự tìm
-  đường xuyên mê cung bằng đúng thuật toán any-angle A* trên visibility
-  graph (`pathfinding.py`) - xem `maze_generator.py`. **Lưu ý**: thao tác
-  này xóa cả nước hiện có và nước KHÔNG tự tái sinh (khác thức ăn), nên
-  tổ sẽ mất nguồn thu nước cho tới khi bạn tự đặt lại bằng "Dat nuoc".
+- **"Sinh me cung (xoa da/nuoc cu)"**: xóa sạch đá/nước/thức ăn hiện có
+  trên bản đồ, rải 1 **mê cung chuẩn** (perfect maze - mọi ô liên thông,
+  đúng 1 đường duy nhất giữa 2 ô bất kỳ, neo theo đúng vị trí tổ để tổ
+  không bao giờ bị "nhốt" trong tường) cùng vài cụm thức ăn NHỎ rải rác ở
+  các ngóc ngách xa nhau trong mê cung, để xem đàn kiến THẬT tự tìm đường
+  xuyên mê cung bằng đúng thuật toán any-angle A* trên visibility graph
+  (`pathfinding.py`) - xem `maze_generator.py`. Mê cung dùng hành lang
+  rộng vài ô (không phải 1 ô) vì lý do hiệu năng: mê cung "mỏng" phủ kín
+  toàn bản đồ tạo ra hàng nghìn góc vật cản, khiến bước dựng lại đồ thị
+  tầm nhìn mất hàng chục giây; cấu hình mặc định giữ thời gian sinh mê
+  cung dưới ~2 giây. **Lưu ý**: thao tác này xóa cả nước hiện có và nước
+  KHÔNG tự tái sinh (khác thức ăn), nên tổ sẽ mất nguồn thu nước cho tới
+  khi bạn tự đặt lại bằng "Dat nuoc".
 - **"Tam dung" / "Toc do xN"**: điều khiển thời gian mô phỏng.
 - **"Luu van choi" / "Tai van choi"** (hoặc Ctrl+S / Ctrl+L): lưu/tải lại ván chơi.
 - **"Tai sinh thuc an: BAT/TAT"**: bật/tắt việc thức ăn mới tự xuất hiện

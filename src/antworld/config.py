@@ -82,13 +82,17 @@ EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm kh
 
 # ----- Sinh me cung THAT (maze_generator.py, nut "Sinh me cung" trong
 # toolbar) - rai truc tiep vao ban do dang choi, dan kien that tu tim
-# duong xuyen bang dung pathfinding.py. Vai tuong dai thay vi me cung
-# "phu kin 100% o" - ly do hieu nang, xem docstring generate_maze_in_world. -----
-MAZE_NUM_WALLS = 8            # so buc tuong da dai
-MAZE_WALL_LEN_RANGE = (10, 19)  # (min, max+1) - do dai moi buc tuong
-MAZE_TURN_CHANCE = 0.35       # xac suat re huong moi buoc (cang cao
-                               # cang ngoan ngoeo, giong me cung hon)
-MAZE_FOOD_AMOUNT = 40.0       # luong thuc an dat o goc xa nhat cua me cung
+# duong xuyen bang dung pathfinding.py. "Perfect maze" (spanning tree
+# tren luoi o logic - moi o lien thong, dung 1 duong duy nhat giua 2 o
+# bat ky) chu KHONG con la vai tuong da roi rac nhu ban truoc, xem
+# docstring generate_perfect_maze(). MAZE_PASSAGE_WIDTH/MAZE_WALL_WIDTH
+# CANG NHO thi me cung CANG DAY nhung build CANG CHAM (chi phi O(V^2)) -
+# 2 gia tri mac dinh duoi day da do dac de giu build duoi ~2 giay. -----
+MAZE_PASSAGE_WIDTH = 4         # do rong hanh lang (so o)
+MAZE_WALL_WIDTH = 2            # do day tuong giua 2 hanh lang (so o)
+MAZE_FOOD_PILES = 5            # so cum thuc an rai rac trong me cung
+MAZE_FOOD_AMOUNT_PER_PILE = 10.0  # luong thuc an moi cum (nho, buoc phai
+                                # di het nhieu ngoc ngach moi gom du)
 
 # ----- Né vật cản (đá/nước): "bám tường" thay vì dội ngẫu nhiên -----
 # Dùng cho lính gác đuổi kẻ thù trên mặt đất (_update_guards/STATE_GUARD_RUSH,

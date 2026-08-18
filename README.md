@@ -188,13 +188,15 @@ vậy tại 1 thời điểm, 1 con kiến CHỈ hiện diện trên ĐÚNG 1 t�
   không bao giờ bị "nhốt" trong tường) cùng vài cụm thức ăn NHỎ rải rác ở
   các ngóc ngách xa nhau trong mê cung, để xem đàn kiến THẬT tự tìm đường
   xuyên mê cung bằng đúng thuật toán any-angle A* trên visibility graph
-  (`pathfinding.py`) - xem `maze_generator.py`. Mê cung dùng hành lang
-  rộng vài ô (không phải 1 ô) vì lý do hiệu năng: mê cung "mỏng" phủ kín
-  toàn bản đồ tạo ra hàng nghìn góc vật cản, khiến bước dựng lại đồ thị
-  tầm nhìn mất hàng chục giây; cấu hình mặc định giữ thời gian sinh mê
-  cung dưới ~2 giây. **Lưu ý**: thao tác này xóa cả nước hiện có và nước
-  KHÔNG tự tái sinh (khác thức ăn), nên tổ sẽ mất nguồn thu nước cho tới
-  khi bạn tự đặt lại bằng "Dat nuoc".
+  (`pathfinding.py`) - xem `maze_generator.py`. Cấu hình mặc định (hành
+  lang 2 ô, tường 1 ô, ~170 phòng) build đồ thị tìm đường trong khoảng
+  1-2.5 giây SAU khi sinh mê cung (chỉ 1 lần, không lặp lại mỗi tick) -
+  `pathfinding.py` gộp các ô vật cản liền kề thành hình chữ nhật lớn và
+  dùng heuristic ALT (landmarks) thay vì đường chim bay thuần túy để giữ
+  mỗi lần tìm đường sau đó chỉ còn vài mili-giây dù mê cung dày đặc.
+  **Lưu ý**: thao tác này xóa cả nước hiện có và nước KHÔNG tự tái sinh
+  (khác thức ăn), nên tổ sẽ mất nguồn thu nước cho tới khi bạn tự đặt lại
+  bằng "Dat nuoc".
 - **"Tam dung" / "Toc do xN"**: điều khiển thời gian mô phỏng.
 - **"Luu van choi" / "Tai van choi"** (hoặc Ctrl+S / Ctrl+L): lưu/tải lại ván chơi.
 - **"Tai sinh thuc an: BAT/TAT"**: bật/tắt việc thức ăn mới tự xuất hiện

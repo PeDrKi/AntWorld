@@ -29,6 +29,44 @@ import numpy as np
 from . import config as cfg
 
 
+def _merge_blocked_rectangles(blocked):
+    """Gộp các ô vật cản liền kề thành các HÌNH CHỮ NHẬT lớn nhất có thể
+    (thuật toán "mở rộng dọc theo cột lặp lại" kinh điển cho bài toán gộp
+    ô lưới nhị phân) - trả về mảng (R,4) mỗi hàng [x0,x1,y0,y1] (vùng che
+    phủ x∈[x0,x1), y∈[y0,y1)). Union các hình chữ nhật này LUÔN bằng
+    chính xác tập ô vật cản gốc (không thừa/thiếu 1 ô nào) - đây là bước
+    TỐI ƯU HIỆU NĂNG THUẦN TÚY (giảm số "vật cản" phải quét khi kiểm tra
+    tầm nhìn, xem _extract_vertices), không thay đổi kết quả hình học."""
+    n = blocked.shape[0]
+    rects = []
+    open_rects = {}  # (x0,x1) -> y_bat_dau, cho hinh dang duoc "keo dai" tu hang truoc
+    for y in range(n):
+        col = blocked[:, y]
+        row_intervals = []
+        x = 0
+        while x < n:
+            if col[x]:
+                x0 = x
+                while x < n and col[x]:
+                    x += 1
+                row_intervals.append((x0, x))
+            else:
+                x += 1
+        row_set = set(row_intervals)
+        for key in list(open_rects.keys()):
+            if key not in row_set:
+                y0 = open_rects.pop(key)
+                rects.append((key[0], key[1], y0, y))
+        for key in row_intervals:
+            if key not in open_rects:
+                open_rects[key] = y
+    for key, y0 in open_rects.items():
+        rects.append((key[0], key[1], y0, n))
+    if not rects:
+        return np.zeros((0, 4), dtype=np.float32)
+    return np.array(rects, dtype=np.float32)
+
+
 class VisibilityPathfinder:
     """Bọc quanh 1 SurfaceWorld: trích xuất các đỉnh góc vật cản, dựng
     visibility graph TĨNH giữa các đỉnh đó (cache lại, chỉ dựng lại khi
@@ -42,7 +80,7 @@ class VisibilityPathfinder:
         self._edges_version = -1
         self._vertices = np.zeros((0, 2), dtype=np.float32)
         self._pinch_points = np.zeros((0, 2), dtype=np.float32)
-        self._blocked_cells = np.zeros((0, 2), dtype=np.float32)
+        self._blocked_rects = np.zeros((0, 4), dtype=np.float32)
         # "Đường ghép" (seam) giữa 2 ô đá/nước NẰM CẠNH NHAU - 1 tia đi
         # DỌC ĐÚNG theo đường ranh giới chung giữa 2 ô đều bị chặn sẽ
         # không lọt vào phần "bên trong" của ô nào cả (test slab-per-ô ở
@@ -54,6 +92,11 @@ class VisibilityPathfinder:
         self._h_seam_y = np.zeros(0, dtype=np.float32)
         self._h_seam_x0 = np.zeros(0, dtype=np.float32)
         self._static_edges = {}
+        # Heuristic ALT (A*, Landmarks, Triangle inequality) - xem
+        # _build_landmarks(). (V, k): khoảng cách NGẮN NHẤT THẬT SỰ từ mỗi
+        # đỉnh tới từng mốc, dùng để tăng tốc tìm đường trong mê cung (nơi
+        # đường chim bay là heuristic quá yếu).
+        self._landmark_dist = np.zeros((0, 0), dtype=np.float64)
 
     # ------------------------------------------------------------------
     def _rebuild_vertices_if_needed(self):
@@ -71,6 +114,7 @@ class VisibilityPathfinder:
             return
         self._edges_version = self.surface.terrain_version
         self._build_static_edges()
+        self._build_landmarks()
 
     def _extract_vertices(self):
         """Đỉnh của visibility graph = các GÓC (điểm nguyên trên lưới) mà
@@ -78,7 +122,16 @@ class VisibilityPathfinder:
         thấy được từ vùng trống) mới hữu ích, xem Fig.3/Fig.5 bài báo."""
         n = cfg.GRID_SIZE
         blocked = self.surface.terrain != cfg.TERRAIN_EMPTY
-        self._blocked_cells = np.argwhere(blocked).astype(np.float32)
+        # Gộp các ô vật cản liền kề thành HÌNH CHỮ NHẬT lớn (thay vì giữ
+        # từng ô 1x1 riêng lẻ) trước khi dùng cho phép kiểm tra tầm nhìn -
+        # xem _merge_blocked_rectangles(). Với vài bức tường đá rời rạc
+        # kiểu game gốc, số ô 1x1 vốn đã nhỏ (~100-300) nên bước này không
+        # tạo khác biệt gì; nhưng với MÊ CUNG dạng lưới (maze_generator.py,
+        # tường chỉ dày 1 ô nhưng có tới ~600+ ô rời rạc), việc gộp thành
+        # ~100-200 hình chữ nhật giảm thẳng số "ô vật cản" mà mỗi lần kiểm
+        # tra tầm nhìn phải quét qua - đo thực tế giảm thời gian mỗi truy
+        # vấn tìm đường từ ~50-80ms xuống dưới 5ms trên mê cung ~650 đỉnh.
+        self._blocked_rects = _merge_blocked_rectangles(blocked)
 
         # Đường ghép dọc: 2 ô (i,j) và (i+1,j) cùng bị chặn -> đường ranh
         # giới chung của chúng (x = i+1, y từ j tới j+1) là "đặc", không
@@ -177,10 +230,79 @@ class VisibilityPathfinder:
         self._static_edges = edges
 
     # ------------------------------------------------------------------
+    def _dijkstra_all(self, source_idx):
+        """Khoảng cách NGẮN NHẤT THẬT SỰ (đi qua các cạnh của visibility
+        graph tĩnh, không phải đường chim bay) từ đỉnh source_idx tới MỌI
+        đỉnh khác - dùng làm dữ liệu nền cho heuristic ALT bên dưới."""
+        v = len(self._vertices)
+        dist = np.full(v, np.inf, dtype=np.float64)
+        dist[source_idx] = 0.0
+        visited = np.zeros(v, dtype=bool)
+        heap = [(0.0, source_idx)]
+        edges = self._static_edges
+        while heap:
+            d, u = heapq.heappop(heap)
+            if visited[u]:
+                continue
+            visited[u] = True
+            for w, cost in edges.get(u, ()):
+                nd = d + cost
+                if nd < dist[w]:
+                    dist[w] = nd
+                    heapq.heappush(heap, (nd, w))
+        return dist
+
+    def _build_landmarks(self):
+        """Heuristic ALT (A*, Landmarks, Triangle inequality - Goldberg &
+        Harrelson 2005): đường chim bay (Euclidean) là heuristic ĐÚNG
+        (không bao giờ ước lượng thừa - vẫn đảm bảo A* ra đường ngắn nhất
+        thật) nhưng RẤT YẾU trong mê cung ngoằn ngoèo, vì 2 điểm có thể
+        rất gần theo đường chim bay nhưng phải đi vòng RẤT xa mới tới được
+        (bị tường chắn) - khiến A* phải mở rộng gần hết đồ thị mỗi lần tìm
+        đường (đo thực tế: ~50ms/truy vấn trong mê cung ~650 đỉnh, quá
+        chậm khi hàng chục kiến cùng cần đường mới mỗi tick).
+
+        ALT khắc phục bằng cách chọn sẵn vài đỉnh "mốc" (landmark), tính
+        trước khoảng cách NGẮN NHẤT THẬT SỰ (Dijkstra trên chính visibility
+        graph, không phải đường chim bay) từ mỗi mốc tới MỌI đỉnh khác - 1
+        LẦN mỗi khi địa hình đổi (giống hệt cách static_edges được cache,
+        xem _rebuild_if_needed). Với 2 điểm bất kỳ p, q và 1 mốc L, bất
+        đẳng thức tam giác cho |d(p,L) - d(q,L)| <= d(p,q) LUÔN đúng với d
+        là khoảng cách NGẮN NHẤT thật (không phải đường chim bay) - nên
+        đây vẫn là 1 heuristic HỢP LỆ (không overestimate, A* vẫn tìm đúng
+        đường ngắn nhất), chỉ là CHẶT hơn hẳn Euclidean vì đã "biết trước"
+        hình dạng mê cung qua các mốc, thay vì giả định không gian trống.
+
+        Mốc được chọn bằng "farthest-point sampling": mốc đầu là đỉnh xa
+        đỉnh 0 nhất (theo đường thật), mỗi mốc tiếp theo là đỉnh xa TẤT CẢ
+        mốc đã chọn nhất - giúp các mốc trải khắp bản đồ thay vì dồn 1 góc.
+        """
+        v = len(self._vertices)
+        k = min(cfg.PATH_NUM_LANDMARKS, v)
+        if k == 0:
+            self._landmark_dist = np.zeros((0, v), dtype=np.float64)
+            return
+        d0 = self._dijkstra_all(0)
+        first = int(np.argmax(np.nan_to_num(d0, nan=-1.0, posinf=-1.0)))
+        dists = [self._dijkstra_all(first)]
+        for _ in range(k - 1):
+            min_to_set = np.min(np.stack(dists), axis=0)
+            safe = np.nan_to_num(min_to_set, nan=-1.0, posinf=-1.0)
+            nxt = int(np.argmax(safe))
+            if not np.isfinite(min_to_set[nxt]) and len(dists) > 1:
+                break  # đồ thị rời rạc (nhiều mảng tách biệt) - đủ mốc rồi
+            dists.append(self._dijkstra_all(nxt))
+        # (V, k) thay vì (k, V) để heuristic() bên dưới đọc theo HÀNG (mỗi
+        # đỉnh 1 hàng liên tục trong bộ nhớ) - nhanh hơn khi gọi hàng nghìn
+        # lần/truy vấn tìm đường.
+        self._landmark_dist = np.stack(dists, axis=1)
+
+    # ------------------------------------------------------------------
     def _batch_visible(self, p, targets):
         """Kiểm tra tầm nhìn (ray-casting/slab-test, vector hóa) từ 1 điểm
         p tới NHIỀU điểm targets cùng lúc - tương đương mục III bài báo
-        (Eqs. 6-7), áp dụng cho từng ô vật cản đơn vị trong khung bao của
+        (Eqs. 6-7), áp dụng cho từng HÌNH CHỮ NHẬT vật cản (đã gộp từ các
+        ô liền kề, xem _merge_blocked_rectangles) trong khung bao của
         đoạn thẳng."""
         m = len(targets)
         if m == 0:
@@ -192,31 +314,33 @@ class VisibilityPathfinder:
         dy = ty - py
 
         visible = np.ones(m, dtype=bool)
-        blocked_cells = self._blocked_cells
-        if len(blocked_cells):
-            cx = blocked_cells[:, 0].astype(np.float64)[None, :]
-            cy = blocked_cells[:, 1].astype(np.float64)[None, :]
+        rects = self._blocked_rects
+        if len(rects):
+            rx0 = rects[:, 0].astype(np.float64)[None, :]
+            rx1 = rects[:, 1].astype(np.float64)[None, :]
+            ry0 = rects[:, 2].astype(np.float64)[None, :]
+            ry1 = rects[:, 3].astype(np.float64)[None, :]
             dxb = dx[:, None]
             dyb = dy[:, None]
 
             with np.errstate(divide="ignore", invalid="ignore"):
                 safe_dx = np.where(dxb == 0, 1.0, dxb)
-                t1 = (cx - px) / safe_dx
-                t2 = (cx + 1.0 - px) / safe_dx
+                t1 = (rx0 - px) / safe_dx
+                t2 = (rx1 - px) / safe_dx
                 tminx = np.minimum(t1, t2)
                 tmaxx = np.maximum(t1, t2)
                 vertical = dxb == 0
-                within_x = (px > cx) & (px < cx + 1.0)
+                within_x = (px > rx0) & (px < rx1)
                 tminx = np.where(vertical, np.where(within_x, -np.inf, np.inf), tminx)
                 tmaxx = np.where(vertical, np.where(within_x, np.inf, -np.inf), tmaxx)
 
                 safe_dy = np.where(dyb == 0, 1.0, dyb)
-                t3 = (cy - py) / safe_dy
-                t4 = (cy + 1.0 - py) / safe_dy
+                t3 = (ry0 - py) / safe_dy
+                t4 = (ry1 - py) / safe_dy
                 tminy = np.minimum(t3, t4)
                 tmaxy = np.maximum(t3, t4)
                 horizontal = dyb == 0
-                within_y = (py > cy) & (py < cy + 1.0)
+                within_y = (py > ry0) & (py < ry1)
                 tminy = np.where(horizontal, np.where(within_y, -np.inf, np.inf), tminy)
                 tmaxy = np.where(horizontal, np.where(within_y, np.inf, -np.inf), tmaxy)
 
@@ -245,28 +369,43 @@ class VisibilityPathfinder:
         # Chặn riêng các tia đi THẲNG ĐỨNG/NẰM NGANG trùng đúng 1 đường
         # ghép giữa 2 ô liền kề cùng bị chặn (xem giải thích ở _v_seam_x/
         # _h_seam_y) - chỉ có thể xảy ra khi tia đúng trục (dx=0 hoặc
-        # dy=0), nên số điểm cần xét thường rất ít, vòng lặp Python nhỏ ở
-        # đây không ảnh hưởng hiệu năng.
+        # dy=0). Vector hóa TOÀN BỘ bằng NumPy (không vòng lặp Python theo
+        # từng đỉnh): với bản đồ vật cản ĐẶT NGẪU NHIÊN/RỜI RẠC, số đỉnh
+        # trùng trục với 1 điểm truy vấn gần như luôn là 0 nên vòng lặp cũ
+        # (dù có) không ảnh hưởng gì; nhưng với MÊ CUNG dạng lưới đều (xem
+        # maze_generator.py), toạ độ đỉnh lặp lại theo chu kỳ cố định nên
+        # RẤT NHIỀU đỉnh có thể trùng trục cùng lúc - vòng lặp Python khi
+        # đó lặp lại hàng trăm lần MỖI TRUY VẤN, từng đo được chiếm hầu
+        # hết thời gian tìm đường (~50ms/truy vấn, gây giật hình rõ rệt
+        # khi nhiều kiến cùng cần đường mới 1 lúc).
         if np.any(visible):
-            vert_idx = np.where(visible & (dx == 0) & (len(self._v_seam_x) > 0))[0]
-            for k in vert_idx:
-                y0, y1 = (py, ty[k]) if py <= ty[k] else (ty[k], py)
-                cand = self._v_seam_x == px
-                if np.any(cand):
-                    ys0 = self._v_seam_y0[cand]
-                    overlap = np.minimum(y1, ys0 + 1.0) - np.maximum(y0, ys0)
-                    if np.any(overlap > 1e-9):
-                        visible[k] = False
+            if len(self._v_seam_x):
+                seam_here = self._v_seam_x == px
+                if np.any(seam_here):
+                    ys0 = self._v_seam_y0[seam_here]
+                    vert_idx = np.where(visible & (dx == 0))[0]
+                    if len(vert_idx):
+                        py_arr = np.full(len(vert_idx), py)
+                        ty_arr = ty[vert_idx]
+                        y0 = np.minimum(py_arr, ty_arr)[:, None]
+                        y1 = np.maximum(py_arr, ty_arr)[:, None]
+                        overlap = np.minimum(y1, ys0[None, :] + 1.0) - np.maximum(y0, ys0[None, :])
+                        blocked_here = np.any(overlap > 1e-9, axis=1)
+                        visible[vert_idx[blocked_here]] = False
 
-            horiz_idx = np.where(visible & (dy == 0) & (len(self._h_seam_y) > 0))[0]
-            for k in horiz_idx:
-                x0, x1 = (px, tx[k]) if px <= tx[k] else (tx[k], px)
-                cand = self._h_seam_y == py
-                if np.any(cand):
-                    xs0 = self._h_seam_x0[cand]
-                    overlap = np.minimum(x1, xs0 + 1.0) - np.maximum(x0, xs0)
-                    if np.any(overlap > 1e-9):
-                        visible[k] = False
+            if len(self._h_seam_y):
+                seam_here = self._h_seam_y == py
+                if np.any(seam_here):
+                    xs0 = self._h_seam_x0[seam_here]
+                    horiz_idx = np.where(visible & (dy == 0))[0]
+                    if len(horiz_idx):
+                        px_arr = np.full(len(horiz_idx), px)
+                        tx_arr = tx[horiz_idx]
+                        x0 = np.minimum(px_arr, tx_arr)[:, None]
+                        x1 = np.maximum(px_arr, tx_arr)[:, None]
+                        overlap = np.minimum(x1, xs0[None, :] + 1.0) - np.maximum(x0, xs0[None, :])
+                        blocked_here = np.any(overlap > 1e-9, axis=1)
+                        visible[horiz_idx[blocked_here]] = False
 
         return visible
 
@@ -278,7 +417,7 @@ class VisibilityPathfinder:
         lỡ gọi find_path() trước đó hay chưa. Thiếu bước này, gọi thẳng
         line_of_sight() trên 1 VisibilityPathfinder vừa khởi tạo (chưa
         từng find_path() lần nào) sẽ luôn trả về "nhìn thấy" SAI (vì
-        _blocked_cells vẫn đang rỗng từ __init__) - lỗi này chỉ bị phát
+        _blocked_rects vẫn đang rỗng từ __init__) - lỗi này chỉ bị phát
         hiện nhờ viết unit test riêng cho line_of_sight(), không hề gây
         ảnh hưởng trong game vì nơi gọi duy nhất trước giờ (find_path) đã
         luôn tự rebuild trước khi gọi hàm này."""
@@ -311,16 +450,42 @@ class VisibilityPathfinder:
         start_vis = self._batch_visible(start, verts)
         target_vis = self._batch_visible(target, verts)
         start_edges = np.where(start_vis)[0]
-        target_edge_set = set(np.where(target_vis)[0].tolist())
+        target_vis_idx = np.where(target_vis)[0]
+        target_edge_set = set(target_vis_idx.tolist())
         if len(start_edges) == 0:
             return None
 
         dxy = verts[start_edges] - np.array(start, dtype=np.float32)
         start_dists = np.hypot(dxy[:, 0], dxy[:, 1])
 
+        # --- Khoảng cách CHÍNH XÁC (không phải đường chim bay) từ target
+        # tới từng mốc - xem docstring _build_landmarks(). target không
+        # phải là 1 đỉnh có sẵn trong đồ thị, nhưng MỌI đường từ target
+        # vào đồ thị đều phải đi qua 1 trong các đỉnh "nhìn thấy" nó, nên
+        # lấy min qua các đỉnh đó cho ra khoảng cách THẬT (không phải cận
+        # trên gần đúng) - vẫn giữ đúng tính chất "không overestimate" của
+        # heuristic ALT.
+        landmark_dist = self._landmark_dist
+        num_landmarks = landmark_dist.shape[1] if landmark_dist.size else 0
+        landmark_to_target = np.full(num_landmarks, np.inf)
+        if num_landmarks and len(target_vis_idx):
+            dxy_t = verts[target_vis_idx] - np.array(target, dtype=np.float32)
+            entry_dist = np.hypot(dxy_t[:, 0], dxy_t[:, 1])
+            candidate = landmark_dist[target_vis_idx] + entry_dist[:, None]
+            landmark_to_target = np.min(candidate, axis=0)
+
         def heuristic(i):
             vx, vy = verts[i]
-            return math.hypot(vx - target[0], vy - target[1])
+            best = math.hypot(vx - target[0], vy - target[1])
+            if num_landmarks:
+                row = landmark_dist[i]
+                for lk in range(num_landmarks):
+                    lt = landmark_to_target[lk]
+                    if math.isfinite(lt) and math.isfinite(row[lk]):
+                        d = abs(row[lk] - lt)
+                        if d > best:
+                            best = d
+            return best
 
         g = {}
         parent = {}

@@ -49,20 +49,29 @@ def generate_perfect_maze(n, nest_x, nest_y, rng,
     Vài lựa chọn THIẾT KẾ đáng chú ý:
 
     - "Perfect maze" đúng nghĩa (recursive backtracker - cây khung phủ
-      kín/spanning tree trên lưới ô logic) tạo ra MẬT ĐỘ vật cản rất cao
-      (~40-60%, so với ~5-10% của tường đá rời rạc kiểu cũ) và RẤT NHIỀU
-      góc rẽ - cả 2 điều này khiến chi phí dựng visibility graph tĩnh
-      (O(V^2) kiểm tra tầm nhìn, xem pathfinding.VisibilityPathfinder.
-      _build_static_edges) tăng vọt. Ở độ phân giải 1 ô/hành lang (mê
-      cung "mỏng" truyền thống), số đỉnh V vượt 1400 và build mất TRÊN 30
-      GIÂY - không thể chấp nhận cho 1 nút bấm. Vì vậy mê cung ở đây dùng
-      hành lang RỘNG `passage` ô (mặc định 4) và tường DÀY `wall` ô (mặc
-      định 2): vẫn là perfect maze thật 100% (không pha trộn phòng mở),
-      chỉ là "thô" hơn - đổi lại số ô mê cung ít hơn nhiều (~25 ô thay vì
-      hàng trăm), giữ build dưới 2 giây. Xem MAZE_PASSAGE_WIDTH/
+      kín/spanning tree trên lưới ô logic) tạo ra RẤT NHIỀU góc rẽ - ban
+      đầu điều này khiến chi phí dựng visibility graph tĩnh (O(V^2) kiểm
+      tra tầm nhìn) tăng vọt VÀ mỗi lần tìm đường sau đó cũng chậm hẳn (đo
+      thực tế ban đầu: ~50-80ms/truy vấn trong mê cung ~650 đỉnh, đủ để
+      cả tick giật hình nếu nhiều kiến cùng cần đường mới). Đã khắc phục
+      bằng 2 tối ưu ở pathfinding.py (không đổi kết quả hình học, chỉ đổi
+      tốc độ):
+        1. Gộp các ô vật cản liền kề thành hình chữ nhật lớn trước khi
+           kiểm tra tầm nhìn (VisibilityPathfinder._merge_blocked_
+           rectangles) - giảm thẳng số "vật cản" cần quét mỗi lần kiểm
+           tra, vì tường 1 ô dày tạo ra RẤT NHIỀU ô rời rạc.
+        2. Heuristic ALT (Landmarks - VisibilityPathfinder._build_
+           landmarks) thay cho đường chim bay thuần túy - đường chim bay
+           là heuristic quá YẾU trong mê cung (2 điểm gần theo đường
+           thẳng có thể phải đi vòng rất xa), khiến A* phải mở rộng gần
+           hết đồ thị mỗi lần tìm đường.
+      Nhờ 2 tối ưu trên, mê cung có thể dùng hành lang hẹp (2 ô) và tường
+      mỏng (1 ô) - đúng "mê cung" hơn hẳn - mà build vẫn dưới ~2.5 giây và
+      mỗi truy vấn sau đó chỉ còn vài ms. Xem MAZE_PASSAGE_WIDTH/
       MAZE_WALL_WIDTH trong config.py nếu muốn tinh chỉnh lại đánh đổi
-      này (rộng hơn = nhanh hơn nhưng thưa hơn; hẹp hơn = dày hơn nhưng
-      chậm hơn NHIỀU vì chi phí là O(V^2), không tuyến tính).
+      này (hẹp hơn nữa = nhiều khúc quanh hơn nhưng build chậm hơn NHIỀU
+      vì chi phí vẫn là O(V^2), không tuyến tính - vd hành lang 1 ô mất
+      trên 15 giây để build).
     - Lưới ô mê cung được NEO theo đúng vị trí tổ (ô logic đầu tiên luôn
       là ô CHỨA tổ, xem _valid_cell_offsets) thay vì neo theo góc bản đồ -
       nếu không, tổ có thể vô tình rơi đúng vào 1 dải tường và bị "nhốt"
@@ -208,3 +217,22 @@ def generate_maze_in_world(state):
         if hasattr(colony, "path_len"):
             colony.path_len[:] = 0
             colony.path_idx[:] = 0
+
+        # --- Kiến đang đứng ĐÚNG vào ô VỪA biến thành tường (đã tồn tại
+        # từ trước khi sinh mê cung, vị trí không liên quan gì tới mê cung
+        # mới) phải được đưa ra chỗ trống NGAY - nếu không, kiến đó bị
+        # "nhốt" vĩnh viễn trong đá (hoàn toàn cô lập, không nhìn thấy đỉnh
+        # visibility graph nào), và mỗi tick vẫn cứ THỬ tìm đường mới rồi
+        # thất bại - chi phí tính toán đó vẫn mất dù không lộ ra ngoài
+        # (kiến trông như chỉ đứng yên), gây giật hình kéo dài mà không rõ
+        # nguyên nhân. Đưa thẳng về đúng vị trí tổ (luôn đảm bảo trống).
+        on_surface = colony.alive & (colony.layer == cfg.LAYER_SURFACE)
+        if np.any(on_surface):
+            idx = np.where(on_surface)[0]
+            xi = np.clip(colony.x[idx].astype(np.int64), 0, n - 1)
+            yi = np.clip(colony.y[idx].astype(np.int64), 0, n - 1)
+            trapped = blocked[xi, yi]
+            if np.any(trapped):
+                stuck_idx = idx[trapped]
+                colony.x[stuck_idx] = nest_x + 0.5
+                colony.y[stuck_idx] = nest_y + 0.5

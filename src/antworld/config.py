@@ -74,6 +74,15 @@ WAYPOINT_ARRIVE_THRESHOLD = 0.22   # coi là "đã tới" 1 điểm rẽ hướn
                             # còn cách chừng này - nhỏ hơn ARRIVE_THRESHOLD
                             # (mốc tới ĐÍCH CUỐI, vd cửa tổ) để bo góc sát
                             # hơn, giảm nguy cơ "cắt góc" đâm vào vật cản
+PATH_NUM_LANDMARKS = 6      # số "mốc" cho heuristic ALT (xem
+                            # VisibilityPathfinder._build_landmarks) - CHỈ
+                            # ảnh hưởng tốc độ tìm đường (mốc nhiều hơn =
+                            # heuristic chặt hơn = ít đỉnh phải xét hơn mỗi
+                            # truy vấn, đổi lại tốn thêm vài lần Dijkstra
+                            # MỖI KHI địa hình đổi - không phải mỗi tick).
+                            # Đường đi trả về LUÔN NGẮN NHẤT THẬT SỰ dù đặt
+                            # giá trị nào (ALT là heuristic hợp lệ, không
+                            # đánh đổi độ chính xác lấy tốc độ).
 EXPLORE_TARGET_SAMPLES = 12  # số điểm ứng viên ngẫu nhiên xét mỗi lần 1
                             # kiến SEARCHING cần chọn điểm khám phá mới
 EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm khi CHỌN
@@ -88,9 +97,9 @@ EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm kh
 # docstring generate_perfect_maze(). MAZE_PASSAGE_WIDTH/MAZE_WALL_WIDTH
 # CANG NHO thi me cung CANG DAY nhung build CANG CHAM (chi phi O(V^2)) -
 # 2 gia tri mac dinh duoi day da do dac de giu build duoi ~2 giay. -----
-MAZE_PASSAGE_WIDTH = 4         # do rong hanh lang (so o)
-MAZE_WALL_WIDTH = 2            # do day tuong giua 2 hanh lang (so o)
-MAZE_FOOD_PILES = 5            # so cum thuc an rai rac trong me cung
+MAZE_PASSAGE_WIDTH = 2         # do rong hanh lang (so o)
+MAZE_WALL_WIDTH = 1            # do day tuong giua 2 hanh lang (so o)
+MAZE_FOOD_PILES = 6            # so cum thuc an rai rac trong me cung
 MAZE_FOOD_AMOUNT_PER_PILE = 10.0  # luong thuc an moi cum (nho, buoc phai
                                 # di het nhieu ngoc ngach moi gom du)
 

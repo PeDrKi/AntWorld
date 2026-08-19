@@ -61,9 +61,23 @@ TURN_NOISE = 0.6             # độ nhiễu góc quay mỗi tick (radian) khi
 # và lính gác rút về tổ giờ đi theo ĐƯỜNG ĐI TÍNH SẴN (any-angle, ngắn
 # nhất, dựng từ visibility graph các góc vật cản) thay vì "dò mùi + né vật
 # cản kiểu bám tường" như trước - xem AntColony._follow_paths/_assign_new_path.
-PATH_MAX_WAYPOINTS = 24      # số điểm rẽ hướng tối đa lưu cho 1 đường đi
-                            # (thực tế hiếm khi vượt quá vài điểm với bản
-                            # đồ 40x40 và vài chục vật cản)
+PATH_MAX_WAYPOINTS = 120    # số điểm rẽ hướng tối đa lưu cho 1 đường đi -
+                            # với bản đồ chỉ có vài bức tường đá rời rạc
+                            # thì hiếm khi vượt quá vài điểm, NHƯNG mê
+                            # cung dày (maze_generator.py) có thể cần TỚI
+                            # 60+ điểm rẽ cho 1 đường đi dài ngoằn ngoèo -
+                            # đo thực tế trên mê cung mặc định. Nếu để
+                            # thấp hơn mức này, đường đi bị CẮT CỤT giữa
+                            # chừng (path[:PATH_MAX_WAYPOINTS] trong
+                            # AntColony._assign_new_path) khiến kiến dừng
+                            # lại ở 1 điểm rẽ TRUNG GIAN không phải đích
+                            # thật, thường ngay sát góc vật cản - từng gây
+                            # ra hiện tượng kiến trông như "đứng yên/kẹt"
+                            # gần tường dù về mặt hình học không hề xuyên
+                            # tường. Mảng path_x/path_y cấp phát theo giá
+                            # trị này cho MỖI con kiến (xem AntColony.
+                            # __init__) nên tăng lên không tốn kém gì đáng
+                            # kể (vài trăm KB dù đủ 200 kiến).
 PATH_REPLAN_BUDGET_PER_TICK = 40   # số lần tính đường đi MỚI tối đa cho
                             # phép mỗi tick (dùng chung cho cả tìm ăn, tha
                             # mồi về tổ, lính gác rút quân) - tránh giật

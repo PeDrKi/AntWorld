@@ -81,3 +81,75 @@ def get_mono_font(size):
     """Font chu deu nhau (JetBrains Mono) - dung cho HUD/bang so lieu can
     thang hang, giong vai tro cua 'consolas' truoc day."""
     return _load(_MONO_PATH, size)
+
+
+# ---------------------------------------------------------------------
+# CACHE KET QUA font.render() - TOI UU HIEU NANG
+# ---------------------------------------------------------------------
+# pygame.font.Font.render() phai RASTERIZE tung ky tu thanh pixel moi lan
+# goi - khong he re, nhung HUD/toolbar goi lai NHIEU LAN MOI KHUNG HINH
+# gan nhu CUNG 1 CHUOI CHU (nhan tinh "Dan so", "Linh", ten nut, tieu de
+# panel...) - do thuc te (xem profile_game.py) cho thay draw_hud mot minh
+# da goi .render() hang chuc lan/khung hinh, chiem ti le dang ke thoi gian
+# ve moi frame o toc do 60 FPS.
+#
+# render_cached(): tra ve THANG Surface DA RENDER TRUOC DO neu cung (font,
+# text, color) da tung goi qua - chi rasterize LAI khi CHUOI CHU THAY DOI
+# (vd so lieu tang/giam). Dung dict thuong (khong phai functools.lru_cache)
+# vi key co chua doi tuong Font (kiem tra hashable qua id sau).
+#
+# CANH BAO AN TOAN: KHONG duoc chinh sua (vd .fill(), blit len) Surface tra
+# ve boi ham nay - vi cung 1 Surface duoc DUNG CHUNG (shared) cho nhieu noi
+# goi. Chi duoc phep .blit() no LEN mot Surface khac (giong cach dung binh
+# thuong 1 anh da render), khong duoc ve THEM len chinh no.
+_render_cache = {}
+_RENDER_CACHE_MAX = 4000  # tran an toan - qua nguong thi xoa sach de tranh
+                           # phinh bo nho vo han (vd chuoi so dem thay doi
+                           # lien tuc moi tick tao ra vo so key khac nhau)
+
+
+def render_cached(font, text, color, antialias=True):
+    """Nhu font.render(text, antialias, color) nhung co cache - xem giai
+    thich day du o docstring module phia tren. `color` co the la tuple 3
+    hoac 4 phan tu, deu hoat dong binh thuong (dung lam key thang)."""
+    key = (id(font), text, color, antialias)
+    img = _render_cache.get(key)
+    if img is None:
+        if len(_render_cache) >= _RENDER_CACHE_MAX:
+            _render_cache.clear()  # rat hiem khi xay ra trong 1 van choi
+                                    # binh thuong - chi phong ho truong hop
+                                    # bat thuong (vd hien thi so ngau nhien
+                                    # lien tuc khong lap lai)
+        img = font.render(text, antialias, color)
+        _render_cache[key] = img
+    return img
+
+
+# ---------------------------------------------------------------------
+# CACHE SURFACE NEN MO MAU DAC (pygame.Surface(..., SRCALPHA) + fill())
+# ---------------------------------------------------------------------
+# Cung ly do nhu render_cached() o tren: nhieu noi trong hud.py cap phat 1
+# Surface SRCALPHA MOI + fill() 1 mau co dinh MOI KHUNG HINH chi de lam
+# nen mo phia sau 1 dong canh bao/nhan (kich thuoc + mau hau nhu KHONG DOI
+# giua cac khung hinh lien tiep) - cache theo (kich thuoc, mau) tranh cap
+# phat lai vo ich.
+#
+# CANH BAO AN TOAN: giong render_cached(), KHONG duoc ve/fill THEM len
+# Surface tra ve - chi duoc .blit() no di noi khac.
+_flat_surf_cache = {}
+_FLAT_SURF_CACHE_MAX = 500  # nen mo thuong chi co vai chuc to hop
+                             # (kich thuoc, mau) khac nhau trong ca game
+
+
+def get_flat_alpha_surface(size, color):
+    """Tra ve 1 Surface SRCALPHA kich thuoc `size`=(w,h) da fill() san mau
+    `color` (RGBA) - dung cache, KHONG tao moi neu da co san cung key."""
+    key = (size, color)
+    surf = _flat_surf_cache.get(key)
+    if surf is None:
+        if len(_flat_surf_cache) >= _FLAT_SURF_CACHE_MAX:
+            _flat_surf_cache.clear()
+        surf = pygame.Surface(size, pygame.SRCALPHA)
+        surf.fill(color)
+        _flat_surf_cache[key] = surf
+    return surf

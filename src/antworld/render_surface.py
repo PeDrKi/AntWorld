@@ -8,6 +8,55 @@ import pygame
 
 from . import config as cfg
 
+# --- Cache surface "vòng sáng" (ring) dùng cho hiệu ứng kiến ĐANG LÀM
+# VIỆC (is_working) / ĐANG ĐƯỢC THEO DÕI (follow) trong draw_ants() bên
+# dưới - trước đây MỖI CON kiến thỏa điều kiện lại cấp phát 1
+# pygame.Surface(..., SRCALPHA) MỚI + vẽ 1 vòng tròn MỖI KHUNG HÌNH (dù
+# hiệu ứng chỉ là 1 vòng tròn viền đơn giản, nhấp nháy chậm) - giờ LƯỢNG
+# TỬ HÓA (quantize) bán kính + alpha thành 1 số ít "bậc" rời rạc rồi cache
+# lại, tái sử dụng surface đã vẽ sẵn thay vì tạo mới - mắt người không
+# phân biệt được sai khác nhỏ do lượng tử hóa gây ra (hiệu ứng vốn đã nhấp
+# nháy liên tục), nhưng tránh cấp phát bộ nhớ + vẽ lại lặp đi lặp lại.
+_ring_cache = {}
+
+
+def _get_ring_surface(ring_r, ring_color, ring_alpha, width):
+    """Trả về 1 surface vòng tròn viền (bán kính/alpha đã lượng tử hóa) từ
+    cache - xem giải thích ở khai báo _ring_cache phía trên."""
+    r_q = max(2, int(round(ring_r)))
+    a_q = max(0, min(255, int(round(ring_alpha / 8.0)) * 8))
+    key = (r_q, ring_color, a_q, width)
+    surf = _ring_cache.get(key)
+    if surf is None:
+        if len(_ring_cache) > 300:
+            _ring_cache.clear()  # phòng hờ tràn bộ nhớ - trong thực tế chỉ
+                                  # có vài chục tổ hợp (bán kính, alpha) khác
+                                  # nhau xuất hiện trong 1 ván chơi bình thường
+        pad = width // 2 + 1  # đủ chỗ để nét viền dày (width>1) không bị
+                               # cắt xén ở rìa surface
+        size = r_q * 2 + pad * 2
+        center = r_q + pad
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*ring_color, a_q), (center, center), r_q, width)
+        _ring_cache[key] = surf
+    return surf
+
+
+# Chỉ dùng sprite food.png TÙY CHỈNH của người chơi cho loại PHỔ BIẾN
+# (SEED) - các loại khác (vd NECTAR) LUÔN vẽ hình vuông màu phẳng theo
+# FOOD_TYPE_COLOR, KHÔNG dùng sprite dù có sẵn.
+#
+# Lý do: đã thử "nhuộm màu" (tint) sprite gốc theo từng loại (cả nhân màu
+# trực tiếp BLEND_RGBA_MULT lẫn tách độ sáng/luminosity rồi tô lại màu
+# mới) nhưng đều cho kết quả gần giống hệt màu gốc, KHÓ phân biệt bằng
+# mắt trên bản đồ (đã tự kiểm bằng ảnh chụp thực tế ở cả 2 cách) - vì
+# sprite pixel-art gốc thường có dải sáng/tối riêng khiến việc "nhuộm lại"
+# không cho màu thuần như mong muốn. Vẽ thẳng ô màu phẳng tuy kém đẹp hơn
+# sprite tùy chỉnh nhưng ĐẢM BẢO CHẮC CHẮN 2 loại thức ăn luôn phân biệt
+# được ngay từ xa - đây là yêu cầu quan trọng hơn tính thẩm mỹ ở đây.
+def _use_sprite_for_food_type(ftype):
+    return ftype == cfg.FOOD_TYPE_SEED
+
 
 def draw_grid_lines(state, surf):
     camera = state.camera
@@ -32,6 +81,89 @@ def draw_grid_lines(state, surf):
                 (min(state.SCREEN_W, map_right), gy), 1
             )
         gy += step
+
+
+def _draw_grid_lines_local(cache, cell):
+    """Giống draw_grid_lines() nhưng vẽ vào surface CỤC BỘ của bản đồ (gốc
+    tọa độ (0,0) LUÔN là góc trên-trái bản đồ, không phụ thuộc camera đang
+    pan tới đâu) - dùng khi dựng _build_terrain_cache() (xem giải thích ở
+    đó vì sao tách riêng thành 1 surface cache thay vì vẽ lại mỗi khung
+    hình theo tọa độ màn hình như draw_grid_lines() ở trên)."""
+    size = cache.get_width()
+    g = 0.0
+    while g <= size + 0.5:
+        pygame.draw.line(cache, (0, 0, 0, 40), (g, 0), (g, size), 1)
+        pygame.draw.line(cache, (0, 0, 0, 40), (0, g), (size, g), 1)
+        g += cell
+
+
+def _build_terrain_cache(state, cell, step, r):
+    """Dựng SẴN 1 surface chứa NỀN ĐẤT + LƯỚI Ô VUÔNG + ĐÁ/NƯỚC cho toàn
+    bộ bản đồ, ở đúng kích thước pixel hiện tại (phụ thuộc zoom) nhưng
+    KHÔNG phụ thuộc camera đang pan tới đâu (luôn vẽ như thể góc (0,0) bản
+    đồ nằm tại (0,0) surface) - để mỗi khung hình chỉ cần 1 LẦN BLIT surface
+    này tại đúng vị trí camera hiện tại, thay vì lặp lại toàn bộ vòng lặp
+    quét ~GRID_SIZE^2 ô + vẽ từng đường lưới MỖI KHUNG HÌNH dù địa hình
+    99% thời gian KHÔNG hề đổi (chỉ đổi khi người chơi tự đặt/xóa đá/nước -
+    xem terrain_version trong world.py). Được gọi lại (dựng mới) CHỈ KHI
+    cache_key ở draw_surface_layer() đổi (terrain/zoom/lưới bật-tắt đổi)."""
+    surface_world = state.surface_world
+    size = max(1, int(round(cfg.GRID_SIZE * cell)))
+    cache = pygame.Surface((size, size))
+    cache.fill(cfg.COLOR_GROUND_FILL)
+
+    if state.grid_visible and cell >= 3:
+        _draw_grid_lines_local(cache, cell)
+
+    terrain = surface_world.terrain
+    rock_sprite = state.sprites.get_static("rock.png", r) if state.sprites.has("rock.png") else None
+    water_sprite = state.sprites.get_static("water.png", r) if state.sprites.has("water.png") else None
+
+    # Chỉ lặp qua các Ô THỰC SỰ có địa hình (numpy tìm sẵn bằng np.where)
+    # thay vì quét python thủ công qua MỌI ô của lưới (đa số ô trống) -
+    # dù bước này giờ chỉ chạy khi cache cần dựng lại (hiếm), vẫn giữ cách
+    # làm nhanh nhất có thể để không giật hình ngay tại khung hình đó.
+    sampled = terrain[0:cfg.GRID_SIZE:step, 0:cfg.GRID_SIZE:step]
+    txi, tyi = np.where(sampled != cfg.TERRAIN_EMPTY)
+    for tx, ty in zip((txi * step).tolist(), (tyi * step).tolist()):
+        t = terrain[tx, ty]
+        cx = (tx + 0.5) * cell
+        cy = (ty + 0.5) * cell
+        sprite = rock_sprite if t == cfg.TERRAIN_ROCK else water_sprite
+        if sprite is not None:
+            cache.blit(sprite, sprite.get_rect(center=(int(cx), int(cy))))
+        else:
+            color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
+            pygame.draw.rect(cache, color, (cx - r / 2, cy - r / 2, r, r))
+    return cache
+
+
+def _get_terrain_cache(state, cell, step, r):
+    """Trả về surface nền đất+lưới+địa hình đã cache (xem
+    _build_terrain_cache) - chỉ dựng lại khi 1 trong các yếu tố ảnh hưởng
+    tới hình dáng của nó thực sự đổi (terrain_version tăng khi đặt/xóa đá
+    nước, cell/step/r đổi khi zoom, grid_visible bật/tắt, hoặc surface_world
+    bị THAY HẲN object khác - xem load_game()).
+
+    QUAN TRỌNG: cache được lưu trên `state` (GameState), KHÔNG lưu trên
+    `state.surface_world` - vì surface_world bị pickle NGUYÊN VẸN mỗi khi
+    lưu ván chơi (xem GameState.save_game() trong game_state.py). Một
+    pygame.Surface không pickle được (lỗi "cannot pickle
+    'pygame.surface.Surface' object"), nên nếu gắn cache LÊN surface_world,
+    chỉ cần người chơi vẽ ra màn hình 1 lần (luôn xảy ra) rồi bấm Lưu ván
+    chơi là lưu sẽ LỖI NGAY. `state` thì không bao giờ bị pickle, nên gắn
+    cache ở đây là an toàn."""
+    surface_world = state.surface_world
+    key = (surface_world.terrain_version, cell, step, r, state.grid_visible)
+    # So sánh THEO ĐỊNH DANH object (`is`, không phải `==`/id() tái sử dụng
+    # được sau khi object cũ bị garbage-collected) để chắc chắn phát hiện
+    # đúng lúc load_game() thay hẳn 1 SurfaceWorld khác, ngay cả khi
+    # terrain_version của object mới trùng ngẫu nhiên với object cũ.
+    if getattr(state, "_terrain_cache_world", None) is not surface_world or getattr(state, "_terrain_cache_key", None) != key:
+        state._terrain_cache_surf = _build_terrain_cache(state, cell, step, r)
+        state._terrain_cache_key = key
+        state._terrain_cache_world = surface_world
+    return state._terrain_cache_surf
 
 
 def draw_pheromone_trails(state, surf):
@@ -68,38 +200,18 @@ def draw_pheromone_trails(state, surf):
 def draw_surface_layer(state, surf):
     camera = state.camera
     cell = camera.cell_px()
-    x0, y0 = camera.world_to_screen(0, 0, state.CENTER_X, state.CENTER_Y)
-    ground_rect = pygame.Rect(x0, y0, cfg.GRID_SIZE * cell, cfg.GRID_SIZE * cell)
-    pygame.draw.rect(surf, cfg.COLOR_GROUND_FILL, ground_rect)
-
-    if state.grid_visible and cell >= 3:
-        draw_grid_lines(state, surf)
-
     surface_world = state.surface_world
 
-    # --- địa hình: đá + nước (lấy mẫu thưa theo bước lưới cho nhanh) -
-    # vẽ Ở GIỮA từng Ô LƯỚI (gx+0.5, gy+0.5), KHÔNG phải tại điểm giao 2
-    # đường lưới (gx, gy) - để trông như 1 viên gạch/tường nằm gọn TRONG 1
-    # ô, thay vì bị 4 đường lưới cắt ngang qua giữa. Dùng sprite tùy chỉnh
-    # (rock.png/water.png) nếu người chơi đã cung cấp, không thì vẽ vuông
-    # màu như trước. ---
-    terrain = surface_world.terrain
+    # --- nền đất + lưới ô vuông + đá/nước: LẤY TỪ CACHE thay vì vẽ lại
+    # từ đầu mỗi khung hình - xem _build_terrain_cache()/_get_terrain_cache()
+    # phía trên: 3 lớp này gộp thành ĐÚNG 1 lần blit ở đây, chỉ dựng lại
+    # (chậm hơn) khi terrain/zoom/bật-tắt lưới thực sự thay đổi, chứ không
+    # phải mỗi khung hình trong số 60 khung hình/giây dù bản đồ đứng yên. ---
     step = max(1, int(1 / max(cell / cfg.BASE_CELL_PX, 0.05)))
     r = max(1, int(round(cell * step)))  # LẤP ĐẦY hẳn cả ô, không chừa viền
-    rock_sprite = state.sprites.get_static("rock.png", r) if state.sprites.has("rock.png") else None
-    water_sprite = state.sprites.get_static("water.png", r) if state.sprites.has("water.png") else None
-    for gx in range(0, cfg.GRID_SIZE, step):
-        for gy in range(0, cfg.GRID_SIZE, step):
-            t = terrain[gx, gy]
-            if t == cfg.TERRAIN_EMPTY:
-                continue
-            sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
-            sprite = rock_sprite if t == cfg.TERRAIN_ROCK else water_sprite
-            if sprite is not None:
-                surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
-            else:
-                color = (120, 118, 112) if t == cfg.TERRAIN_ROCK else (70, 140, 200)
-                pygame.draw.rect(surf, color, (sx - r / 2, sy - r / 2, r, r))
+    terrain_cache = _get_terrain_cache(state, cell, step, r)
+    x0, y0 = camera.world_to_screen(0, 0, state.CENTER_X, state.CENTER_Y)
+    surf.blit(terrain_cache, (int(round(x0)), int(round(y0))))
 
     # --- đường mùi (pheromone) - vẽ TRƯỚC thức ăn/kiến để nằm dưới, như
     # dấu vết in trên mặt đất ---
@@ -111,7 +223,14 @@ def draw_surface_layer(state, surf):
     # kẽ hở quanh thức ăn bình thường, chỉ đá/nước mới thật sự chặn đường
     # (xem _avoid_obstacles trong ants.py) - kích thước nhỏ hơn giúp NHÌN
     # RA NGAY sự khác biệt này, không tưởng nhầm thức ăn cũng chặn đường
-    # như đá/nước. Dùng sprite food.png tùy chỉnh nếu có. ---
+    # như đá/nước. Dùng sprite food.png tùy chỉnh nếu có.
+    #
+    # Thức ăn (khác đá/nước) đổi liên tục mỗi tick (kiến ăn dần) nên KHÔNG
+    # cache được như trên - nhưng vẫn tránh quét python qua MỌI ô của lưới
+    # (đa số trống): dùng np.where() để chỉ lấy đúng các ô có thức ăn rồi
+    # tính sẵn tọa độ màn hình HÀNG LOẠT bằng numpy, thay vì gọi
+    # world_to_screen() + kiểm tra food[gx,gy] cho TỪNG ô trong số tới
+    # ~1600 ô mỗi khung hình. ---
     food = surface_world.food
     food_type = surface_world.food_type
     fstep = 1 if cell > 10 else 2
@@ -122,16 +241,29 @@ def draw_surface_layer(state, surf):
     food_size = min(int(cell * fstep * 0.55 * cfg.ENTITY_SPRITE_SCALE), int(cell * fstep * 0.82))
     food_size = max(3, food_size)
     food_sprite = state.sprites.get_static("food.png", food_size) if state.sprites.has("food.png") else None
-    for gx in range(0, cfg.GRID_SIZE, fstep):
-        for gy in range(0, cfg.GRID_SIZE, fstep):
-            if food[gx, gy] > 0.5:
-                sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
-                if food_sprite is not None:
-                    surf.blit(food_sprite, food_sprite.get_rect(center=(int(sx), int(sy))))
-                else:
-                    ftype = int(food_type[gx, gy])
-                    fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
-                    pygame.draw.rect(surf, fc, (sx - food_size / 2, sy - food_size / 2, food_size, food_size))
+
+    fxi, fyi = np.where(food[0:cfg.GRID_SIZE:fstep, 0:cfg.GRID_SIZE:fstep] > 0.5)
+    if len(fxi) > 0:
+        gxs = (fxi * fstep).astype(np.float32) + 0.5
+        gys = (fyi * fstep).astype(np.float32) + 0.5
+        fsxs, fsys = camera.world_to_screen(gxs, gys, state.CENTER_X, state.CENTER_Y)
+        gx_int = (fxi * fstep)
+        gy_int = (fyi * fstep)
+        for i in range(len(fxi)):
+            # ÉP KIỂU về float/int THƯỜNG của Python (không phải
+            # numpy.float32) - pygame.draw.rect() không chấp nhận
+            # numpy.float32 trong tuple rect ở 1 số phiên bản (lỗi
+            # "rect argument is invalid") - lỗi này TỪNG BỊ CHE GIẤU vì
+            # nhánh sprite (food_sprite is not None) luôn được chọn khi có
+            # sẵn sprite food.png tùy chỉnh, chỉ lộ ra khi thêm loại thức
+            # ăn KHÔNG dùng sprite (NECTAR, xem _use_sprite_for_food_type).
+            sx, sy = float(fsxs[i]), float(fsys[i])
+            ftype = int(food_type[gx_int[i], gy_int[i]])
+            if food_sprite is not None and _use_sprite_for_food_type(ftype):
+                surf.blit(food_sprite, food_sprite.get_rect(center=(int(sx), int(sy))))
+            else:
+                fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
+                pygame.draw.rect(surf, fc, (sx - food_size / 2, sy - food_size / 2, food_size, food_size))
 
     # --- lỗ tổ - dùng sprite nest_main.png tùy chỉnh nếu có, không thì vẽ
     # vòng tròn màu như trước ---
@@ -281,9 +413,8 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.15 + i)
             ring_r = max(2, int(r * 1.7 + pulse * r * 0.5))
             ring_alpha = int(90 + pulse * 100)
-            ring_surf = pygame.Surface((ring_r * 2 + 2, ring_r * 2 + 2), pygame.SRCALPHA)
-            pygame.draw.circle(ring_surf, (255, 235, 120, ring_alpha), (ring_r + 1, ring_r + 1), ring_r, 2)
-            surf.blit(ring_surf, (int(sx) - ring_r - 1, int(sy) - ring_r - 1))
+            ring_surf = _get_ring_surface(ring_r, (255, 235, 120), ring_alpha, 2)
+            surf.blit(ring_surf, ring_surf.get_rect(center=(int(sx), int(sy))))
 
         # --- Con kiến ĐANG ĐƯỢC CAMERA THEO DÕI: 1 vòng tròn xanh lá sáng
         # nhấp nháy RÕ RÀNG bao quanh, to hơn hẳn vòng "đang làm việc" ở
@@ -291,11 +422,8 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         if state.follow_colony is colony_obj and idx[i] == state.follow_idx:
             fpulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.2)
             fring_r = max(4, int(r * 2.6 + fpulse * r * 0.6))
-            fring_surf = pygame.Surface((fring_r * 2 + 4, fring_r * 2 + 4), pygame.SRCALPHA)
-            pygame.draw.circle(
-                fring_surf, (80, 255, 120, 220), (fring_r + 2, fring_r + 2), fring_r, 3
-            )
-            surf.blit(fring_surf, (int(sx) - fring_r - 2, int(sy) - fring_r - 2))
+            fring_surf = _get_ring_surface(fring_r, (80, 255, 120), 220, 3)
+            surf.blit(fring_surf, fring_surf.get_rect(center=(int(sx), int(sy))))
 
         # --- Trạng thái ĐANG THA MỒI được thể hiện qua chính "hình dạng"
         # con kiến, KHÔNG đính kèm icon rời: nếu người chơi có sprite tùy

@@ -21,6 +21,7 @@ import numpy as np
 from antworld import config as cfg
 from antworld.ants import AntColony
 from antworld.world import SurfaceWorld, UndergroundWorld
+from antworld.enemy import EnemyManager
 
 
 def make_colony(n_start=None, max_ants=None, founding=False):
@@ -167,6 +168,227 @@ class TestFoundingModeBasics(unittest.TestCase):
         population = int(np.sum(colony.alive))
         self.assertGreaterEqual(population, 0)
         self.assertLessEqual(population, cfg.MAX_ANTS_PER_COLONY)
+
+
+class TestNecrophoresis(unittest.TestCase):
+    """Truoc day cai chet chi la 1 con so truu tuong: kien chet o dau
+    khong quan trong, corpse_count o nghia dia tang NGAY LAP TUC, khong ai
+    phai lam gi ca. Cac test o day khoa lai hanh vi MOI: kien chet DUOI
+    HAM de lai 1 xac THAT tai dung vi tri, phai co 1 nurse dang RANH VIEC
+    tu nguyen di khieng no ve Nghia dia thi corpse_count moi tang."""
+
+    def _make_colony_with_idle_nurses_and_victim(self, n_idle=3):
+        colony = make_colony(n_start=30, founding=False)
+        for _ in range(500):
+            colony.update()
+        alive_idx = np.where(colony.alive)[0]
+        idle_nurses = alive_idx[:n_idle]
+        victim = alive_idx[n_idle]
+        underground = colony.underground
+
+        colony.job[idle_nurses] = cfg.JOB_NURSE
+        colony.layer[idle_nurses] = cfg.LAYER_UNDERGROUND
+        colony.depth[idle_nurses] = underground.storage_depth
+        colony.x[idle_nurses] = underground.storage[0]
+        colony.y[idle_nurses] = underground.storage[1]
+        colony.state[idle_nurses] = cfg.STATE_NURSE_AT_STORAGE
+        colony.carrying[idle_nurses] = False
+        # Dam bao au trung dang du an (>= NURSE_NURSERY_TARGET_STOCK) de
+        # cac nurse nay THUC SU khong co viec gi lam, o yen tai
+        # STATE_NURSE_AT_STORAGE - neu khong, ngay _update_nurses() tiep
+        # theo se dieu chung di lam viec that (mang thuc an sang phong au
+        # trung, chuyen sang STATE_NURSE_TO_NURSERY) truoc ca khi kip lam
+        # undertaker, khien test khong bao gio tim thay nurse "ranh" nao.
+        underground.food_in_nursery = cfg.NURSE_NURSERY_TARGET_STOCK
+
+        colony.job[victim] = cfg.JOB_NURSE
+        colony.layer[victim] = cfg.LAYER_UNDERGROUND
+        colony.depth[victim] = underground.nursery_depth
+        colony.x[victim] = underground.nursery[0] + 0.3
+        colony.y[victim] = underground.nursery[1] - 0.2
+        # Bao dam xac suat chet vi gia = 100% ngay tick ke tiep (giai
+        # nguoc cong thuc OLD_AGE_DEATH_RATE*(1+over/OLD_AGE_DEATH_GROWTH))
+        over_needed = cfg.OLD_AGE_DEATH_GROWTH * (1.0 / cfg.OLD_AGE_DEATH_RATE - 1.0) + 1000
+        colony.age[victim] = cfg.MAX_AGE_TICKS + over_needed
+        return colony, victim
+
+    def test_underground_death_does_not_add_corpse_instantly(self):
+        colony, victim = self._make_colony_with_idle_nurses_and_victim()
+        underground = colony.underground
+        colony.update()
+        self.assertFalse(colony.alive[victim], "Kien chua chet - cong thuc xac suat co the da doi")
+        self.assertEqual(
+            underground.corpse_count, 0.0,
+            "corpse_count tang NGAY LAP TUC - necrophoresis khong con hoat dong dung",
+        )
+        self.assertEqual(len(underground.pending_corpses), 1)
+
+    def test_idle_nurse_is_dispatched_and_delivers_corpse(self):
+        colony, victim = self._make_colony_with_idle_nurses_and_victim()
+        underground = colony.underground
+        colony.update()
+
+        undertaker_seen = False
+        for _ in range(800):
+            colony.update()
+            in_transit = colony.alive & np.isin(
+                colony.state, [cfg.STATE_UNDERTAKER_TO_CORPSE, cfg.STATE_UNDERTAKER_TO_GRAVEYARD]
+            )
+            if np.any(in_transit):
+                undertaker_seen = True
+            if underground.corpse_count > 0:
+                break
+
+        self.assertTrue(undertaker_seen, "Khong co nurse nao duoc dieu di khieng xac")
+        self.assertGreater(underground.corpse_count, 0, "Xac khong bao gio duoc khieng toi noi trong 800 tick")
+        self.assertEqual(len(underground.pending_corpses), 0)
+
+    def test_undertaker_movement_is_not_throttled_like_assignment(self):
+        """Regression test cho 1 loi cu the da gap: nhot chung dieu kien
+        "chi kiem tra 1 lan moi UNDERTAKER_CHECK_INTERVAL tick" (danh cho
+        buoc PHAN CONG moi) voi ca buoc DI CHUYEN cua nurse DANG TREN
+        DUONG - khien nurse dang khieng xac chi nhich 1 tick trong moi
+        UNDERTAKER_CHECK_INTERVAL tick, mat gap boi so lan thoi gian di
+        chuyen that su can. Test nay dam bao 1 nurse dang o state
+        STATE_UNDERTAKER_TO_CORPSE PHAI di chuyen o MOI TICK, khong chi
+        nhung tick chia het cho UNDERTAKER_CHECK_INTERVAL."""
+        colony, victim = self._make_colony_with_idle_nurses_and_victim()
+        colony.update()
+
+        undertaker_idx = None
+        for _ in range(cfg.UNDERTAKER_CHECK_INTERVAL + 5):
+            colony.update()
+            in_transit = np.where(
+                colony.alive & (colony.state == cfg.STATE_UNDERTAKER_TO_CORPSE)
+            )[0]
+            if len(in_transit) > 0:
+                undertaker_idx = in_transit[0]
+                break
+        if undertaker_idx is None:
+            self.skipTest("Chua co nurse nao duoc phan cong trong cua so cho phep")
+
+        pos_before = (colony.x[undertaker_idx], colony.y[undertaker_idx])
+        moved_ticks = 0
+        for _ in range(cfg.UNDERTAKER_CHECK_INTERVAL):
+            if colony.state[undertaker_idx] != cfg.STATE_UNDERTAKER_TO_CORPSE:
+                break  # da toi noi som hon 1 chu ky kiem tra - van hop le
+            colony.update()
+            pos_after = (colony.x[undertaker_idx], colony.y[undertaker_idx])
+            if pos_after != pos_before:
+                moved_ticks += 1
+            pos_before = pos_after
+
+        self.assertGreater(
+            moved_ticks, 1,
+            "Nurse dang khieng xac chi di chuyen o duoc 1 tick trong ca 1 "
+            "chu ky UNDERTAKER_CHECK_INTERVAL - buoc di chuyen dang bi "
+            "nhot chung voi throttle cua buoc phan cong.",
+        )
+
+
+class TestCooperativeCarcassHauling(unittest.TestCase):
+    """Truoc day ke thu tu nhien bi linh danh bai HAN se BIEN MAT ngay lap
+    tuc, khong de lai gi ca - danh bai ke thu khong dem lai loi ich thuc
+    pham nao cho to. Cac test o day khoa lai hanh vi MOI: xac ke thu la 1
+    "moi lon" can DU SO KIEN (HAUL_MIN_ANTS) tap trung CUNG LUC moi khieng
+    noi ve to (cooperative transport), khong du nguoi kip thoi thi xac rua
+    mat (HAUL_DECAY_TICKS)."""
+
+    def test_defeated_enemy_leaves_carcass_instead_of_vanishing(self):
+        colony = make_colony(n_start=20, founding=False)
+        enemy = EnemyManager()
+        enemy.force_spawn_at(colony.nest_pos[0] + 2, colony.nest_pos[1])
+        enemy.health = 0.01  # 1 don sat thuong tiep theo se ha guc no
+
+        # Ep TRUC TIEP 1 kien thanh linh (ROLE_MAJOR) - KHONG dua vao ty
+        # le phan cong role ngau nhien luc khoi tao (voi dan nho, co THE
+        # ra 0 linh hoan toan do may rui, da tung gap thuc te khien test
+        # nay flaky).
+        alive_idx = np.where(colony.alive)[0]
+        self.assertGreater(len(alive_idx), 0)
+        soldier = alive_idx[0]
+        colony.role[soldier] = cfg.ROLE_MAJOR
+        colony.layer[soldier] = cfg.LAYER_SURFACE
+        colony.alive[soldier] = True
+        colony.x[soldier], colony.y[soldier] = enemy.x, enemy.y
+
+        defeated = False
+        for _ in range(200):
+            # Ep linh LUON DUNG CANH ke thu moi tick (thay vi chi dat 1
+            # lan luc dau) - vi ke thu tu chon muc tieu GAN NHAT trong so
+            # TAT CA kien tren mat dat moi tick (xem EnemyManager.
+            # _move_towards_prey), voi dan 20 con no co the doi huong bam
+            # theo 1 con khac o xa hon linh cua ta, khien linh roi khoi
+            # tam danh trung va lam test flaky (da tung gap thuc te).
+            colony.x[soldier], colony.y[soldier] = enemy.x, enemy.y
+            colony.update(enemy=enemy)
+            enemy.update([colony])
+            if not enemy.active and enemy.total_defeated > 0:
+                defeated = True
+                break
+        self.assertTrue(defeated, "Ke thu khong bao gio bi danh bai trong 200 tick")
+        self.assertTrue(enemy.carcass_active, "Ke thu bi danh bai nhung KHONG de lai xac - hanh vi cu (bien mat) van con")
+        self.assertGreater(enemy.carcass_food_value, 0)
+
+    def test_enough_ants_haul_carcass_home(self):
+        colony = make_colony(n_start=40, founding=False)
+        for _ in range(500):
+            colony.update()
+        enemy = EnemyManager()
+        enemy._spawn_carcass(colony.nest_pos[0] + 2.0, colony.nest_pos[1])
+        # LUU Y: KHONG so sanh food_in_storage truoc/sau qua suot 2000
+        # tick (tung dung cach nay, gap DUNG LOI FLAKY tuong tu da tung
+        # phat hien o test_invasion.py: kho luon bien dong SONG SONG do
+        # tieu thu tu nhien - nurse lay do cho au trung an, chua de trung
+        # tru kho... - nen dau khieng xac THANH CONG that su, kho van co
+        # THE giam rong qua ca cua so neu tieu thu > luong vua khieng ve).
+        # Dung THANG total_food_collected (bo dem chi TANG, khong bao gio
+        # giam, khong bi tieu thu anh huong) la phep do dang tin cay.
+        collected_before = colony.total_food_collected
+
+        haul_states_seen = set()
+        for _ in range(2000):
+            colony.update(enemy=enemy)
+            enemy.update([colony])
+            states_now = set(np.unique(colony.state[colony.alive]).tolist())
+            haul_states_seen |= states_now & {cfg.STATE_HAUL_APPROACH, cfg.STATE_HAUL_GRIP}
+            if not enemy.carcass_active:
+                break
+
+        self.assertIn(cfg.STATE_HAUL_APPROACH, haul_states_seen, "Khong co kien nao di tiep can xac")
+        self.assertEqual(enemy.total_carcasses_hauled, 1, "Xac khong duoc khieng thanh cong")
+        self.assertGreaterEqual(
+            colony.total_food_collected, collected_before + cfg.HAUL_MIN_ANTS,
+            "So don vi thu thap khong tang dung bang so kien da khieng xac",
+        )
+
+    def test_too_few_ants_lets_carcass_rot_away(self):
+        """Dan CHI 2 con - khong bao gio du HAUL_MIN_ANTS (mac dinh 4) tap
+        trung cung luc, nen xac PHAI rua mat sau HAUL_DECAY_TICKS, khong
+        the nao khieng thanh cong."""
+        colony = make_colony(n_start=2, founding=False)
+        enemy = EnemyManager()
+        enemy._spawn_carcass(colony.nest_pos[0] + 2.0, colony.nest_pos[1])
+
+        for _ in range(cfg.HAUL_DECAY_TICKS + 50):
+            colony.update(enemy=enemy)
+            enemy.update([colony])
+            if not enemy.carcass_active:
+                break
+        self.assertEqual(enemy.total_carcasses_hauled, 0)
+        self.assertFalse(enemy.carcass_active)
+
+        # Dung DUNG THU TU that cua game_state.py (colony.update() TRUOC,
+        # enemy.update() SAU MOI tick) - do do co THE co do tre VO HAI 1
+        # tick giua luc carcass rua mat va luc kien duoc "tha" khoi state
+        # khieng mo (vi colony.update() cua chinh tick do da chay TRUOC
+        # khi enemy.update() lam carcass_active=False). Goi THEM 1 tick
+        # colony.update() nua (dung nhu vong lap that se tiep tuc chay) de
+        # kiem tra dung dieu kien can khoa: khong con ket LAU DAI, khong
+        # phai "khong bao gio co do tre nao".
+        colony.update(enemy=enemy)
+        stuck = np.any(colony.alive & np.isin(colony.state, [cfg.STATE_HAUL_APPROACH, cfg.STATE_HAUL_GRIP]))
+        self.assertFalse(stuck, "Kien bi ket vinh vien o state khieng mo sau khi xac da rua mat")
 
 
 if __name__ == "__main__":

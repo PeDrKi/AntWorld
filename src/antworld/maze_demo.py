@@ -1,48 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Tab demo "Tìm đường trong mê cung": sinh 1 mê cung ngẫu nhiên (thuật
-toán recursive backtracker cổ điển), đặt tổ kiến làm điểm XUẤT PHÁT và 1
-miếng thức ăn làm ĐÍCH, rồi dùng lại NGUYÊN VẸN module pathfinding.py
-(visibility graph + A* any-angle - xem module đó để biết chi tiết thuật
-toán) để tìm và minh họa trực quan đường đi ngắn nhất xuyên mê cung.
+"""Tab demo "Tìm đường trong mê cung": sinh 1 mê cung chuẩn (perfect maze,
+xem maze_generator.py), đặt tổ kiến làm điểm XUẤT PHÁT và 1 miếng thức ăn
+làm ĐÍCH, rồi dùng lại NGUYÊN VẸN module pathfinding.py (visibility graph
++ A* any-angle - xem module đó để biết chi tiết thuật toán) để tìm và
+minh họa trực quan đường đi ngắn nhất xuyên mê cung.
 
-Tách hẳn khỏi AntColony/SurfaceWorld thật - đây chỉ là 1 bản đồ MINH HỌA
-độc lập, không ảnh hưởng gì tới ván chơi chính đang chạy song song.
+Tách HOÀN TOÀN khỏi AntColony/SurfaceWorld thật - đây chỉ là 1 bản đồ
+MINH HỌA độc lập (world giả lập riêng, không đụng state.surface_world/
+state.colony), không ảnh hưởng gì tới ván chơi chính đang chạy song song.
+Trước đây có 1 phiên bản rải thẳng mê cung vào bản đồ THẬT (nút "Sinh me
+cung" trong toolbar chính) - đã bỏ vì đó là thao tác PHÁ HỦY không thể
+hoàn tác (xóa sạch đá/nước/thức ăn đã đặt, nước mất vĩnh viễn) và từng
+gây ra hàng loạt lỗi tinh vi khi va chạm với trạng thái đàn kiến SỐNG.
 """
 import math
 import time
-from collections import deque
 
 import numpy as np
 import pygame
 
 from . import config as cfg
+from . import maze_generator
 from . import pathfinding
-
-
-def _farthest_reachable_cell(blocked, start):
-    """BFS trên lưới từ `start`, trả về ô XA NHẤT (theo số bước đi 4
-    hướng) mà từ `start` CÓ THỂ tới được - dùng làm vị trí đặt thức ăn,
-    đảm bảo LUÔN có đường đi thật sự tới đó (không rơi vào 1 túi kín tách
-    biệt do tường chặn hết, điều random_obstacle_map thường không đảm
-    bảo)."""
-    n = blocked.shape[0]
-    visited = np.zeros_like(blocked)
-    visited[start] = True
-    farthest = start
-    max_dist = 0
-    q = deque([(start, 0)])
-    while q:
-        (x, y), d = q.popleft()
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < n and 0 <= ny < n and not blocked[nx, ny] and not visited[nx, ny]:
-                visited[nx, ny] = True
-                nd = d + 1
-                if nd > max_dist:
-                    max_dist = nd
-                    farthest = (nx, ny)
-                q.append(((nx, ny), nd))
-    return farthest, max_dist
+from .fonts import render_cached
 
 
 class _FakeSurface:
@@ -57,8 +37,7 @@ class MazeDemo:
     GRID = cfg.GRID_SIZE  # PHẢI khớp cfg.GRID_SIZE - pathfinding.py dùng
                           # thẳng hằng số này (không đọc từ terrain.shape)
                           # để xử lý biên bản đồ, xem VisibilityPathfinder.
-    ANT_DISPLAY_SPEED = 0.14  # tốc độ "kiến minh họa" đi trên đường (ô/khung hình) - nhanh hơn
-                              # tốc độ kiến thật (ANT_SPEED) để xem cho trực quan, không phải mô phỏng thật
+    ANT_DISPLAY_SPEED = 0.14  # tốc độ "kiến minh họa" đi trên đường (ô/khung hình)
 
     def __init__(self):
         self._fake = _FakeSurface()
@@ -72,54 +51,48 @@ class MazeDemo:
         self.path = None
         self.path_length = 0.0
         self.search_time_ms = 0.0
+        self.build_time_ms = 0.0
         self.anim_t = 0.0
-        self.regenerate()
+        # KHÔNG gọi regenerate() ở đây - việc dựng visibility graph có thể
+        # mất tới ~10 giây ở mật độ mê cung dày nhất (xem maze_generator.
+        # generate_perfect_maze), nếu làm ngay trong __init__ thì CẢ GAME
+        # sẽ mất chừng đó thời gian để khởi động, kể cả khi người chơi
+        # chưa từng mở tab "Demo mê cung". Thay vào đó, chỉ dựng khi thực
+        # sự cần - xem ensure_generated(), được gọi từ
+        # GameState.switch_tab() đúng lúc người chơi CHUYỂN SANG tab này.
+        self._generated = False
+
+    def ensure_generated(self):
+        """Dựng mê cung (nếu chưa có) - gọi đúng lúc người chơi thực sự
+        cần xem tab này (switch_tab), không phải lúc khởi động game."""
+        if not self._generated:
+            self.regenerate()
+            self._generated = True
 
     # ------------------------------------------------------------------
     def regenerate(self, seed=None):
-        """Sinh mê cung MỚI + chọn lại tổ/thức ăn + tìm lại đường đi.
-
-        Dùng kiểu bản đồ "labyrinth" (vài bức tường đá DÀI, ngoằn ngoèo,
-        rẽ ngẫu nhiên) - CÙNG kiểu dữ liệu với cách world.py sinh tường đá
-        thật trong ván chơi chính (_spawn_one_rock_wall), KHÔNG phải mê
-        cung "phủ kín 100% ô" kiểu recursive-backtracker cổ điển. Đây là
-        lựa chọn có CHỦ ĐÍCH, không chỉ thẩm mỹ: 1 mê cung phủ kín 100%
-        (mỗi ô là 1 hành lang, tường dày 1 ô khắp nơi) tạo ra hàng nghìn
-        đỉnh góc vật cản, khiến bước dựng visibility graph (O(V^2), xem
-        pathfinding.VisibilityPathfinder._build_static_edges) mất HÀNG
-        CHỤC GIÂY mỗi lần bấm "mê cung mới" - đúng bài học rút ra từ báo
-        cáo cải tiến FA-A* trước đó (chi phí O(V^2) chỉ đáng trả khi có
-        RẤT NHIỀU truy vấn dùng lại cùng 1 bản đồ, ở đây mỗi mê cung mới
-        chỉ cần ĐÚNG 1 truy vấn). Vài bức tường dài, ngoằn ngoèo vẫn tạo
-        cảm giác "mê cung" (phải đi vòng, không thấy đường thẳng ngay) mà
-        giữ số đỉnh ở mức vài trăm - build dưới nửa giây.
-        """
+        """Sinh mê cung MỚI + chọn lại tổ/thức ăn + tìm lại đường đi. World
+        RIÊNG hoàn toàn (self._fake) - không đụng gì tới bản đồ thật đang
+        chơi, có thể bấm lại bao nhiêu lần tùy thích, không mất gì cả."""
         rng = np.random.default_rng(seed)
         n = self.GRID
-        blocked = np.zeros((n, n), dtype=bool)
-        dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-        for _ in range(cfg.MAZE_DEMO_NUM_WALLS):
-            x, y = rng.integers(1, n - 1), rng.integers(1, n - 1)
-            length = int(rng.integers(*cfg.MAZE_DEMO_WALL_LEN_RANGE))
-            dx, dy = dirs[rng.integers(0, 4)]
-            for _step in range(length):
-                if 0 <= x < n and 0 <= y < n:
-                    blocked[x, y] = True
-                if rng.random() < cfg.MAZE_DEMO_TURN_CHANCE:
-                    dx, dy = dirs[rng.integers(0, 4)]
-                x, y = x + dx, y + dy
-                if not (0 <= x < n and 0 <= y < n):
-                    break
+        nest_x, nest_y = n // 2, n // 2
 
-        start_cell = (1, 1)
-        blocked[start_cell] = False
-        far_cell, _dist = _farthest_reachable_cell(blocked, start_cell)
-
+        blocked, _num_cells = maze_generator.generate_perfect_maze(n, nest_x, nest_y, rng)
         self._fake.terrain[:, :] = np.where(blocked, cfg.TERRAIN_ROCK, cfg.TERRAIN_EMPTY)
         self._fake.terrain_version += 1
 
-        self.nest = (float(start_cell[0]) + 0.5, float(start_cell[1]) + 0.5)
+        self.nest = (float(nest_x) + 0.5, float(nest_y) + 0.5)
+        far_cell = maze_generator.farthest_point(blocked, (nest_x, nest_y))
         self.food = (float(far_cell[0]) + 0.5, float(far_cell[1]) + 0.5)
+
+        t0 = time.perf_counter()
+        # _rebuild_if_needed (dựng visibility graph, phần TỐN THỜI GIAN
+        # NHẤT - có thể tới ~10s ở mật độ mê cung dày nhất) nằm trong lần
+        # gọi find_path đầu tiên này - đo RIÊNG để hiển thị cho người xem
+        # biết đâu là chi phí "dựng đồ thị 1 lần" so với "tìm đường".
+        self.pathfinder._rebuild_if_needed()
+        self.build_time_ms = (time.perf_counter() - t0) * 1000.0
 
         t0 = time.perf_counter()
         self.path = self.pathfinder.find_path(self.nest, self.food)
@@ -166,9 +139,13 @@ class MazeDemo:
     # ------------------------------------------------------------------
     def _compute_transform(self, screen_w, canvas_h):
         margin = 46
-        info_h = 18 + 20 * 3 + 14  # chừa đủ chỗ cho hộp thông tin (3 dòng) bên dưới bàn cờ
+        info_h = 18 + 20 * 4 + 14  # chừa đủ chỗ cho hộp thông tin (4 dòng) bên dưới bàn cờ
+        bottom_reserve = info_h + 80  # + chỗ cho panel "Che do xem" (luôn
+                                       # đặt cố định giữa-dưới màn hình,
+                                       # xem hud.build_toolbar) để không
+                                       # bao giờ đè lên hộp thông tin
         avail_w = max(50, screen_w - 2 * margin)
-        avail_h = max(50, canvas_h - margin - (margin + info_h))
+        avail_h = max(50, canvas_h - margin - bottom_reserve)
         scale = min(avail_w / self.GRID, avail_h / self.GRID)
         ox = (screen_w - self.GRID * scale) / 2.0
         oy = margin + max(0, (avail_h - self.GRID * scale) / 2.0)
@@ -213,7 +190,7 @@ class MazeDemo:
             for p in pts_px[1:-1]:
                 pygame.draw.circle(surf, (255, 205, 80), (int(p[0]), int(p[1])), max(3, int(scale * 0.16)))
         else:
-            msg = state.font.render("Khong tim duoc duong (bi vay kin hoan toan)", True, (255, 120, 110))
+            msg = render_cached(state.font, "Khong tim duoc duong (bi vay kin hoan toan)", (255, 120, 110))
             surf.blit(msg, (ox, oy - 26))
 
         # --- Tổ kiến (điểm xuất phát) ---
@@ -221,14 +198,14 @@ class MazeDemo:
         rad = max(7, int(scale * 0.4))
         pygame.draw.circle(surf, (120, 200, 255), (int(nx_px), int(ny_px)), rad)
         pygame.draw.circle(surf, (15, 15, 15), (int(nx_px), int(ny_px)), rad, width=2)
-        lbl = state.font_small.render("To", True, (235, 245, 255))
+        lbl = render_cached(state.font_small, "To", (235, 245, 255))
         surf.blit(lbl, (nx_px - lbl.get_width() / 2, ny_px - rad - 16))
 
         # --- Thức ăn (đích) ---
         fx_px, fy_px = to_px(self.food)
         pygame.draw.circle(surf, (140, 230, 130), (int(fx_px), int(fy_px)), rad)
         pygame.draw.circle(surf, (15, 15, 15), (int(fx_px), int(fy_px)), rad, width=2)
-        lbl2 = state.font_small.render("Thuc an", True, (235, 255, 235))
+        lbl2 = render_cached(state.font_small, "Thuc an", (235, 255, 235))
         surf.blit(lbl2, (fx_px - lbl2.get_width() / 2, fy_px - rad - 16))
 
         # --- Kiến minh họa đang bò dọc đường đi ---
@@ -237,18 +214,18 @@ class MazeDemo:
         pygame.draw.circle(surf, (250, 250, 250), (int(axp), int(ayp)), arad)
         pygame.draw.circle(surf, (35, 30, 25), (int(axp), int(ayp)), arad, width=2)
 
-        # --- Thông tin thuật toán (đối chiếu trực tiếp với báo cáo cải
-        # tiến FA-A*: số đỉnh visibility graph, độ dài đường, thời gian) ---
+        # --- Thông tin thuật toán ---
         info_lines = [
             f"So dinh visibility graph: {len(self.pathfinder._vertices)}",
             f"Do dai duong di: {self.path_length:.2f} o (any-angle, khong rang cua)",
-            f"Thoi gian tim duong: {self.search_time_ms:.2f} ms",
+            f"Thoi gian dung do thi (1 lan/me cung): {self.build_time_ms:.0f} ms",
+            f"Thoi gian tim duong (truy van nay): {self.search_time_ms:.2f} ms",
         ]
-        panel_w = 380
+        panel_w = 420
         panel_h = 18 + 20 * len(info_lines)
         info_surf = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
         info_surf.fill((18, 18, 22, 210))
         for i, line in enumerate(info_lines):
-            txt = state.font_small.render(line, True, (225, 225, 230))
+            txt = render_cached(state.font_small, line, (225, 225, 230))
             info_surf.blit(txt, (10, 8 + i * 20))
         surf.blit(info_surf, (int(ox), int(oy + self.GRID * scale + 10)))

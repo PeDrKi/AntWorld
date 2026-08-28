@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """Sinh 1 MÊ CUNG CHUẨN ("perfect maze" - mọi ô đều liên thông, đúng 1
-đường duy nhất giữa 2 ô bất kỳ, không có phòng mở/vòng lặp) TRỰC TIẾP vào
-bản đồ THẬT (state.surface_world) đang được đàn kiến thật chơi, thay vì
-dựng 1 world minh họa tách biệt. Nhờ đó có thể xem đàn kiến thật tự tìm
-đường xuyên mê cung bằng ĐÚNG thuật toán any-angle A* trên visibility
-graph (pathfinding.py) mà cả game đang dùng - không phải 1 bản sao/mô
-phỏng lại.
+đường duy nhất giữa 2 ô bất kỳ, không có phòng mở/vòng lặp).
 
-Kích hoạt qua nút "Sinh me cung" trong toolbar (xem hud.py) hoặc gọi trực
-tiếp GameState.generate_maze().
+Module này CHỈ chứa các hàm THUẦN TÚY (nhận mảng numpy, trả về mảng numpy)
+- KHÔNG đụng tới state.surface_world/state.colony thật. Trước đây module
+này từng có thêm hàm generate_maze_in_world() rải thẳng mê cung vào bản
+đồ đang chơi (nút "Sinh me cung" trong toolbar chính) - đã bỏ vì đó là
+thao tác PHÁ HỦY không thể hoàn tác (xóa sạch đá/nước/thức ăn đã đặt,
+nước mất vĩnh viễn) và từng gây ra hàng loạt lỗi tinh vi khi va chạm với
+trạng thái đàn kiến SỐNG (kiến bị nhốt trong tường mới đặt, đường đi cũ
+bị cắt cụt...). Xem maze_demo.py (tab "Demo mê cung", world hoàn toàn
+tách biệt, không rủi ro gì tới ván chơi thật) - dùng lại đúng các hàm ở
+đây.
 """
 from collections import deque
 
@@ -54,8 +57,8 @@ def generate_perfect_maze(n, nest_x, nest_y, rng,
       tra tầm nhìn) tăng vọt VÀ mỗi lần tìm đường sau đó cũng chậm hẳn (đo
       thực tế ban đầu: ~50-80ms/truy vấn trong mê cung ~650 đỉnh, đủ để
       cả tick giật hình nếu nhiều kiến cùng cần đường mới). Đã khắc phục
-      bằng 2 tối ưu ở pathfinding.py (không đổi kết quả hình học, chỉ đổi
-      tốc độ):
+      phần lớn bằng 2 tối ưu ở pathfinding.py (không đổi kết quả hình học,
+      chỉ đổi tốc độ):
         1. Gộp các ô vật cản liền kề thành hình chữ nhật lớn trước khi
            kiểm tra tầm nhìn (VisibilityPathfinder._merge_blocked_
            rectangles) - giảm thẳng số "vật cản" cần quét mỗi lần kiểm
@@ -65,13 +68,13 @@ def generate_perfect_maze(n, nest_x, nest_y, rng,
            là heuristic quá YẾU trong mê cung (2 điểm gần theo đường
            thẳng có thể phải đi vòng rất xa), khiến A* phải mở rộng gần
            hết đồ thị mỗi lần tìm đường.
-      Nhờ 2 tối ưu trên, mê cung có thể dùng hành lang hẹp (2 ô) và tường
-      mỏng (1 ô) - đúng "mê cung" hơn hẳn - mà build vẫn dưới ~2.5 giây và
-      mỗi truy vấn sau đó chỉ còn vài ms. Xem MAZE_PASSAGE_WIDTH/
-      MAZE_WALL_WIDTH trong config.py nếu muốn tinh chỉnh lại đánh đổi
-      này (hẹp hơn nữa = nhiều khúc quanh hơn nhưng build chậm hơn NHIỀU
-      vì chi phí vẫn là O(V^2), không tuyến tính - vd hành lang 1 ô mất
-      trên 15 giây để build).
+      Ở mật độ DÀY NHẤT (hành lang = tường = 1 ô, MAZE_PASSAGE_WIDTH=
+      MAZE_WALL_WIDTH=1 - mê cung "chuẩn" nhất), số đỉnh visibility graph
+      vẫn lên tới ~1400, khiến bước dựng đồ thị lần đầu (O(V^2), CHỈ 1 LẦN
+      mỗi khi bấm "mê cung mới") mất khoảng 9-14 GIÂY ĐỨNG HÌNH THẬT SỰ -
+      đây là giới hạn hiện tại của thuật toán, không phải lỗi. Xem
+      MAZE_PASSAGE_WIDTH/MAZE_WALL_WIDTH trong config.py để đánh đổi lại
+      (rộng hơn = nhanh hơn nhiều nhưng thưa hơn/ít khúc quanh hơn).
     - Lưới ô mê cung được NEO theo đúng vị trí tổ (ô logic đầu tiên luôn
       là ô CHỨA tổ, xem _valid_cell_offsets) thay vì neo theo góc bản đồ -
       nếu không, tổ có thể vô tình rơi đúng vào 1 dải tường và bị "nhốt"
@@ -128,9 +131,9 @@ def generate_perfect_maze(n, nest_x, nest_y, rng,
 
 
 # ============================================================
-# 2. Rải nhiều cụm thức ăn NHỎ, trải khắp mê cung (thay vì 1 cụm to)
+# 2. Chọn điểm trên mê cung (BFS + farthest-point sampling)
 # ============================================================
-def _bfs_distances(blocked, start):
+def bfs_distances(blocked, start):
     """BFS 4 hướng từ `start` - trả về dict {(x,y): số bước} cho MỌI ô
     liên thông tới được (không có trong dict nghĩa là không tới được)."""
     n = blocked.shape[0]
@@ -147,11 +150,18 @@ def _bfs_distances(blocked, start):
     return dist
 
 
-def _scatter_points(dist, count, rng):
+def farthest_point(blocked, start):
+    """Ô XA `start` nhất (theo số bước đi 4 hướng) mà từ `start` CÓ THỂ
+    tới được - dùng đặt đích/thức ăn, đảm bảo LUÔN có đường đi thật sự."""
+    dist = bfs_distances(blocked, start)
+    return max(dist, key=dist.get)
+
+
+def scatter_points(dist, count, rng):
     """Chọn `count` ô CÀNG TRẢI ĐỀU khắp mê cung càng tốt (farthest-point
     sampling): điểm đầu tiên là ô xa tổ nhất; mỗi điểm tiếp theo là ô có
-    khoảng cách TỐI THIỂU tới các điểm đã chọn LỚN NHẤT - đảm bảo các cụm
-    thức ăn nằm rải rác khắp các ngóc ngách mê cung, không dồn cụm 1 chỗ."""
+    khoảng cách TỐI THIỂU tới các điểm đã chọn LỚN NHẤT - đảm bảo các
+    điểm nằm rải rác khắp các ngóc ngách mê cung, không dồn cụm 1 chỗ."""
     candidates = [c for c, d in dist.items() if d > 0]
     if not candidates:
         return []
@@ -169,70 +179,3 @@ def _scatter_points(dist, count, rng):
             break
         picked.append(best_cell)
     return picked
-
-
-# ============================================================
-# 3. Lắp ráp: rải vào bản đồ thật + reset đường đi đàn kiến
-# ============================================================
-def generate_maze_in_world(state):
-    """Xóa sạch đá/nước hiện có trên bản đồ thật, rải 1 perfect maze mới
-    (neo theo vị trí tổ), rồi rải vài cụm thức ăn NHỎ ở các góc CÀNG TRẢI
-    ĐỀU khắp mê cung càng tốt - để cả đàn phải tự tìm đường xuyên nhiều
-    ngóc ngách khác nhau mới lấy được hết, đúng bằng bộ máy tìm đường
-    THẬT của game (không phải bản minh họa riêng).
-
-    Kiến đang có đường đi dở dang (tính trước khi có mê cung) bị hủy
-    (path_len=0) - nếu không, kiến có thể tiếp tục đi nốt đoạn đường cũ
-    xuyên thẳng qua tường mới đặt, tới khi nào đi hết đoạn đó mới tính lại
-    - trông như "kiến đi xuyên tường" trong vài khung hình.
-    """
-    surface = state.surface_world
-    n = cfg.GRID_SIZE
-    nest_x, nest_y = int(cfg.NEST_POS[0]), int(cfg.NEST_POS[1])
-    rng = np.random.default_rng()
-
-    # --- Xóa sạch đá/nước hiện có (bán kính phủ cả bản đồ) VÀ thức ăn cũ
-    # (các cụm thức ăn có sẵn từ lúc khởi tạo bản đồ) - nếu không, thức ăn
-    # cũ còn sót lại sẽ trộn lẫn với các cụm nhỏ rải rác mới rải bên dưới,
-    # không còn đúng ý "vài cụm nhỏ, rải khắp mê cung" nữa ---
-    surface.remove_features_near(nest_x, nest_y, radius=n * 2)
-    surface.food[:, :] = 0
-    surface.food_type[:, :] = 0
-
-    # --- Sinh perfect maze, neo theo đúng vị trí tổ ---
-    blocked, _num_cells = generate_perfect_maze(n, nest_x, nest_y, rng)
-    xs, ys = np.where(blocked)
-    for x, y in zip(xs.tolist(), ys.tolist()):
-        surface.add_rock_cell(x, y)
-
-    # --- Rải vài cụm thức ăn nhỏ, trải đều khắp mê cung ---
-    dist = _bfs_distances(blocked, (nest_x, nest_y))
-    points = _scatter_points(dist, cfg.MAZE_FOOD_PILES, rng)
-    for (fx, fy) in points:
-        state.place_food_at(fx, fy, amount=cfg.MAZE_FOOD_AMOUNT_PER_PILE)
-
-    # --- Kiến đang có đường đi dở dang phải bỏ, tick sau tự tính lại
-    # đường MỚI xuyên đúng mê cung vừa rải ---
-    for colony in state.ALL_COLONIES:
-        if hasattr(colony, "path_len"):
-            colony.path_len[:] = 0
-            colony.path_idx[:] = 0
-
-        # --- Kiến đang đứng ĐÚNG vào ô VỪA biến thành tường (đã tồn tại
-        # từ trước khi sinh mê cung, vị trí không liên quan gì tới mê cung
-        # mới) phải được đưa ra chỗ trống NGAY - nếu không, kiến đó bị
-        # "nhốt" vĩnh viễn trong đá (hoàn toàn cô lập, không nhìn thấy đỉnh
-        # visibility graph nào), và mỗi tick vẫn cứ THỬ tìm đường mới rồi
-        # thất bại - chi phí tính toán đó vẫn mất dù không lộ ra ngoài
-        # (kiến trông như chỉ đứng yên), gây giật hình kéo dài mà không rõ
-        # nguyên nhân. Đưa thẳng về đúng vị trí tổ (luôn đảm bảo trống).
-        on_surface = colony.alive & (colony.layer == cfg.LAYER_SURFACE)
-        if np.any(on_surface):
-            idx = np.where(on_surface)[0]
-            xi = np.clip(colony.x[idx].astype(np.int64), 0, n - 1)
-            yi = np.clip(colony.y[idx].astype(np.int64), 0, n - 1)
-            trapped = blocked[xi, yi]
-            if np.any(trapped):
-                stuck_idx = idx[trapped]
-                colony.x[stuck_idx] = nest_x + 0.5
-                colony.y[stuck_idx] = nest_y + 0.5

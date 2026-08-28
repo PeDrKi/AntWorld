@@ -26,6 +26,11 @@ class AntColony:
         self.underground = underground
         self.nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         rng = np.random.default_rng()
+        # Mặt nạ (mask) các ô ĐỦ XA cửa tổ, dùng riêng cho tuyển mộ theo
+        # mùi (xem _sample_recruit_candidates) - dựng 1 LẦN DUY NHẤT (lazy,
+        # xem _get_recruit_mask) vì nest_pos cố định suốt ván, không cần
+        # tính lại mỗi lần gọi.
+        self._recruit_mask = None
 
         # --- Giai đoạn lập tổ (xem khối config FOUNDING_* trong config.py)
         # - khi bật, n_start PHẢI = 0 (chưa có thợ nào, chỉ có chúa - chúa
@@ -74,6 +79,14 @@ class AntColony:
         # Loại thức ăn CỤ THỂ đang tha (hạt/côn trùng/mật hoa) - chỉ dùng để
         # VẼ đúng màu miếng mồi trên lưng kiến, không ảnh hưởng mô phỏng
         self.carry_food_type = np.zeros(self.n, dtype=np.int8)
+
+        # --- Necrophoresis (thợ mai táng) - xem STATE_UNDERTAKER_TO_CORPSE
+        # /TO_GRAVEYARD trong config.py + _update_undertakers() bên dưới:
+        # tọa độ (x,y) của XÁC mà ant này ĐANG ĐƯỢC PHÂN CÔNG đi khiêng -
+        # cần lưu RIÊNG cho từng con (không dùng biến chung) vì nhiều
+        # nurse có thể cùng lúc đang khiêng NHIỀU xác khác nhau.
+        self.undertaker_target_x = np.zeros(self.n, dtype=np.float32)
+        self.undertaker_target_y = np.zeros(self.n, dtype=np.float32)
 
         # --- Tìm đường trên mặt đất (pathfinding.py): mỗi kiến giữ sẵn 1
         # "hàng đợi" điểm rẽ hướng (waypoint) của đường đi any-angle NGẮN
@@ -195,11 +208,13 @@ class AntColony:
         if self.trophallaxis_events:
             cutoff = self.tick_count - cfg.TROPHALLAXIS_TTL_TICKS
             self.trophallaxis_events = [e for e in self.trophallaxis_events if e[4] > cutoff]
-        self._update_surface_ants()
+        self._update_surface_ants(enemy)
         self._update_underground_ants()
         self._update_nurses()
+        self._update_undertakers()
         self._update_attendants()
         self._update_guards(enemy, invasion)
+        self._update_haulers(enemy)
         self.surface.decay_pheromone()
         self.surface.decay_visit()
         population = int(np.sum(self.alive))
@@ -226,7 +241,7 @@ class AntColony:
     def _wrap_indices(self, arr):
         return np.clip(arr.astype(np.int32), 0, cfg.GRID_SIZE - 1)
 
-    def _update_surface_ants(self):
+    def _update_surface_ants(self, enemy=None):
         on_surface = self.alive & (self.layer == cfg.LAYER_SURFACE)
         if not np.any(on_surface):
             return
@@ -235,7 +250,7 @@ class AntColony:
         returning = on_surface & (self.state == cfg.STATE_RETURNING)
 
         if np.any(searching):
-            self._update_searching_ants(np.where(searching)[0])
+            self._update_searching_ants(np.where(searching)[0], enemy)
         if np.any(returning):
             self._update_returning_ants(np.where(returning)[0])
 
@@ -288,13 +303,74 @@ class AntColony:
                 self.path_len[done_idx] = 0
                 self.path_idx[done_idx] = 0
 
+    def _get_recruit_mask(self):
+        """Mặt nạ bool (GRID_SIZE x GRID_SIZE): True ở các ô ĐỦ XA cửa tổ.
+        Lý do cần loại trừ hẳn vùng quanh tổ khi tuyển mộ: MỌI kiến tha đồ
+        về, bất kể tìm thấy ăn ở hướng nào, đều hội tụ đi qua đúng cửa tổ
+        ở đoạn CUỐI hành trình - nên vùng gần cửa tổ luôn là nơi ĐẬM MÙI
+        NHẤT trên bản đồ dù chẳng nói lên gì về vị trí thức ăn thật sự,
+        chỉ là "điểm chụm" của mọi con đường. Nếu tính cả vùng này, tuyển
+        mộ sẽ chủ yếu hút kiến quay lại LOANH QUANH GẦN TỔ (phản tác dụng
+        - đã tự đo bằng kịch bản 1 cụm thức ăn ở xa: bật tuyển mộ mà không
+        loại trừ vùng này khiến kiếm ăn CHẬM hơn hẳn, không nhanh hơn),
+        thay vì hướng ra đúng đoạn xa của vệt mùi - nơi thực sự dẫn tới
+        nguồn ăn."""
+        if self._recruit_mask is None:
+            n = cfg.GRID_SIZE
+            nx, ny = self.nest_pos
+            xs, ys = np.meshgrid(np.arange(n), np.arange(n), indexing="ij")
+            dist = np.hypot(xs - nx, ys - ny)
+            self._recruit_mask = dist > cfg.PHEROMONE_RECRUIT_NEST_EXCLUDE_RADIUS
+        return self._recruit_mask
+
+    def _sample_recruit_candidates(self, k):
+        """TUYỂN MỘ theo mùi (pheromone) - lấy sẵn 1 lô tối đa `k` điểm
+        đích ứng viên bốc ngẫu nhiên CÓ TRỌNG SỐ theo độ đậm mùi hiện tại
+        trên bản đồ (ô càng đậm mùi càng dễ được chọn), CHỈ XÉT các ô ĐỦ
+        XA cửa tổ (xem _get_recruit_mask - loại hẳn "điểm chụm" gần tổ ra
+        khỏi phân phối, nếu không tuyển mộ sẽ hút nhầm kiến về quanh tổ
+        thay vì ra chỗ có ăn) - dùng cho các kiến SEARCHING đang cần điểm
+        khám phá mới, xem _update_searching_ants(). Đây là cơ chế "tuyển
+        mộ đồng loạt" (recruitment) thật của kiến: khi 1 con tìm ra nguồn
+        ăn và để lại vệt mùi trên đường tha về, các con khác có xu hướng
+        bị hút theo vệt đó thay vì tự dò ngẫu nhiên độc lập, giúp cả đàn
+        hội tụ nhanh về nguồn ăn giàu vừa được phát hiện.
+
+        Trả về None nếu tổng lượng mùi (đã loại vùng gần tổ) còn quá thấp
+        (chưa có vệt nào đáng theo - xem PHEROMONE_RECRUIT_MIN_TOTAL), để
+        nơi gọi tự động rơi về dò ngẫu nhiên như bình thường.
+
+        Tính 1 LẦN cho cả lô kiến cần đích trong tick này (không phải
+        từng con gọi lại từ đầu) để tránh lặp lại chi phí dựng phân phối
+        xác suất trên toàn bộ GRID_SIZE^2 ô nhiều lần không cần thiết."""
+        pher = self.surface.pheromone
+        mask = self._get_recruit_mask()
+        n = cfg.GRID_SIZE
+        flat_pher = pher.ravel()
+        idx_pool = np.nonzero(mask.ravel())[0]
+        weights = flat_pher[idx_pool]
+        total = float(weights.sum())
+        if total < cfg.PHEROMONE_RECRUIT_MIN_TOTAL:
+            return None
+        probs = weights / total
+        count = min(int(k), 64)
+        chosen = np.random.choice(idx_pool, size=count, p=probs)
+        gx = (chosen // n).astype(np.float32)
+        gy = (chosen % n).astype(np.float32)
+        # Rung nhẹ +-0.5 ô quanh tâm ô được bốc trúng - tránh CẢ LOẠT kiến
+        # cùng nhắm chết vào đúng 1 điểm pixel giống hệt nhau (trông giả
+        # tạo/máy móc), vẫn giữ đúng khu vực đang có mùi đậm.
+        gx = np.clip(gx + np.random.uniform(-0.5, 0.5, count), 0, n - 1)
+        gy = np.clip(gy + np.random.uniform(-0.5, 0.5, count), 0, n - 1)
+        return gx, gy
+
     def _pick_explore_target(self, x, y):
-        """Chọn 1 điểm khám phá mới cho kiến đang SEARCHING - ưu tiên vùng
-        CÒN Ít NHIỆT (visit_heat thấp, xem SurfaceWorld.visit_heat) để đàn
-        tự nhiên tỏa ra phủ khắp bản đồ thay vì dẫm chân lên nhau, đồng
-        thời tránh vùng có mùi báo động nguy hiểm đậm (kẻ thù ở gần) - đây
-        là 2 vai trò mà mùi pheromone dẫn đường từng đảm nhiệm, giờ chuyển
-        sang bước CHỌN ĐÍCH thay vì bẻ lái từng tick."""
+        """Chọn 1 điểm khám phá MỚI (dò ngẫu nhiên độc lập, không theo mùi
+        - xem _sample_recruit_candidates() để biết nhánh "tuyển mộ" bổ
+        sung ở _update_searching_ants) cho kiến đang SEARCHING - ưu tiên
+        vùng CÒN Ít NHIỆT (visit_heat thấp, xem SurfaceWorld.visit_heat)
+        để đàn tự nhiên tỏa ra phủ khắp bản đồ thay vì dẫm chân lên nhau,
+        đồng thời tránh vùng có mùi báo động nguy hiểm đậm (kẻ thù ở gần)."""
         n = cfg.GRID_SIZE
         k = cfg.EXPLORE_TARGET_SAMPLES
         cxs = np.random.uniform(0, n - 1, k).astype(np.float32)
@@ -315,17 +391,63 @@ class AntColony:
         best = int(np.argmin(score))
         return float(cxs[best]), float(cys[best])
 
-    def _update_searching_ants(self, idx):
+    def _count_active_haulers(self):
+        """Số kiến ĐANG THAM GIA khiêng mồi lớn (đang tới HOẶC đang đứng
+        chờ tại xác) - dùng để giới hạn không cho quá nhiều kiến bỏ dở
+        việc kiếm ăn bình thường chỉ vì 1 xác (xem HAUL_MAX_HAULERS)."""
+        return int(np.sum(self.alive & np.isin(
+            self.state, (cfg.STATE_HAUL_APPROACH, cfg.STATE_HAUL_GRIP)
+        )))
+
+    def _update_searching_ants(self, idx, enemy=None):
         need_target = idx[self.path_len[idx] == 0]
         if len(need_target) > 0:
+            # TUYỂN MỘ (xem _sample_recruit_candidates): tính SẴN 1 lô ứng
+            # viên theo mùi 1 LẦN cho cả nhóm cần đích trong tick này -
+            # None nếu bản đồ chưa có vệt mùi nào đáng theo, khi đó MỌI
+            # con trong nhóm rơi về dò ngẫu nhiên như trước (không tốn
+            # thêm chi phí gì so với bản cũ).
+            recruit = self._sample_recruit_candidates(len(need_target))
+            # Khiêng mồi lớn (xem HAUL_* trong config.py + _update_haulers
+            # bên dưới): nếu đang có xác kẻ thù vừa bị đánh bại chờ khiêng
+            # VÀ chưa đủ đông người tới, 1 số kiến TÌM ĂN sẽ chọn đi tới
+            # đó thay vì dò ngẫu nhiên/theo mùi như thường lệ - kiểm tra
+            # 1 LẦN ở đây (không phải từng con), cờ này tự tắt giữa chừng
+            # vòng lặp ngay khi vừa đủ HAUL_MAX_HAULERS (xem bên dưới).
+            haul_open = (
+                enemy is not None and enemy.carcass_active
+                and self._count_active_haulers() < cfg.HAUL_MAX_HAULERS
+            )
+            ri = 0
             for i in need_target:
                 if self._path_budget <= 0:
                     break
-                tx, ty = self._pick_explore_target(self.x[i], self.y[i])
+                tx = ty = None
+                go_haul = False
+                if haul_open and np.random.random() < cfg.HAUL_TARGET_PROB:
+                    tx, ty = enemy.carcass_x, enemy.carcass_y
+                    go_haul = True
+                elif recruit is not None and np.random.random() < cfg.PHEROMONE_RECRUIT_PROB:
+                    rgx, rgy = recruit
+                    tx, ty = float(rgx[ri % len(rgx)]), float(rgy[ri % len(rgy)])
+                    ri += 1
+                    if self.surface.is_blocked(int(tx), int(ty)):
+                        tx = ty = None  # trúng đúng ô đá/nước - bỏ qua, dò
+                                         # ngẫu nhiên như bình thường thay vì
+                                         # cố nhắm 1 đích không tới được
+                if tx is None:
+                    tx, ty = self._pick_explore_target(self.x[i], self.y[i])
+                    go_haul = False
                 if tx is None:
                     continue
                 if self._assign_new_path(i, (self.x[i], self.y[i]), (tx, ty)):
                     self._path_budget -= 1
+                    if go_haul:
+                        self.state[i] = cfg.STATE_HAUL_APPROACH
+                        if self._count_active_haulers() >= cfg.HAUL_MAX_HAULERS:
+                            haul_open = False  # vua du nguoi - ngung goi
+                                                # them ke tu day trong vong
+                                                # lap nay
 
         active = idx[self.path_len[idx] > 0]
         if len(active) == 0:
@@ -392,11 +514,16 @@ class AntColony:
             return
         self._follow_paths(active, cfg.ANT_SPEED)
 
-        # Vẫn để lại vệt mùi pheromone dọc đường (dùng để VẼ trực quan trong
-        # render_surface.py, không còn ảnh hưởng gì tới việc chọn đường)
+        # Để lại vệt mùi pheromone dọc đường - dùng để VẼ trực quan
+        # (render_surface.py) VÀ để TUYỂN MỘ các kiến khác đang tìm ăn
+        # (xem _sample_recruit_candidates) - lượng để lại TỈ LỆ với giá
+        # trị đang tha (self.carry_amount): tìm được nguồn ăn càng giàu
+        # thì vệt mùi dẫn tới đó càng đậm, càng hút được nhiều đồng đội
+        # khác, đúng cơ chế tuyển mộ của kiến thật.
         xi = self._wrap_indices(self.x[active])
         yi = self._wrap_indices(self.y[active])
-        self.surface.deposit_pheromone(xi, yi)
+        pher_amount = cfg.PHEROMONE_DEPOSIT * np.clip(self.carry_amount[active], 0.3, None)
+        self.surface.deposit_pheromone(xi, yi, pher_amount)
         self.surface.deposit_visit(xi, yi)
 
         dist = np.hypot(self.x[active] - nest_x, self.y[active] - nest_y)
@@ -719,6 +846,138 @@ class AntColony:
             if len(arrived) > 0:
                 self.state[arrived] = cfg.STATE_NURSE_AT_STORAGE
 
+    def _update_undertakers(self):
+        """Necrophoresis (thợ mai táng) - kiến NURSE đang RẢNH VIỆC (ở kho,
+        chưa có chuyến thức ăn nào để lấy) tình nguyện tạm gác việc, đi
+        khiêng 1 xác đồng đội vừa chết dưới hầm (self.underground.
+        pending_corpses - xem register_corpse trong world.py) về Nghĩa
+        địa, rồi tự quay lại công việc bình thường. Đây là hành vi CÓ THẬT
+        ở kiến ngoài đời (undertaker ants): xác không tự "biến mất" một
+        cách trừu tượng, phải có 1 con kiến thực sự tới khiêng.
+
+        Chỉ kiểm tra ĐỊNH KỲ (UNDERTAKER_CHECK_INTERVAL) việc PHÂN CÔNG
+        MỚI - xác không "cấp bách" tới mức phải phản ứng ngay lập tức.
+        LƯU Ý: throttle này CHỈ áp dụng cho bước tìm-nurse-rảnh-để-phân-
+        công; bước DI CHUYỂN của các nurse ĐANG TRÊN ĐƯỜNG (đã được phân
+        công từ trước) vẫn phải chạy MỌI TICK như bình thường - nhốt cả 2
+        chung 1 điều kiện early-return từng là 1 lỗi thực tế đã gặp: khiến
+        nurse đang khiêng xác chỉ nhích 1 tick trong mỗi 20 tick, mất gấp
+        20 LẦN thời gian di chuyển thật sự cần."""
+        if self.tick_count % cfg.UNDERTAKER_CHECK_INTERVAL == 0 and self.underground.pending_corpses:
+            idle_mask = self.alive & (self.job == cfg.JOB_NURSE) & (self.state == cfg.STATE_NURSE_AT_STORAGE)
+            idle_idx = np.where(idle_mask)[0]
+            if len(idle_idx) > 0:
+                n_needed = min(len(idle_idx), len(self.underground.pending_corpses))
+                chosen = np.random.choice(idle_idx, size=n_needed, replace=False)
+                for i in chosen:
+                    corpse = self.underground.claim_next_pending_corpse()
+                    if corpse is None:
+                        break
+                    cx, cy, cdepth = corpse
+                    self.undertaker_target_x[i] = cx
+                    self.undertaker_target_y[i] = cy
+                    self.depth[i] = cdepth
+                    self.x[i] = self.underground.shaft_xy[0]
+                    self.y[i] = self.underground.shaft_xy[1]
+                    self.state[i] = cfg.STATE_UNDERTAKER_TO_CORPSE
+
+        # --- đang đi tới vị trí xác ---
+        mask = self.alive & (self.state == cfg.STATE_UNDERTAKER_TO_CORPSE)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            tx, ty = self.undertaker_target_x[idx], self.undertaker_target_y[idx]
+            dx, dy = tx - self.x[idx], ty - self.y[idx]
+            dist = np.hypot(dx, dy)
+            self.theta[idx] = np.arctan2(dy, dx)
+            step = np.minimum(dist, cfg.UG_SPEED)
+            safe = np.where(dist < 1e-6, 1.0, dist)
+            self.x[idx] += dx / safe * step
+            self.y[idx] += dy / safe * step
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                # Nhặt xác lên - "tha" nó (dùng lại đúng cờ carrying như
+                # tha thức ăn/nước, để tự động đổi màu/sprite khi vẽ,
+                # không cần thêm 1 kiểu vẽ riêng cho việc này) rồi lên
+                # đường mang tới Nghĩa địa.
+                self.carrying[arrived] = True
+                self.depth[arrived] = self.underground.graveyard_depth
+                self.x[arrived] = self.underground.shaft_xy[0]
+                self.y[arrived] = self.underground.shaft_xy[1]
+                self.state[arrived] = cfg.STATE_UNDERTAKER_TO_GRAVEYARD
+
+        # --- đang khiêng xác về Nghĩa địa ---
+        mask = self.alive & (self.state == cfg.STATE_UNDERTAKER_TO_GRAVEYARD)
+        if np.any(mask):
+            idx = np.where(mask)[0]
+            dist = self._move_towards_2d(idx, self.underground.graveyard, cfg.UG_SPEED)
+            arrived = idx[dist < cfg.ARRIVE_THRESHOLD]
+            if len(arrived) > 0:
+                self.underground.add_corpse(len(arrived))
+                self.carrying[arrived] = False
+                self.depth[arrived] = self.underground.storage_depth
+                self.x[arrived] = self.underground.shaft_xy[0]
+                self.y[arrived] = self.underground.shaft_xy[1]
+                self.state[arrived] = cfg.STATE_NURSE_AT_STORAGE
+
+    def _update_haulers(self, enemy):
+        """Khiêng mồi lớn theo nhóm (cooperative transport) - xem HAUL_*
+        trong config.py + EnemyManager._spawn_carcass()/_decay_carcass()
+        trong enemy.py. Các kiến ở STATE_HAUL_APPROACH (đang trên đường
+        tới xác, được _update_searching_ants() điều tới) tự đi theo path
+        đã tính; tới nơi thì đứng CHỜ (STATE_HAUL_GRIP) - đủ HAUL_MIN_ANTS
+        con cùng chờ thì CẢ NHÓM đồng loạt chuyển sang khiêng về tổ (tái
+        sử dụng NGUYÊN VẸN STATE_RETURNING có sẵn, y hệt tha thức ăn
+        thường - chỉ khác carry_amount lớn hơn hẳn, chia đều cho cả
+        nhóm). Nếu xác RỮA MẤT (hết HAUL_DECAY_TICKS) trước khi gom đủ
+        người, mọi kiến đang tới/đang chờ đều BỎ CUỘC, quay lại dò tìm ăn
+        bình thường."""
+        if enemy is None:
+            return
+        hauling = self.alive & np.isin(self.state, (cfg.STATE_HAUL_APPROACH, cfg.STATE_HAUL_GRIP))
+        if not np.any(hauling):
+            return
+
+        if not enemy.carcass_active:
+            # Xác đã rữa mất trước khi kịp gom đủ người - moi kien dang
+            # tham gia deu bo cuoc, quay lai dam kien tim an binh thuong
+            # (mat het tien do da di, phai dò tim dich moi tu dau)
+            idx = np.where(hauling)[0]
+            self.state[idx] = cfg.STATE_SEARCHING
+            self.path_len[idx] = 0
+            self.path_idx[idx] = 0
+            return
+
+        # --- đang trên đường tới xác ---
+        approach_mask = self.alive & (self.state == cfg.STATE_HAUL_APPROACH)
+        if np.any(approach_mask):
+            idx = np.where(approach_mask)[0]
+            active = idx[self.path_len[idx] > 0]
+            if len(active) > 0:
+                self._follow_paths(active, cfg.ANT_SPEED)
+            # path_len chỉ về 0 khi vừa đi hết waypoint CUỐI (đúng vị trí
+            # xác) - xem _follow_paths(); ăn chắc bằng cách CHỈ xét những
+            # con vừa được _follow_paths() xử lý ở trên (active), tránh
+            # nhầm với 1 con lỡ chưa từng có path hợp lệ (không nên xảy ra
+            # vì chỉ vào state này sau khi _assign_new_path thành công,
+            # nhưng phòng hờ vẫn hơn).
+            arrived = active[self.path_len[active] == 0]
+            if len(arrived) > 0:
+                self.state[arrived] = cfg.STATE_HAUL_GRIP
+
+        # --- đủ người thì cùng khiêng về, chưa đủ thì tiếp tục đứng chờ ---
+        grip_idx = np.where(self.alive & (self.state == cfg.STATE_HAUL_GRIP))[0]
+        if len(grip_idx) >= cfg.HAUL_MIN_ANTS:
+            per_ant = enemy.carcass_food_value / len(grip_idx)
+            self.carrying[grip_idx] = True
+            self.carry_type[grip_idx] = 1
+            self.carry_amount[grip_idx] = per_ant
+            self.state[grip_idx] = cfg.STATE_RETURNING
+            self.path_len[grip_idx] = 0
+            self.path_idx[grip_idx] = 0
+            self.total_food_collected += len(grip_idx)
+            enemy.carcass_active = False
+            enemy.total_carcasses_hauled += 1
+
     def _update_attendants(self):
         """Kiến CHUYÊN CHĂM TRỨNG + KIẾN CHÚA (self.job == JOB_ATTENDANT):
         KHÔNG BAO GIỜ lên mặt đất - túc trực cạnh chúa 1 khoảng thời gian
@@ -917,7 +1176,17 @@ class AntColony:
             if len(died) > 0:
                 self.alive[died] = False
                 self.underground.total_deaths += len(died)
-                self.underground.add_corpse(len(died))
+                # Chết DƯỚI HẦM: để lại XÁC THẬT tại đúng vị trí vừa chết,
+                # chờ 1 nurse rảnh việc tới khiêng (xem _update_undertakers)
+                # - corpse_count CHƯA tăng ngay, chỉ tăng lúc khiêng xong.
+                # Chết TRÊN MẶT ĐẤT (forager già/đói giữa lúc kiếm ăn): hi
+                # sinh tại trận, không ai thu hồi được, tính ngay như cũ.
+                died_ug = died[self.layer[died] == cfg.LAYER_UNDERGROUND]
+                died_surface = died[self.layer[died] == cfg.LAYER_SURFACE]
+                for i in died_ug.tolist():
+                    self.underground.register_corpse(self.x[i], self.y[i], self.depth[i])
+                if len(died_surface) > 0:
+                    self.underground.add_corpse(len(died_surface))
 
         # --- Đẻ trứng ---
         if self.founding_phase:

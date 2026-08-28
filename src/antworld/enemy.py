@@ -2,7 +2,14 @@
 chuyển về phía những nơi có nhiều kiến (của BẤT KỲ tổ nào - nó là thiên
 địch trung lập, không phân biệt tổ), và có xác suất giết kiến trong tầm
 gần mỗi tick. Lính (thợ lớn) có thể gây sát thương lên kẻ thù và bị giết
-khó hơn thợ thường. Sau 1 khoảng thời gian hoặc bị đánh bại sẽ rời đi."""
+khó hơn thợ thường. Sau 1 khoảng thời gian hoặc bị đánh bại sẽ rời đi.
+
+Nếu bị lính ĐÁNH BẠI HẲN (hết máu, khác với chỉ hết giờ tự rời đi), xác nó
+để lại là 1 "mồi lớn" giàu dinh dưỡng cho đàn kiến - xem carcass_*/
+_spawn_carcass()/_decay_carcass() bên dưới và AntColony._update_haulers()
+trong ants.py: phải có ĐỦ số kiến tập trung cùng lúc mới khiêng nổi về tổ
+(cooperative transport, giống hệt cách kiến thật hợp sức khiêng con mồi to
+hơn cả cơ thể chúng), không đủ người kịp thời thì xác rữa mất."""
 import numpy as np
 from . import config as cfg
 
@@ -27,9 +34,25 @@ class EnemyManager:
                                          # sống hết vòng đời bình thường, và
                                          # công cụ "Tha ke thu" vẫn dùng được)
 
+        # --- Xác con mồi lớn (carcass) sau khi bị đánh bại HẲN - xem
+        # HAUL_* trong config.py + AntColony._update_haulers() trong
+        # ants.py. Đây là XÁC (đã chết, đứng yên) sau khi self.active kết
+        # thúc do bị đánh bại - ĐỘC LẬP với con kẻ thù ĐANG SỐNG (active/
+        # x/y ở trên): 1 kẻ thù MỚI có thể đã xuất hiện ở nơi khác trong
+        # lúc xác cũ vẫn còn đang chờ được khiêng, 2 pha không loại trừ
+        # nhau. ---
+        self.carcass_active = False
+        self.carcass_x = 0.0
+        self.carcass_y = 0.0
+        self.carcass_food_value = 0.0
+        self.carcass_decay_left = 0
+        self.total_carcasses_hauled = 0
+
     def update(self, colonies):
         """colonies: danh sách các AntColony (tổ chính + tổ đối thủ nếu
         có) - kẻ thù trung lập, đe dọa TẤT CẢ các tổ như nhau."""
+        self._decay_carcass()
+
         if not self.active:
             if not self.auto_spawn_enabled:
                 return  # tắt chế độ tự sinh - không đếm ngược, không xuất hiện
@@ -72,6 +95,29 @@ class EnemyManager:
         self.spawn_cooldown = np.random.randint(
             cfg.ENEMY_SPAWN_COOLDOWN_MIN, cfg.ENEMY_SPAWN_COOLDOWN_MAX
         )
+
+    def _spawn_carcass(self, x, y):
+        """Kẻ thù VỪA BỊ ĐÁNH BẠI HẲN (không phải chỉ bỏ chạy hết giờ) -
+        để lại xác tại đúng vị trí ngã xuống, chờ đủ kiến tới khiêng (xem
+        HAUL_* trong config.py). Nếu đã có 1 xác khác CHƯA kịp khiêng
+        xong (hiếm - cửa sổ HAUL_DECAY_TICKS khá ngắn so với thời gian
+        đánh bại 2 kẻ thù liên tiếp), xác mới ĐÈ LÊN xác cũ - chấp nhận
+        đơn giản hóa này thay vì phải quản lý nhiều xác cùng lúc."""
+        self.carcass_active = True
+        self.carcass_x = x
+        self.carcass_y = y
+        self.carcass_food_value = cfg.HAUL_TOTAL_FOOD_VALUE
+        self.carcass_decay_left = cfg.HAUL_DECAY_TICKS
+
+    def _decay_carcass(self):
+        """Xác rữa dần nếu đàn kiến không gọi đủ người khiêng kịp thời -
+        gọi mỗi tick (ngay đầu update(), KHÔNG phụ thuộc self.active vì
+        xác tồn tại độc lập với vòng đời con kẻ thù đang sống)."""
+        if not self.carcass_active:
+            return
+        self.carcass_decay_left -= 1
+        if self.carcass_decay_left <= 0:
+            self.carcass_active = False
 
     def _move_towards_prey(self, colonies):
         # Tìm kiến còn sống trên mặt đất (của bất kỳ tổ nào) trong bán kính
@@ -131,6 +177,7 @@ class EnemyManager:
                     self.health -= dmg
                     if self.health <= 0:
                         self.total_defeated += 1
+                        self._spawn_carcass(self.x, self.y)
                         self._despawn()
                         return  # kẻ thù đã bị đánh bại, dừng luôn tick này
 

@@ -5,6 +5,8 @@ world/colony - có thể tái sử dụng cho các panel khác nếu cần.
 """
 import pygame
 
+from .fonts import render_cached
+
 COLOR_BTN = (40, 40, 45)
 COLOR_BTN_ACTIVE = (70, 130, 180)
 
@@ -63,7 +65,7 @@ class Button:
         color = active_c if self.active else base
         pygame.draw.rect(surf, color, self.rect, border_radius=6)
         pygame.draw.rect(surf, border, self.rect, width=2 if self.active else 1, border_radius=6)
-        label = font.render(self.text, True, (250, 250, 250))
+        label = render_cached(font, self.text, (250, 250, 250))
         lr = label.get_rect(center=self.rect.center)
         surf.blit(label, lr)
 
@@ -92,6 +94,15 @@ class Panel:
         self.dragging = False
         self.drag_offset = (0, 0)
         self.children = []  # các Button gắn vào panel này (xem bind_to_panel)
+        # Cache nen mo (SRCALPHA) cua draw_frame() - key (w, h) cua LAN
+        # DUNG GAN NHAT, chi tao lai Surface khi kich thuoc panel THAY DOI
+        # (resize/thu gon), thay vi MOI KHUNG HINH deu cap phat + fill 1
+        # Surface SRCALPHA moi (rat ton kem, do thuc te ~60 lan/giay x so
+        # panel dang mo). Vi vi tri panel co the DI CHUYEN (keo) nhung
+        # KICH THUOC (w,h) hau nhu khong doi khi keo, cache theo (w,h) la
+        # du, khong can theo (x,y).
+        self._bg_cache_key = None
+        self._bg_cache_surf = None
 
     def outer_rect(self):
         h = self.TITLE_H if self.collapsed else self.TITLE_H + self.h
@@ -155,9 +166,13 @@ class Panel:
         do nơi gọi tự vẽ vào vùng content_pos()/content_rect, sau khi gọi
         hàm này, để mỗi panel tự quyết cách vẽ nội dung riêng của nó)."""
         r = self.outer_rect()
-        bg = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
-        bg.fill((18, 18, 22, 232))
-        surf.blit(bg, r.topleft)
+        cache_key = (r.w, r.h)
+        if self._bg_cache_key != cache_key:
+            bg = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+            bg.fill((18, 18, 22, 232))
+            self._bg_cache_surf = bg
+            self._bg_cache_key = cache_key
+        surf.blit(self._bg_cache_surf, r.topleft)
         pygame.draw.rect(surf, (90, 90, 100), r, width=1, border_radius=4)
 
         tb = self.title_bar_rect()
@@ -167,12 +182,12 @@ class Panel:
         # biết panel này di chuyển được
         for i in range(3):
             pygame.draw.circle(surf, (140, 140, 150), (tb.x + 10, tb.y + 8 + i * 5), 1)
-        label = font_title.render(self.title, True, (235, 235, 235))
+        label = render_cached(font_title, self.title, (235, 235, 235))
         surf.blit(label, (tb.x + 20, tb.y + 5))
 
         cb = self.collapse_button_rect()
         pygame.draw.rect(surf, (60, 60, 72), cb, border_radius=3)
         pygame.draw.rect(surf, (100, 100, 112), cb, width=1, border_radius=3)
         symbol = "+" if self.collapsed else "-"
-        sym = font_title.render(symbol, True, (230, 230, 230))
+        sym = render_cached(font_title, symbol, (230, 230, 230))
         surf.blit(sym, sym.get_rect(center=cb.center))

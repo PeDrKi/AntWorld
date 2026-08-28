@@ -21,8 +21,11 @@ class SurfaceWorld:
         self.terrain_version = 0
         # "Bản đồ nhiệt" ghi nhận nơi kiến đã đi qua gần đây, dùng để chọn
         # điểm khám phá tiếp theo ưu tiên vùng CHƯA đi (xem
-        # AntColony._pick_explore_target trong ants.py) - thay cho vai trò
-        # dẫn hướng tìm ăn mà pheromone từng đảm nhiệm.
+        # AntColony._pick_explore_target trong ants.py) - PHỐI HỢP với
+        # self.pheromone (mùi đường tha mồi): visit_heat lo phần "tỏa ra
+        # khám phá vùng mới", pheromone lo phần "tuyển mộ quay lại nguồn
+        # ăn đã biết" - 2 vai trò bổ sung nhau, giống 2 cơ chế thật ở kiến
+        # thật (xem AntColony._sample_recruit_candidates).
         self.visit_heat = np.zeros((n, n), dtype=np.float32)
         self.protected_nests = protected_nests if protected_nests else [cfg.NEST_POS]
         self._spawn_food_clusters()
@@ -199,9 +202,18 @@ class SurfaceWorld:
         self.pheromone *= cfg.PHEROMONE_DECAY
         self.danger_pheromone *= cfg.DANGER_PHEROMONE_DECAY
 
-    def deposit_pheromone(self, xi, yi):
-        """xi, yi: mảng chỉ số nguyên (đã clip trong biên)."""
-        np.add.at(self.pheromone, (xi, yi), cfg.PHEROMONE_DEPOSIT)
+    def deposit_pheromone(self, xi, yi, amount=None):
+        """xi, yi: mảng chỉ số nguyên (đã clip trong biên). `amount` có
+        thể là 1 số CỐ ĐỊNH (mặc định cfg.PHEROMONE_DEPOSIT) hoặc 1 MẢNG
+        cùng độ dài xi/yi - dùng mảng khi muốn mùi ĐẬM HƠN cho phát hiện
+        GIÀU HƠN (xem AntColony._update_returning_ants trong ants.py: để
+        lại lượng tỉ lệ với carry_amount từng con), tự nhiên tạo hiệu ứng
+        "tuyển mộ" kiểu kiến thật - nguồn càng giá trị thì vệt mùi dẫn tới
+        đó càng đậm, càng hút nhiều kiến khác đi theo (xem
+        AntColony._sample_recruit_candidates/_pick_explore_target)."""
+        if amount is None:
+            amount = cfg.PHEROMONE_DEPOSIT
+        np.add.at(self.pheromone, (xi, yi), amount)
         np.clip(self.pheromone, 0, cfg.PHEROMONE_MAX, out=self.pheromone)
 
     def sample_pheromone(self, xi, yi):
@@ -336,6 +348,13 @@ class UndergroundWorld:
         # Nghĩa địa: số "nắm xác" đang hiển thị (giảm dần theo thời gian -
         # xem GRAVEYARD_DECAY_PER_TICK - để không phình to vô hạn)
         self.corpse_count = 0.0
+        # Hàng chờ xác DƯỚI HẦM chưa ai khiêng tới nghĩa địa - mỗi phần tử
+        # là [x, y, depth] (đủ để 1 nurse rảnh việc biết đi đâu lấy) - xem
+        # register_corpse()/claim_next_pending_corpse() bên dưới và
+        # AntColony._update_undertakers() trong ants.py. Corpse_count ở
+        # trên CHỈ tăng khi xác THỰC SỰ được khiêng tới graveyard, không
+        # phải ngay lúc chết.
+        self.pending_corpses = []
 
     def room_center_and_radius(self, depth):
         """Tra tâm + bán kính phòng ở 1 tầng cho trước - dùng cho trường
@@ -375,6 +394,29 @@ class UndergroundWorld:
         """1 (hoặc nhiều) con kiến vừa chết - thêm xác vào nghĩa địa (giới
         hạn trần để không hiển thị rợp hình khi tổ chết chóc nhiều)."""
         self.corpse_count = min(cfg.GRAVEYARD_MAX_CORPSES, self.corpse_count + count)
+
+    def register_corpse(self, x, y, depth):
+        """1 kiến vừa chết DƯỚI HẦM tại (x, y, depth) - xếp vào hàng chờ
+        để 1 nurse rảnh việc tự đi khiêng tới nghĩa địa (xem
+        AntColony._update_undertakers() trong ants.py), KHÔNG cộng ngay
+        vào corpse_count (khác add_corpse() ở trên, dùng cho xác chết TRÊN
+        MẶT ĐẤT - không ai thu hồi được).
+
+        Nếu hàng chờ đã đầy (MAX_PENDING_CORPSES - trường hợp hiếm, chết
+        quá nhanh so với tốc độ khiêng), xác dư ra coi như bị bỏ lại,
+        cộng thẳng vào nghĩa địa qua add_corpse() thay vì xếp hàng vô hạn."""
+        if len(self.pending_corpses) < cfg.MAX_PENDING_CORPSES:
+            self.pending_corpses.append([float(x), float(y), int(depth)])
+        else:
+            self.add_corpse(1)
+
+    def claim_next_pending_corpse(self):
+        """Lấy ra (và XÓA khỏi hàng chờ) xác CŨ NHẤT đang chờ - dùng khi 1
+        nurse vừa được phân công đi khiêng, đảm bảo không có 2 nurse cùng
+        lao tới khiêng CHUNG 1 xác. Trả về None nếu hàng chờ đang rỗng."""
+        if not self.pending_corpses:
+            return None
+        return self.pending_corpses.pop(0)
 
     def decay_graveyard(self):
         """Xác cũ dần phân hủy/biến mất theo thời gian, gọi mỗi tick."""

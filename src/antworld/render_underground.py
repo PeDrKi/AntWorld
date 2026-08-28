@@ -8,6 +8,7 @@ import pygame
 
 from . import config as cfg
 from .render_surface import draw_ants
+from .fonts import render_cached
 
 
 def layer_name(depth):
@@ -468,7 +469,7 @@ def draw_underground_layer(state, surf, depth):
         # dưới (vì depth của họ = DEPTH_GUARD), giống như trong bất kỳ
         # phòng nào khác.
 
-        label = state.font_small.render(name, True, (235, 235, 235))
+        label = render_cached(state.font_small, name, (235, 235, 235))
         surf.blit(label, label.get_rect(center=(cx, cy - r_px - 12)))
 
     # Màu kiến dưới hầm GẦN GIỐNG HỆT màu thật trên mặt đất (chỉ nhỉnh sáng

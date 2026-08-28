@@ -71,6 +71,25 @@ class InvasionManager:
         self.spawn_edge_xy = (0.0, 0.0)   # nơi đợt hiện tại xuất hiện - lưu
                                            # lại để rút lui đúng hướng cũ
 
+        # --- Đường hành quân THẬT của cả đợt (tính 1 LẦN cho cả wave lúc
+        # vừa xuất hiện, dùng chung cho MỌI quân trong đợt vì tất cả đều
+        # xuất phát gần cùng 1 điểm và cùng nhắm 1 đích - lỗ tổ) - xem
+        # _spawn_wave()/_follow_wave_path(). Trước đây quân xâm lược đi
+        # THẲNG 1 đường kẻ tới lỗ tổ, XUYÊN QUA đá/nước như không hề tồn
+        # tại - nghĩa là xây tường đá phòng thủ (dù kỹ thuật đặt được)
+        # KHÔNG HỀ có tác dụng cản đường xâm lược, chỉ cản được kiến nhà
+        # mình đi kiếm ăn. Giờ quân xâm lược dùng CHUNG hệ thống
+        # visibility-graph pathfinding với kiến thật (colony.pathfinder),
+        # nên phải né đá/nước y hệt kiến nhà - biến việc xây tường đá
+        # quanh tổ thành 1 chiến thuật phòng thủ THẬT SỰ có tác dụng (bịt
+        # bớt hướng tiếp cận, ép địch đi vòng, kéo dài thời gian tiếp cận
+        # để lính gác có thêm thời gian phản ứng/tăng viện).
+        self.wave_path_x = np.zeros(cfg.PATH_MAX_WAYPOINTS, dtype=np.float32)
+        self.wave_path_y = np.zeros(cfg.PATH_MAX_WAYPOINTS, dtype=np.float32)
+        self.wave_path_len = 0
+        self.path_idx = np.zeros(n, dtype=np.int16)      # ~ tiến vào tổ
+        self.retreat_path_idx = np.zeros(n, dtype=np.int16)  # ~ rút lui ra
+
     # ------------------------------------------------------------------
     def update(self, colony):
         """colony: AntColony của người chơi (mục tiêu DUY NHẤT - không còn
@@ -156,6 +175,27 @@ class InvasionManager:
         self.target_room[brood_idx[to_egg]] = 4
         self.target_room[brood_idx[~to_egg]] = 1
 
+        # Tính SẴN 1 đường hành quân THẬT (né đá/nước, xem giải thích ở
+        # __init__) dùng chung cho cả đợt - dùng ĐÚNG pathfinder của đàn
+        # kiến nhà (colony.pathfinder) để bảo đảm né vật cản NHẤT QUÁN
+        # với cách kiến nhà tự đi lại, không cần dựng thêm 1 bộ pathfinder
+        # riêng tốn bộ nhớ. Nếu vì lý do nào đó không tìm được đường (vd
+        # tổ bị vây kín hoàn toàn bởi đá - trường hợp hiếm, người chơi tự
+        # dựng "pháo đài" quá kín), rơi về đi thẳng như bản cũ
+        # (wave_path_len=0 báo cho _update_approach biết mà dùng
+        # _move_towards như trước).
+        path = colony.pathfinder.find_path(self.spawn_edge_xy, colony.nest_pos)
+        if path:
+            path = path[: cfg.PATH_MAX_WAYPOINTS]
+            for k, (wx, wy) in enumerate(path):
+                self.wave_path_x[k] = wx
+                self.wave_path_y[k] = wy
+            self.wave_path_len = len(path)
+        else:
+            self.wave_path_len = 0
+        self.path_idx[idx] = 0
+        self.retreat_path_idx[idx] = 0
+
         self.active = True
         self.entrance_fight_ticks = 0
 
@@ -178,13 +218,76 @@ class InvasionManager:
         self.y[idx] += dy / safe * step
         return dist
 
+    def _follow_wave_path(self, idx, speed):
+        """Di chuyển theo đường hành quân THẬT của cả đợt (self.wave_path_*
+        - xem __init__/_spawn_wave), NÉ đá/nước thay vì xuyên thẳng qua.
+        Mỗi quân tự tiến theo waypoint hiện tại của RIÊNG nó (self.path_idx)
+        trong cùng 1 danh sách waypoint dùng chung cho cả đợt - vector hóa
+        toàn bộ (numpy fancy indexing) giống hệt kỹ thuật
+        AntColony._follow_paths() trong ants.py.
+
+        Trả về khoảng cách THỰC TỚI ĐÍCH CUỐI CÙNG (lỗ tổ, không phải tới
+        waypoint hiện tại) - để nơi gọi biết khi nào THẬT SỰ đã tới nơi."""
+        last = max(self.wave_path_len - 1, 0)
+        cur_wp = np.clip(self.path_idx[idx], 0, last).astype(np.int64)
+        tx = self.wave_path_x[cur_wp]
+        ty = self.wave_path_y[cur_wp]
+        dx = tx - self.x[idx]
+        dy = ty - self.y[idx]
+        dist_wp = np.hypot(dx, dy)
+        self.theta[idx] = np.arctan2(dy, dx)
+        step = np.minimum(dist_wp, speed)
+        safe = np.where(dist_wp < 1e-6, 1.0, dist_wp)
+        self.x[idx] += dx / safe * step
+        self.y[idx] += dy / safe * step
+
+        not_last = cur_wp < last
+        reached_wp = (dist_wp < cfg.WAYPOINT_ARRIVE_THRESHOLD) & not_last
+        if np.any(reached_wp):
+            ridx = idx[reached_wp]
+            self.path_idx[ridx] = (self.path_idx[ridx] + 1).astype(np.int16)
+
+        gx, gy = self.wave_path_x[last], self.wave_path_y[last]
+        return np.hypot(gx - self.x[idx], gy - self.y[idx])
+
+    def _follow_wave_path_reverse(self, idx, speed):
+        """Giống _follow_wave_path() nhưng đi NGƯỢC LẠI (từ tổ ra rìa bản
+        đồ) - dùng cho lúc RÚT LUI (INV_RETREAT_SURFACE), tự dùng
+        self.retreat_path_idx riêng (không đụng self.path_idx của lượt
+        tiến vào) để cùng 1 quân có thể tiến-rồi-lui trong cùng 1 đợt mà
+        không cần tính lại đường lần 2."""
+        last = max(self.wave_path_len - 1, 0)
+        cur_wp = np.clip(last - self.retreat_path_idx[idx], 0, last).astype(np.int64)
+        tx = self.wave_path_x[cur_wp]
+        ty = self.wave_path_y[cur_wp]
+        dx = tx - self.x[idx]
+        dy = ty - self.y[idx]
+        dist_wp = np.hypot(dx, dy)
+        self.theta[idx] = np.arctan2(dy, dx)
+        step = np.minimum(dist_wp, speed)
+        safe = np.where(dist_wp < 1e-6, 1.0, dist_wp)
+        self.x[idx] += dx / safe * step
+        self.y[idx] += dy / safe * step
+
+        not_last = cur_wp > 0
+        reached_wp = (dist_wp < cfg.WAYPOINT_ARRIVE_THRESHOLD) & not_last
+        if np.any(reached_wp):
+            ridx = idx[reached_wp]
+            self.retreat_path_idx[ridx] = (self.retreat_path_idx[ridx] + 1).astype(np.int16)
+
+        gx, gy = self.wave_path_x[0], self.wave_path_y[0]
+        return np.hypot(gx - self.x[idx], gy - self.y[idx])
+
     def _update_approach(self, colony):
         mask = self.alive & (self.state == INV_APPROACH)
         if not np.any(mask):
             return
         idx = np.where(mask)[0]
-        nx, ny = colony.nest_pos
-        dist = self._move_towards(idx, (nx, ny), cfg.INVASION_SPEED)
+        if self.wave_path_len > 1:
+            dist = self._follow_wave_path(idx, cfg.INVASION_SPEED)
+        else:
+            nx, ny = colony.nest_pos
+            dist = self._move_towards(idx, (nx, ny), cfg.INVASION_SPEED)
         arrived = idx[dist < cfg.ARRIVE_THRESHOLD * 3]
         if len(arrived) == 0:
             return
@@ -355,7 +458,10 @@ class InvasionManager:
         if not np.any(mask):
             return
         idx = np.where(mask)[0]
-        dist = self._move_towards(idx, self.spawn_edge_xy, cfg.INVASION_RETREAT_SPEED)
+        if self.wave_path_len > 1:
+            dist = self._follow_wave_path_reverse(idx, cfg.INVASION_RETREAT_SPEED)
+        else:
+            dist = self._move_towards(idx, self.spawn_edge_xy, cfg.INVASION_RETREAT_SPEED)
         gone = idx[dist < cfg.ARRIVE_THRESHOLD * 3]
         if len(gone) > 0:
             self.alive[gone] = False

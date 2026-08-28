@@ -61,12 +61,14 @@ TURN_NOISE = 0.6             # độ nhiễu góc quay mỗi tick (radian) khi
 # và lính gác rút về tổ giờ đi theo ĐƯỜNG ĐI TÍNH SẴN (any-angle, ngắn
 # nhất, dựng từ visibility graph các góc vật cản) thay vì "dò mùi + né vật
 # cản kiểu bám tường" như trước - xem AntColony._follow_paths/_assign_new_path.
-PATH_MAX_WAYPOINTS = 120    # số điểm rẽ hướng tối đa lưu cho 1 đường đi -
+PATH_MAX_WAYPOINTS = 250    # số điểm rẽ hướng tối đa lưu cho 1 đường đi -
                             # với bản đồ chỉ có vài bức tường đá rời rạc
                             # thì hiếm khi vượt quá vài điểm, NHƯNG mê
-                            # cung dày (maze_generator.py) có thể cần TỚI
-                            # 60+ điểm rẽ cho 1 đường đi dài ngoằn ngoèo -
-                            # đo thực tế trên mê cung mặc định. Nếu để
+                            # cung dày đặc nhất (hành lang/tường đều 1 ô -
+                            # xem MAZE_PASSAGE_WIDTH/MAZE_WALL_WIDTH) có
+                            # thể cần TỚI 130+ điểm rẽ cho 1 đường đi dài
+                            # ngoằn ngoèo - đo thực tế trên nhiều mê cung
+                            # mặc định (max quan sát: 131/120 mẫu). Nếu để
                             # thấp hơn mức này, đường đi bị CẮT CỤT giữa
                             # chừng (path[:PATH_MAX_WAYPOINTS] trong
                             # AntColony._assign_new_path) khiến kiến dừng
@@ -111,7 +113,7 @@ EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm kh
 # docstring generate_perfect_maze(). MAZE_PASSAGE_WIDTH/MAZE_WALL_WIDTH
 # CANG NHO thi me cung CANG DAY nhung build CANG CHAM (chi phi O(V^2)) -
 # 2 gia tri mac dinh duoi day da do dac de giu build duoi ~2 giay. -----
-MAZE_PASSAGE_WIDTH = 2         # do rong hanh lang (so o)
+MAZE_PASSAGE_WIDTH = 1         # do rong hanh lang (so o)
 MAZE_WALL_WIDTH = 1            # do day tuong giua 2 hanh lang (so o)
 MAZE_FOOD_PILES = 6            # so cum thuc an rai rac trong me cung
 MAZE_FOOD_AMOUNT_PER_PILE = 10.0  # luong thuc an moi cum (nho, buoc phai
@@ -133,14 +135,38 @@ AVOID_TURN_ANGLE = 1.35      # góc né khi vừa chạm vật cản (~77 độ,
                              # góc với hướng đang đi - để TRƯỢT DỌC theo rìa
                              # thay vì chỉ hơi chếch)
 
-# ----- Pheromone (mùi dẫn đường về tổ khi tha thức ăn) - CHỈ CÒN dùng để
-# VẼ vệt mùi trực quan (xem render_surface.py); từ khi chuyển sang
-# pathfinding thật (visibility graph + A*, xem pathfinding.py và
-# AntColony._update_surface_ants trong ants.py), pheromone KHÔNG còn ảnh
-# hưởng gì tới việc kiến chọn hướng đi nữa. -----
+# ----- Pheromone (mùi dẫn đường về tổ khi tha thức ăn) - dùng để VẼ vệt
+# mùi trực quan (xem render_surface.py) VÀ để TUYỂN MỘ (recruitment):
+# khi 1 kiến khác đang tìm ăn cần chọn điểm khám phá mới, nó có 1 xác
+# suất được "hút" theo vệt mùi thay vì tự dò ngẫu nhiên (xem
+# AntColony._sample_recruit_candidates/_pick_explore_target) - giống cách
+# đàn kiến thật ùa nhanh vào 1 nguồn ăn giàu vừa được đồng loại tìm thấy,
+# thay vì mỗi con tự mò mẫm độc lập. Lượng mùi để lại tỉ lệ với GIÁ TRỊ
+# đang tha (xem AntColony._update_returning_ants) nên nguồn càng giàu thì
+# càng "ồn ào", càng tuyển được nhiều kiến khác. -----
 PHEROMONE_DECAY = 0.985     # mỗi tick pheromone giảm còn 98.5%
-PHEROMONE_DEPOSIT = 1.0     # lượng mùi để lại mỗi tick khi đang tha đồ
+PHEROMONE_DEPOSIT = 1.0     # lượng mùi CƠ SỞ để lại mỗi tick khi đang tha đồ
+                            # (nhân thêm với carry_amount - xem
+                            # _update_returning_ants - nên đồ giá trị cao
+                            # hơn để lại vệt đậm hơn hẳn đồ giá trị thấp)
 PHEROMONE_MAX = 8.0
+PHEROMONE_RECRUIT_PROB = 0.35   # xác suất 1 kiến SEARCHING vừa cần điểm
+                                # khám phá mới chọn ĐI THEO vệt mùi (nếu có
+                                # vệt đáng kể) thay vì tự dò ngẫu nhiên -
+                                # đây chính là "tuyển mộ" kiểu kiến thật
+PHEROMONE_RECRUIT_MIN_TOTAL = 15.0  # tổng lượng mùi tối thiểu trên TOÀN
+                                # bản đồ mới coi là "có vệt đáng theo" -
+                                # tránh vài vệt mùi lẻ tẻ, rất mờ (còn sót
+                                # lại lúc mới có 1-2 kiến tha ít ỏi) cũng
+                                # kích hoạt tuyển mộ ồ ạt không đáng
+PHEROMONE_RECRUIT_NEST_EXCLUDE_RADIUS = 6  # loại hẳn vùng trong bán kính
+                                # này quanh cửa tổ ra khỏi phân phối tuyển
+                                # mộ - MỌI kiến tha đồ về đều hội tụ qua
+                                # đây bất kể tìm thấy ăn ở đâu, nên đây
+                                # luôn là nơi đậm mùi NHẤT dù không nói
+                                # lên gì về vị trí thức ăn thật; nếu không
+                                # loại trừ, tuyển mộ sẽ hút nhầm kiến về
+                                # quanh tổ thay vì ra đúng chỗ có ăn
 
 # ----- "Bản đồ nhiệt" nơi kiến đã ghé qua gần đây - THAY vai trò dẫn
 # hướng tìm ăn mà pheromone từng đảm nhiệm: khi 1 kiến đang tìm ăn (SEARCHING)
@@ -163,29 +189,49 @@ DANGER_DEPOSIT_RADIUS = 2        # bán kính lan tỏa quanh vị trí kẻ th�
                                 # hẹp, không phủ kín cả khu vực quanh tổ
 DANGER_PHEROMONE_MAX = 10.0
 
-# ----- Thức ăn trên mặt đất (1 LOẠI DUY NHẤT - đơn giản hóa: trước đây có
-# 3 loại khác màu/giá trị (hạt/côn trùng/mật hoa), nay chỉ còn 1 loại, 1
-# màu, để mỗi đơn vị thức ăn đều "nặng" như nhau - cũng giúp số liệu kho
-# thức ăn khớp CHÍNH XÁC 1:1 với số lần kiến thực sự mang thức ăn về, thay
-# vì lẫn lộn nhiều giá trị khác nhau) -----
-FOOD_CLUSTERS = 26           # tăng so với bản 1 tổ vì giờ có thêm tổ đối
-                             # thủ cùng cạnh tranh nguồn thức ăn này
+# ----- Thức ăn trên mặt đất (2 LOẠI: "hạt" phổ biến, giá trị thường +
+# "mật hoa" HIẾM hơn nhưng GIÁ TRỊ CAO hơn hẳn - tha 1 lần mật hoa gần
+# bằng cả 3 lần hạt, nên đáng để kiến "ưu tiên" quay lại đúng cụm mật hoa
+# đã tìm thấy thay vì cụm hạt bình thường gần đó. Đây CHÍNH LÀ chỗ phối
+# hợp với cơ chế TUYỂN MỘ theo mùi (xem AntColony._sample_recruit_candidates
+# trong ants.py + deposit_pheromone trong world.py): nguồn càng giá trị
+# cao thì vệt mùi dẫn tới đó càng đậm (lượng mùi để lại TỈ LỆ với
+# carry_amount), nên mật hoa tự nhiên "hút" được nhiều kiến khác hơn hạt -
+# giống hệt cách đàn kiến thật ưu tiên khai thác nguồn ăn giàu năng lượng.
+# Trước đây (bản cũ) game chỉ có 1 loại hạt duy nhất, không có sự khác
+# biệt nào giữa các cụm thức ăn. -----
+FOOD_CLUSTERS = 16          # ĐÃ GIẢM từ 26 - bản trước phủ tới ~28% diện
+                             # tích bản đồ ngay lúc khởi tạo (mỗi cụm là 1
+                             # khối ĐẶC 5x5 ô, không phải rải thưa), khiến
+                             # thức ăn cảm giác vô hạn ngay từ đầu ván -
+                             # giảm SỐ LƯỢNG cụm (không giảm độ đậm mỗi
+                             # cụm, xem FOOD_PER_CLUSTER) để bản đồ thoáng
+                             # hơn, mỗi cụm tìm được vẫn đáng công (đậm),
+                             # nhưng phải đi xa hơn/tìm nhiều hơn mới đủ ăn
 FOOD_CLUSTER_RADIUS = 2
 
-FOOD_TYPE_SEED = 0     # loại thức ăn DUY NHẤT
+FOOD_TYPE_SEED = 0      # hạt - loại PHỔ BIẾN, giá trị thường
+FOOD_TYPE_NECTAR = 1    # mật hoa/quả mọng - HIẾM hơn hẳn, giá trị CAO hơn
 
 FOOD_TYPE_VALUE = {
-    FOOD_TYPE_SEED: 1.0,   # mỗi lần nhặt = đúng 1.0 đơn vị (không còn lẫn
-                           # nhiều giá trị khác nhau như bản 3 loại trước)
+    FOOD_TYPE_SEED: 1.0,    # mỗi lần nhặt = 1.0 đơn vị (mốc chuẩn)
+    FOOD_TYPE_NECTAR: 3.0,  # gấp 3 hạt thường - cùng thang giá trị với
+                            # WATER_CARRY_AMOUNT (=3.0) để không lệch pha
+                            # so với kinh tế nước đã có sẵn trong game
 }
 FOOD_TYPE_COLOR = {
-    FOOD_TYPE_SEED: (150, 115, 60),     # màu nâu hạt - MÀU DUY NHẤT
+    FOOD_TYPE_SEED: (150, 115, 60),      # nâu hạt
+    FOOD_TYPE_NECTAR: (230, 190, 60),    # vàng óng mật hoa - đủ khác màu
+                                          # nâu hạt VÀ màu cam của đàn xâm
+                                          # lược (255,140,100) để không
+                                          # nhầm lẫn khi nhìn thoáng qua
 }
 # Tỉ lệ xuất hiện mỗi loại khi 1 cụm thức ăn mới sinh ra (phải cộng lại =
-# 1.0) - chỉ còn 1 loại nên luôn = 1.0, giữ lại cấu trúc dict để phần code
-# còn lại (chọn loại theo trọng số) không cần sửa gì thêm.
+# 1.0) - mật hoa HIẾM hơn hẳn hạt, đúng tinh thần "nguồn giàu thì khan
+# hiếm" (nếu phổ biến như hạt thì mất hết ý nghĩa "đáng tuyển mộ tới").
 FOOD_TYPE_WEIGHTS = {
-    FOOD_TYPE_SEED: 1.0,
+    FOOD_TYPE_SEED: 0.78,
+    FOOD_TYPE_NECTAR: 0.22,
 }
 FOOD_PER_CLUSTER = 6.0  # số "đơn vị" thức ăn (không phải giá trị dinh dưỡng)
 
@@ -325,6 +371,35 @@ SOLDIER_DAMAGE_PROB = 0.05  # xác suất 1 lính gây sát thương lên kẻ t
 SOLDIER_DAMAGE_PER_HIT = 1.0
 ENEMY_MAX_HEALTH = 9.0      # kẻ thù có máu - lính có thể đánh bại nó thay vì
                             # chỉ chờ nó tự rời đi
+
+# ----- Khiêng mồi lớn theo nhóm (cooperative transport) - xem giải thích
+# đầy đủ ở STATE_HAUL_APPROACH/STATE_HAUL_GRIP trong phần STATE_* phía
+# trên. -----
+HAUL_MIN_ANTS = 4             # số kiến TỐI THIỂU phải có mặt CÙNG LÚC tại
+                              # xác mới đủ sức khiêng về - ít hơn thì phải
+                              # đứng chờ thêm đồng đội tới
+HAUL_MAX_HAULERS = 7          # trần số kiến được phép cùng lúc lao tới 1
+                              # xác (gồm cả đang tới lẫn đang đứng chờ) -
+                              # tránh gọi quá nhiều kiến bỏ dở việc kiếm ăn
+                              # bình thường chỉ vì 1 xác duy nhất
+HAUL_TARGET_PROB = 0.5        # xác suất 1 kiến TÌM ĂN vừa cần chọn điểm
+                              # đến mới sẽ CHỌN ĐI khiêng xác (nếu còn chỗ,
+                              # xem HAUL_MAX_HAULERS) thay vì dò ngẫu nhiên
+                              # như bình thường - xác thú lớn dễ thấy/dễ
+                              # ngửi mùi hơn hẳn 1 miếng mồi thường, nên
+                              # xác suất để ý cao hơn hẳn tuyển mộ qua mùi
+                              # thông thường (PHEROMONE_RECRUIT_PROB)
+HAUL_DECAY_TICKS = 900        # xác chỉ "tươi" trong ngần này tick (~15
+                              # giây ở tốc độ x1) - không gọi đủ người kịp
+                              # thời thì coi như xác đã rữa/bị loài khác
+                              # tranh mất, biến mất luôn - thúc đẩy phản
+                              # ứng nhanh, giống áp lực thời gian thật khi
+                              # có xác mồi ngoài bãi
+HAUL_TOTAL_FOOD_VALUE = 24.0   # tổng giá trị dinh dưỡng CẢ XÁC đem lại
+                              # (~24 lần giá trị 1 đơn vị hạt thường) -
+                              # chia đều cho toàn bộ nhóm khiêng lúc xuất
+                              # phát (nhóm càng đông, mỗi con mang về càng
+                              # ít - nhưng về nhanh hơn vì tha nhẹ hơn)
 
 # ----- Phòng gác cửa: 1 phần lính đóng quân cố định dưới hầm, lao lên mặt
 # đất chiến đấu ngay khi có kẻ thù xuất hiện gần tổ, xong việc rút về ----- 
@@ -522,6 +597,30 @@ STATE_ATTENDANT_TO_EGG = 16     # đang di chuyển sang phòng trứng
 STATE_ATTENDANT_AT_EGG = 17     # đang túc trực trông trứng
 STATE_ATTENDANT_TO_QUEEN = 18   # đang quay lại phòng chúa
 
+# ----- Necrophoresis (thợ mai táng) - xem AntColony._update_undertakers()
+# trong ants.py: kiến chết DƯỚI HẦM để lại 1 XÁC THẬT tại đúng vị trí vừa
+# chết, chờ 1 nurse đang rảnh việc tự nguyện đi khiêng về Nghĩa địa (chỉ
+# lúc đó self.underground.corpse_count mới thực sự tăng) - khác hẳn bản
+# cũ coi cái chết là 1 con số trừu tượng, tự động "biến" thành xác ở nghĩa
+# địa ngay lập tức không ai phải đi lấy. Kiến chết TRÊN MẶT ĐẤT (già/đói
+# lúc đang kiếm ăn, hoặc bị địch giết) vẫn dùng add_corpse() tức thời như
+# cũ - coi như "hi sinh tại trận, không thu hồi được xác", giống thực tế
+# đàn kiến cũng không phải lúc nào cũng lấy lại được xác đồng đội chết ở
+# xa ngoài mặt trận.
+STATE_UNDERTAKER_TO_CORPSE = 19     # đang đi tới vị trí xác để khiêng
+STATE_UNDERTAKER_TO_GRAVEYARD = 20  # đang khiêng xác về Nghĩa địa
+
+# ----- Khiêng mồi lớn theo nhóm (cooperative transport) - xem
+# EnemyManager._spawn_carcass()/decay_carcass() trong enemy.py +
+# AntColony._update_haulers() trong ants.py: khi lính gác ĐÁNH BẠI HẲN 1
+# kẻ thù tự nhiên (khác với chỉ đuổi nó bỏ chạy), xác nó để lại là 1 "mồi
+# lớn" giàu dinh dưỡng NHƯNG quá nặng để 1 mình 1 con kiến tha nổi - phải
+# có ĐỦ số kiến tập trung tại đó CÙNG LÚC mới đủ sức khiêng về, giống hệt
+# cách kiến thật hợp sức khiêng con mồi to hơn cả cơ thể chúng (cooperative
+# transport) - trước đây kẻ thù bị đánh bại chỉ biến mất, không để lại gì.
+STATE_HAUL_APPROACH = 21   # đang trên đường tới xác con mồi lớn
+STATE_HAUL_GRIP = 22       # đã tới nơi, đang ĐỨNG CHỜ đủ đồng đội mới cùng khiêng
+
 # Kiến "lượn" trong phòng bao lâu trước khi tiếp tục hành trình (tick mô
 # phỏng), và di chuyển nhẹ/chậm ra sao trong lúc đó
 DWELL_MIN_TICKS = 40
@@ -675,11 +774,19 @@ ENEMY_MAX_KILLS_PER_VISIT = 5    # kẻ thù "no" và tự rời đi sau khi gi�
 ENEMY_TURN_NOISE = 0.5
 
 # ----- Cạnh tranh tài nguyên: thức ăn có hạn, tái sinh chậm theo "mùa" -----
-FOOD_RESPAWN_INTERVAL = 350  # cứ mỗi bấy nhiêu tick, có 1 cụm thức ăn mới
-                             # xuất hiện ngẫu nhiên (mô phỏng thức ăn theo mùa) -
-                             # tăng tần suất so với bản 1 tổ vì giờ có 2 tổ
-                             # cùng cạnh tranh chung nguồn thức ăn này
-FOOD_RESPAWN_AMOUNT = 5.0    # lượng thức ăn của cụm mới mỗi lần tái sinh
+# TỪNG chỉnh: mỗi lần tái sinh thêm tối đa (2*FOOD_CLUSTER_RADIUS+1)^2 =
+# 25 ô x 5.0 đơn vị/ô = 125 đơn vị, cứ mỗi 350 tick (~5.8 giây ở tốc độ
+# x1) - tức trung bình ~21 đơn vị/giây, tương đương ~21 LẦN NHẶT MỒI THƯỜNG
+# MỖI GIÂY chỉ riêng từ tái sinh (chưa tính lượng khởi tạo ban đầu) - QUÁ
+# NHIỀU VÀ QUÁ NHANH, khiến thức ăn gần như vô hạn, kiến không bao giờ
+# thực sự khan hiếm. Đã GIẢM cả 2 chiều: khoảng cách giữa 2 lần tái sinh
+# XA hơn hẳn (350 -> 900 tick, ~15 giây) VÀ lượng mỗi lần ÍT hơn hẳn (5.0
+# -> 2.0 đơn vị/ô) - tổng hợp lại giảm tốc độ tái sinh khoảng ~6.4 lần so
+# với trước, để thức ăn còn cảm giác "hạn chế, phải đi tìm" thay vì rải
+# đều khắp nơi liên tục.
+FOOD_RESPAWN_INTERVAL = 900  # cứ mỗi bấy nhiêu tick, có 1 cụm thức ăn mới
+                             # xuất hiện ngẫu nhiên (mô phỏng thức ăn theo mùa)
+FOOD_RESPAWN_AMOUNT = 2.0    # lượng thức ăn của cụm mới mỗi lần tái sinh
 # LƯU Ý: thức ăn trong phòng ấu trùng (food_in_nursery) giờ được TIÊU THỤ
 # THẬT SỰ bởi từng ấu trùng đang lớn (xem LARVA_FOOD_PER_TICK ở trên), nên
 # không cần thêm 1 cơ chế "rút cạn" chung chung nữa.
@@ -741,14 +848,28 @@ WATER_MAX_ICONS = 40
 # Kiến chúa: to hơn hẳn thợ thường, luôn đứng yên (bob nhẹ) giữa phòng chúa
 QUEEN_BODY_SCALE = 3.2
 
-# Nghĩa địa/phòng rác: mỗi kiến chết được "chuyển" vào đây thành 1 nắm xác
-# nhỏ - KHÔNG mô phỏng chi tiết việc kiến khác tha xác đi (ngoài phạm vi
-# game này), chỉ cần đủ để phòng có ý nghĩa và có thể NHÌN THẤY hậu quả của
-# chết chóc thay vì kiến biến mất vô hình. Xác cũ dần phân hủy/biến mất để
-# nghĩa địa không phình to vô hạn.
+# Nghĩa địa/phòng rác: xác kiến chết DƯỚI HẦM được 1 nurse rảnh việc THẬT
+# SỰ khiêng tới đây (xem STATE_UNDERTAKER_TO_CORPSE/TO_GRAVEYARD ở trên +
+# AntColony._update_undertakers() trong ants.py) rồi mới tính là 1 "nắm
+# xác" - kiến chết TRÊN MẶT ĐẤT (già/đói lúc kiếm ăn, hoặc bị địch giết)
+# thì tính ngay lập tức, coi như hi sinh tại trận không thu hồi được xác.
+# Xác cũ dần phân hủy/biến mất để nghĩa địa không phình to vô hạn.
 GRAVEYARD_MAX_CORPSES = 60       # trần số "nắm xác" hiển thị cùng lúc
 GRAVEYARD_DECAY_PER_TICK = 0.0008  # tốc độ phân hủy (xác cũ dần biến mất
                              # sau khoảng vài chục giây, không phải tức thời)
+MAX_PENDING_CORPSES = 12    # trần số xác DƯỚI HẦM đang chờ được khiêng
+                             # cùng lúc (KHÁC với GRAVEYARD_MAX_CORPSES ở
+                             # trên - đây là hàng chờ TRƯỚC khi tới nghĩa
+                             # địa) - phòng hờ trường hợp chết quá nhanh so
+                             # với tốc độ khiêng (vd dịch bệnh/đói kém toàn
+                             # đàn) khiến hàng chờ phình to vô hạn; xác dư
+                             # ra ngoài trần này coi như bị bỏ lại, tính
+                             # thẳng vào nghĩa địa qua add_corpse() luôn
+                             # thay vì xếp hàng mãi không ai khiêng nổi.
+UNDERTAKER_CHECK_INTERVAL = 20  # cứ mỗi ngần này tick mới thử phân công 1
+                             # nurse rảnh đi khiêng xác (không cần kiểm
+                             # tra MỖI tick - xác không "biến mất" ngay
+                             # nếu chưa ai tới, không gấp)
 
 # ----- Camera theo dõi 1 con kiến cụ thể (chọn công cụ "Theo dõi" rồi bấm
 # vào 1 con kiến bất kỳ, thuộc tổ nào cũng được) -----

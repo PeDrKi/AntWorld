@@ -17,6 +17,7 @@ import pygame
 from . import config as cfg
 from .ui_widgets import Button, Panel
 from .render_underground import layer_name
+from .fonts import render_cached, get_flat_alpha_surface
 
 # --- Bảng màu dùng chung cho bảng thống kê (nhãn mờ, giá trị sáng, mỗi
 # chủ đề 1 màu để mắt bắt được ngay không cần đọc kỹ từng chữ) ---
@@ -40,7 +41,7 @@ def build_toolbar(state):
     (vd đang resize cửa sổ), GIỮ NGUYÊN vị trí/trạng thái thu gọn người
     chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
     old_positions = {}
-    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel"):
+    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel", "tab_panel", "maze_panel"):
         p = getattr(state, key, None)
         if p is not None:
             old_positions[key] = (p.x, p.y, p.collapsed)
@@ -95,10 +96,6 @@ def build_toolbar(state):
         ("Xoa", "erase", "tool"), ("Theo doi", "follow", "tool"),
     ]:
         add_full_button(label, lambda t=tool_name: state.set_tool(t), style, tool_name=tool_name)
-
-    cursor["y"] += 4
-    add_section("BAN DO")
-    add_full_button("Sinh me cung (xoa da/nuoc cu)", lambda: state.generate_maze(), "danger")
 
     cursor["y"] += 4
     add_section("THOI GIAN")
@@ -169,16 +166,74 @@ def build_toolbar(state):
         state.layer_map_buttons.append(btn)
     state.layer_map_panel = layer_map_panel
 
-    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel]
+    # -------------------------------------------------------------------
+    # Panel chuyển TAB (luôn hiện, độc lập với tab đang xem) - "Mo phong"
+    # (ván chơi chính) / "Demo me cung" (minh họa thuật toán tìm đường any-
+    # angle trên visibility graph - xem maze_demo.py, world hoàn toàn tách
+    # biệt khỏi ván chơi thật). Đặt mặc định ở GIỮA-DƯỚI màn hình để không
+    # đụng vị trí mặc định của các panel khác ở CẢ 2 tab.
+    # -------------------------------------------------------------------
+    TAB_PANEL_W = 260
+    tab_panel = Panel(state.SCREEN_W / 2 - TAB_PANEL_W / 2, state.SCREEN_H - 78, TAB_PANEL_W, 38, "Che do xem")
+    sim_tab_btn = Button((0, 0, 118, 30), "Mo phong", style="nav")
+    maze_tab_btn = Button((0, 0, 118, 30), "Demo me cung", style="nav")
+    sim_tab_btn.on_click = lambda: (state.switch_tab("sim"), _sync_tab_buttons(state))
+    maze_tab_btn.on_click = lambda: (state.switch_tab("maze"), _sync_tab_buttons(state))
+    sim_tab_btn.bind_to_panel(tab_panel, 8, 6)
+    maze_tab_btn.bind_to_panel(tab_panel, 8 + 118 + 6, 6)
+    state.buttons += [sim_tab_btn, maze_tab_btn]
+    state.tab_buttons = {"sim": sim_tab_btn, "maze": maze_tab_btn}
+    _sync_tab_buttons(state)
+    state.tab_panel = tab_panel
+
+    # -------------------------------------------------------------------
+    # Panel công cụ riêng cho tab Demo mê cung - CHỈ hiện khi active_tab
+    # == "maze" (xem GameState.visible_panels()).
+    # -------------------------------------------------------------------
+    maze_panel = Panel(8, 8, 250, 10, "Demo me cung: tim duong")
+    mcursor = {"y": 10}
+
+    def m_add_button(label, on_click, style, h=30, active=False):
+        b = Button((0, 0, 230, h), label, on_click=on_click, style=style, active=active)
+        b.bind_to_panel(maze_panel, 10, mcursor["y"])
+        state.buttons.append(b)
+        mcursor["y"] += h + 6
+        return b
+
+    m_add_button("Me cung moi (Sinh lai)", lambda: state.maze_demo.regenerate(), "place")
+    mgraph_btn = m_add_button("Hien dinh visibility graph: BAT", None, "toggle", active=True)
+    mgraph_btn.on_click = lambda: _toggle_maze_flag(state, "show_graph", mgraph_btn)
+    mgrid_btn = m_add_button("Luoi o vuong: BAT", None, "toggle", active=True)
+    mgrid_btn.on_click = lambda: _toggle_maze_flag(state, "show_grid", mgrid_btn)
+
+    mcursor["y"] += 6
+    maze_panel.h = mcursor["y"] + 78  # + chỗ cho vài dòng giải thích ngắn (draw_maze_panel)
+    state.maze_panel = maze_panel
+
+    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel, tab_panel, maze_panel]
 
     for key, panel in (
         ("toolbar_panel", toolbar_panel), ("stats_panel", stats_panel),
         ("graph_panel", graph_panel), ("layer_map_panel", layer_map_panel),
+        ("tab_panel", tab_panel), ("maze_panel", maze_panel),
     ):
         if key in old_positions:
             x, y, collapsed = old_positions[key]
             panel.collapsed = collapsed
             panel.move_to(x, y, state.SCREEN_W, state.SCREEN_H)
+
+
+def _sync_tab_buttons(state):
+    for name, btn in state.tab_buttons.items():
+        btn.active = (state.active_tab == name)
+
+
+def _toggle_maze_flag(state, attr, btn):
+    val = not getattr(state.maze_demo, attr)
+    setattr(state.maze_demo, attr, val)
+    label = btn.text.rsplit(":", 1)[0]
+    btn.text = f"{label}: {'BAT' if val else 'TAT'}"
+    btn.active = val
 
 
 def _layer_swatches(state, depth):
@@ -239,7 +294,7 @@ def _draw_layer_box(state, surf, btn):
 
     text_x = r.x + 5 + 7 + 8
     depth_label = "Mat dat" if btn.depth == 0 else f"Tang {btn.depth}"
-    l1 = state.font_small.render(depth_label, True, (255, 255, 255) if is_current else (200, 200, 205))
+    l1 = render_cached(state.font_small, depth_label, (255, 255, 255) if is_current else (200, 200, 205))
     surf.blit(l1, (text_x, r.y + 5))
 
     # Dòng 2: tên (các) phòng nối bằng "/" - CẮT BỚT nếu quá dài để không
@@ -250,7 +305,7 @@ def _draw_layer_box(state, surf, btn):
         names_text = names_text[:-2]
     if names_text != "/".join(n for _c, n in swatches):
         names_text += "…"
-    l2 = state.font_small.render(names_text, True, (215, 195, 140) if is_current else (150, 150, 158))
+    l2 = render_cached(state.font_small, names_text, (215, 195, 140) if is_current else (150, 150, 158))
     surf.blit(l2, (text_x, r.y + 5 + l1.get_height() + 1))
 
     # Mũi tên nhỏ chỉ vào tầng đang xem, nhô ra bên PHẢI khung - dấu hiệu
@@ -294,7 +349,7 @@ def draw_toasts(state, surf):
             alpha = 255
         alpha = max(0, min(255, alpha))
 
-        text_img = state.font.render(t["msg"], True, (245, 245, 245))
+        text_img = render_cached(state.font, t["msg"], (245, 245, 245))
         box_w = text_img.get_width() + 34
         box_h = text_img.get_height() + 16
         box = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
@@ -334,7 +389,7 @@ def draw_graph(state, surf):
 
     legend_y = cy + 4
     pygame.draw.circle(surf, COL_MAIN, (cx + 10, legend_y + 5), 4)
-    surf.blit(state.font_small.render("Dan so", True, COL_MAIN), (cx + 18, legend_y))
+    surf.blit(render_cached(state.font_small, "Dan so", COL_MAIN), (cx + 18, legend_y))
 
     if len(state.pop_history_main) >= 2:
         pygame.draw.lines(surf, COL_MAIN, False, to_points(state.pop_history_main), 2)
@@ -348,7 +403,7 @@ def _blit_row(surf, font, x, y, segments):
     trị sáng xen kẽ, dễ đọc hơn hẳn 1 màu trắng đồng nhất."""
     cur_x = x
     for text, color in segments:
-        img = font.render(text, True, color)
+        img = render_cached(font, text, color)
         surf.blit(img, (cur_x, y))
         cur_x += img.get_width()
     return cur_x
@@ -409,11 +464,11 @@ def draw_hud(state, surf):
                 ])
                 y[0] += LINE_H
                 energy_frac = cdata["queen_energy"] / cfg.QUEEN_INITIAL_ENERGY if cfg.QUEEN_INITIAL_ENERGY > 0 else 0
-                label_img = state.font_hud.render("Nang luong du tru cua chua ", True, COL_LABEL)
+                label_img = render_cached(state.font_hud, "Nang luong du tru cua chua ", COL_LABEL)
                 surf.blit(label_img, (cx + LX + 18, y[0] + 2))
                 bar_x = cx + LX + 18 + label_img.get_width()
                 _draw_progress_bar(surf, bar_x, y[0] + 3, 140, LINE_H - 8, energy_frac, (200, 130, 210))
-                pct_img = state.font_hud.render(f" {energy_frac * 100:.0f}%", True, COL_VALUE)
+                pct_img = render_cached(state.font_hud, f" {energy_frac * 100:.0f}%", COL_VALUE)
                 surf.blit(pct_img, (bar_x + 146, y[0] + 2))
                 y[0] += LINE_H
                 return
@@ -477,33 +532,30 @@ def draw_hud(state, surf):
             ])
         y[0] += LINE_H
 
+        warn_bg = get_flat_alpha_surface((panel.w - 2 * LX, LINE_H - 2), COL_WARN_BG)
         for wtext, wcolor in warnings:
-            bg = pygame.Surface((panel.w - 2 * LX, LINE_H - 2), pygame.SRCALPHA)
-            bg.fill(COL_WARN_BG)
-            surf.blit(bg, (cx + LX, y[0] - 1))
-            img = state.font_hud.render(wtext, True, wcolor)
+            surf.blit(warn_bg, (cx + LX, y[0] - 1))
+            img = render_cached(state.font_hud, wtext, wcolor)
             surf.blit(img, (cx + LX + 4, y[0]))
             y[0] += LINE_H
 
         if follow_text:
-            bg = pygame.Surface((panel.w - 2 * LX, LINE_H - 2), pygame.SRCALPHA)
-            bg.fill(COL_FOLLOW_BG)
-            surf.blit(bg, (cx + LX, y[0] - 1))
-            img = state.font_hud.render(follow_text, True, COL_GOOD)
+            follow_bg = get_flat_alpha_surface((panel.w - 2 * LX, LINE_H - 2), COL_FOLLOW_BG)
+            surf.blit(follow_bg, (cx + LX, y[0] - 1))
+            img = render_cached(state.font_hud, follow_text, COL_GOOD)
             surf.blit(img, (cx + LX + 4, y[0]))
             y[0] += LINE_H
 
         hint = "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat"
-        img = state.font_small.render(hint, True, (135, 135, 145))
+        img = render_cached(state.font_small, hint, (135, 135, 145))
         surf.blit(img, (cx + LX, y[0] + 2))
 
     # --- nhãn tầng hiện tại: nhỏ, LUÔN CỐ ĐỊNH góc trên-phải (không phải
     # panel kéo được - đủ nhỏ để không thực sự che khung nhìn) ---
     name = layer_name(state.current_layer)
-    label = state.font_big.render(f"Tang {state.current_layer}: {name}", True, (255, 255, 80))
+    label = render_cached(state.font_big, f"Tang {state.current_layer}: {name}", (255, 255, 80))
     lr = label.get_rect(topright=(state.SCREEN_W - 12, 8))
-    bg = pygame.Surface((lr.w + 16, lr.h + 10), pygame.SRCALPHA)
-    bg.fill((0, 0, 0, 150))
+    bg = get_flat_alpha_surface((lr.w + 16, lr.h + 10), (0, 0, 0, 150))
     surf.blit(bg, (lr.x - 8, lr.y - 5))
     surf.blit(label, lr)
 
@@ -518,7 +570,7 @@ def draw_toolbar(state, surf):
     cx, cy = panel.content_pos()
 
     for text, rel_y in state.toolbar_section_labels:
-        img = state.font_small.render(text, True, COL_SECTION)
+        img = render_cached(state.font_small, text, COL_SECTION)
         surf.blit(img, (cx + 10, cy + rel_y))
         pygame.draw.line(
             surf, (60, 60, 68),
@@ -549,6 +601,109 @@ def draw_toolbar(state, surf):
         lines_wrapped.append(cur)
     hy = cy + panel.h - 16 * len(lines_wrapped) - 8
     for line in lines_wrapped:
-        img = state.font_small.render(line, True, (255, 230, 90))
+        img = render_cached(state.font_small, line, (255, 230, 90))
         surf.blit(img, (cx + 10, hy))
         hy += 16
+
+
+# ---------------------------------------------------------------------
+# Panel chuyển tab ("Mo phong" <-> "Demo me cung") - luôn hiện, độc lập
+# tab đang xem, xem GameState.switch_tab()/hud.build_toolbar().
+# ---------------------------------------------------------------------
+def draw_tab_panel(state, surf):
+    panel = state.tab_panel
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    for b in panel.children:
+        b.draw(surf, state.font)
+
+
+# ---------------------------------------------------------------------
+# Panel công cụ tab "Demo mê cung" - xem maze_demo.py.
+# ---------------------------------------------------------------------
+def draw_maze_panel(state, surf):
+    panel = state.maze_panel
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    cx, cy = panel.content_pos()
+    for b in panel.children:
+        b.draw(surf, state.font)
+
+    hint_lines = [
+        "To kien (xanh duong) -> Thuc an (xanh la).",
+        "Duong vang = duong di any-angle tim duoc",
+        "(visibility graph + A*, xem pathfinding.py).",
+        "Cham xanh nhat = dinh goc vat can duoc xet.",
+        "World rieng - khong dung gi toi ban do that.",
+    ]
+    hy = cy + panel.h - 16 * len(hint_lines) - 10
+    for line in hint_lines:
+        img = render_cached(state.font_small, line, (190, 195, 205))
+        surf.blit(img, (cx + 10, hy))
+        hy += 16
+
+
+# ---------------------------------------------------------------------
+# Man hinh GAME OVER (to tuyet chung) - xem GameState._trigger_game_over()
+# /restart_game() trong game_state.py. Truoc day day la "ngo cut" hoan
+# toan: mo phong van chay tiep vo nghia o trang thai 0 kien, khong co
+# man hinh tong ket, khong co cach nao choi lai ma khong tu dong lai
+# chuong trinh - build_game_over_panel()/draw_game_over() la phan vá cho
+# khoang trong do.
+# ---------------------------------------------------------------------
+def build_game_over_panel(state):
+    """Dung 1 Panel noi (+ nut 'Choi lai tu dau') cho man hinh Game Over -
+    goi 1 LAN DUY NHAT tu _trigger_game_over() ngay luc phat hien tuyet
+    chung (khong tai su dung panel cu tu ván truoc, vi state da la 1 GameState
+    hoan toan moi sau moi lan restart_game())."""
+    w, h = 440, 250
+    x = (state.SCREEN_W - w) / 2
+    y = (state.SCREEN_H - (Panel.TITLE_H + h)) / 2
+    panel = Panel(x, y, w, h, "To da tuyet chung")
+    btn = Button(
+        (0, 0, w - 40, 42), "Choi lai tu dau",
+        on_click=state.restart_game, style="tool",
+    )
+    btn.bind_to_panel(panel, 20, h - 58)
+    state.game_over_panel = panel
+
+
+def draw_game_over(state, surf):
+    """Ve lop phu mo den toan man hinh + panel tong ket Game Over - chi ve
+    khi state.game_over=True (xem build_game_over_panel). Goi SAU CUNG
+    trong render(), de nam TREN moi thu khac."""
+    if not state.game_over or state.game_over_panel is None:
+        return
+
+    overlay = get_flat_alpha_surface((state.SCREEN_W, state.SCREEN_H), (0, 0, 0, 165))
+    surf.blit(overlay, (0, 0))
+
+    panel = state.game_over_panel
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+
+    cx, cy = panel.content_pos()
+    title_img = render_cached(state.font_big, "TO DA TUYET CHUNG", (255, 120, 110))
+    surf.blit(title_img, title_img.get_rect(midtop=(cx + panel.w / 2, cy + 6)))
+
+    st = getattr(state, "_game_over_stats", {})
+    lines = [
+        f"Dan so cao nhat tung dat duoc: {st.get('peak_population', 0)}",
+        f"So tick da song sot: {st.get('ticks_survived', 0)}",
+        f"Tong so kien duoc sinh ra: {st.get('total_births', 0)}",
+        f"Tong so kien da chet: {st.get('total_deaths', 0)}",
+        f"Tong don vi thuc an thu thap: {st.get('total_food_collected', 0):.0f}",
+        f"So dot xam luoc da chong do: {st.get('waves_survived', 0)}",
+        f"Ke xam luoc da tieu diet: {st.get('invaders_killed', 0)}",
+    ]
+    ly = cy + 44
+    for line in lines:
+        img = render_cached(state.font_small, line, (222, 222, 228))
+        surf.blit(img, (cx + 22, ly))
+        ly += 21
+
+    for b in panel.children:
+        b.draw(surf, state.font)

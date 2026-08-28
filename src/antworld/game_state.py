@@ -19,7 +19,7 @@ from .enemy import EnemyManager
 from .invasion import InvasionManager
 from .camera import Camera2D
 from .sprite_manager import SpriteManager
-from . import maze_generator
+from .maze_demo import MazeDemo
 
 # Khi chạy bình thường từ source (src/antworld/game_state.py): assets/
 # nằm ở THƯ MỤC GỐC dự án (2 cấp trên src/antworld/). Khi được đóng gói
@@ -141,6 +141,15 @@ class GameState:
         self.history_tick = 0
         self.pop_history_main = []
 
+        # --- Game Over (tổ tuyệt chủng) - xem check_alerts()/_trigger_game_over()
+        # /restart_game() bên dưới - trước đây khi dân số về 0 game chỉ
+        # hiện 1 toast rồi mô phỏng tiếp tục chạy vô nghĩa mãi mãi. ---
+        self.game_over = False
+        self.game_over_panel = None
+        self.peak_population = 0  # dân số CAO NHẤT từng đạt được - cập
+                                   # nhật mỗi tick trong step_simulation(),
+                                   # dùng để tóm tắt lúc Game Over
+
         # --- Thông báo nổi bật (toast) - xem TOAST_* trong config.py ---
         self.toasts = []            # list các dict {msg, color, created}
         self._prev_alert_flags = {}  # trạng thái cảnh báo tick TRƯỚC, để chỉ
@@ -169,6 +178,16 @@ class GameState:
         self.toolbar_panel = None
         self.stats_panel = None
         self.graph_panel = None
+
+        # --- Tab "Demo mê cung": xem switch_tab()/visible_panels() và
+        # maze_demo.py. Đây là 1 bản đồ MINH HỌA riêng biệt, world tách
+        # hẳn khỏi surface_world/colony thật - đổi tab hay bấm "mê cung
+        # mới" trong đó không ảnh hưởng gì tới ván chơi thật đang chạy
+        # ngầm (mô phỏng vẫn tiếp tục dù đang xem tab nào).
+        self.active_tab = "sim"  # "sim" | "maze"
+        self.maze_demo = MazeDemo()
+        self.maze_panel = None
+        self.tab_panel = None
 
         # Toast giải thích tình huống lúc mới lập tổ - đưa RA CUỐI __init__
         # (không phải chỗ vừa focus camera ở trên) vì add_toast() cần
@@ -266,14 +285,6 @@ class GameState:
 
     def do_random_food_respawn(self):
         self.surface_world.respawn_random_cluster()
-
-    def generate_maze(self):
-        """Xóa sạch đá/nước hiện có rồi rải 1 mê cung ngoằn ngoèo (nhiều
-        bức tường đá dài) ra khắp bản đồ THẬT đang chơi, cộng thêm 1 cụm
-        thức ăn lớn ở góc xa tổ nhất còn liên thông - để xem ĐÀN KIẾN THẬT
-        (đúng thuật toán trong pathfinding.py, không phải world minh họa
-        tách biệt) tự tìm đường xuyên mê cung. Xem maze_generator.py."""
-        maze_generator.generate_maze_in_world(self)
 
     # ------------------------------------------------------------------
     # Chuyển đổi tọa độ màn hình <-> tọa độ lưới mô phỏng
@@ -436,6 +447,38 @@ class GameState:
         return f"Theo doi: {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
 
     # ------------------------------------------------------------------
+    def switch_tab(self, name):
+        """Chuyển giữa tab \"Mo phong\" (ván chơi chính) và \"Demo me cung\"
+        (minh họa thuật toán tìm đường - xem maze_demo.py, world hoàn
+        toàn tách biệt). Mô phỏng chính vẫn chạy ngầm bình thường ở cả 2
+        tab, chỉ phần HIỂN THỊ và các panel/công cụ tương ứng đổi theo."""
+        if name == self.active_tab:
+            return
+        self.active_tab = name
+        self.stop_follow()
+        if name == "sim":
+            self.current_tool = None
+        elif name == "maze":
+            self.maze_demo.ensure_generated()
+
+    def visible_panels(self):
+        """Danh sách panel THỰC SỰ hiển thị (và nhận sự kiện chuột) ở tab
+        hiện tại - tab_panel (nút chuyển tab) luôn hiện; các panel còn lại
+        tùy thuộc active_tab, xem hud.build_toolbar().
+
+        Khi game_over=True, panel Game Over được CHÈN LÊN ĐẦU danh sách -
+        đứng trước mọi panel khác nên click vào nút "Chơi lại" của nó
+        LUÔN được xử lý trước (xem __main__.py: vòng lặp dừng lại ở panel
+        ĐẦU TIÊN xử lý được sự kiện chuột)."""
+        if self.active_tab == "maze":
+            panels = [p for p in (self.tab_panel, self.maze_panel) if p is not None]
+        else:
+            panels = [p for p in (self.tab_panel, self.toolbar_panel, self.stats_panel,
+                                   self.graph_panel, getattr(self, "layer_map_panel", None)) if p is not None]
+        if self.game_over and self.game_over_panel is not None:
+            panels = [self.game_over_panel] + panels
+        return panels
+
     def set_tool(self, name):
         self.current_tool = None if self.current_tool == name else name
         for b in self.tool_buttons:
@@ -505,13 +548,59 @@ class GameState:
             "main_dehydrated": (c["is_dehydrated"], "To dang khat nuoc!", col_warn),
             "enemy_active": (self.enemy.active, "Ke thu xuat hien tren mat dat!", col_warn),
             "invasion_active": (self.invasion.active, "Dan kien ngoai lai dang tien ve to!", col_bad),
-            "main_extinct": (c["population"] == 0, "To da tuyet chung!", col_bad),
+            # LƯU Ý: loại trừ founding_phase - lúc mới bắt đầu lập tổ, dân
+            # số THỢ luôn bằng 0 là chuyện BÌNH THƯỜNG (chỉ có chúa, chưa
+            # nở con nào - xem AntColony.founding_phase), KHÔNG phải tuyệt
+            # chủng. Nếu không loại trừ, bật chế độ lập tổ (FOUNDING_MODE_
+            # ENABLED) sẽ khiến toast "Tổ đã tuyệt chủng!" bắn ra NGAY LÚC
+            # vừa mở ván chơi mới.
+            "main_extinct": (c["population"] == 0 and not c["founding_phase"], "To da tuyet chung!", col_bad),
         }
         for key, (active, msg, color) in flags.items():
             was_active = self._prev_alert_flags.get(key, False)
             if active and not was_active:
                 self.add_toast(msg, color)
+                if key == "main_extinct" and not self.game_over:
+                    self._trigger_game_over()
             self._prev_alert_flags[key] = active
+
+    def _trigger_game_over(self):
+        """Kích hoạt màn hình Game Over khi tổ CHÍNH THỨC tuyệt chủng (dân
+        số về 0 SAU KHI đã qua giai đoạn lập tổ - xem điều kiện main_extinct
+        ở check_alerts()). Dừng hẳn mô phỏng (người chơi vẫn xem được cảnh
+        vật/thành quả cuối cùng, chỉ không chạy tiếp nữa) và dựng sẵn 1
+        panel tóm tắt + nút "Chơi lại" (xem hud.build_game_over_panel).
+
+        Trước đây hành vi duy nhất khi tuyệt chủng là hiện 1 toast rồi mô
+        phỏng vẫn chạy tiếp mãi mãi ở trạng thái 0 kiến - không có lối ra,
+        không có cách bắt đầu lại - đây là bản vá cho khoảng trống đó."""
+        self.game_over = True
+        self.sim_paused = True
+        self.stop_follow()
+        c = self.colony.counts()
+        self._game_over_stats = {
+            "peak_population": self.peak_population,
+            "ticks_survived": self.history_tick,
+            "total_births": c.get("total_births", 0),
+            "total_deaths": c.get("total_deaths", 0),
+            "total_food_collected": c.get("total_food_collected", 0.0),
+            "waves_survived": max(0, self.invasion.wave_number - (1 if self.invasion.active else 0)),
+            "invaders_killed": getattr(self.invasion, "total_invaders_killed", 0),
+        }
+        from . import hud
+        hud.build_game_over_panel(self)
+
+    def restart_game(self):
+        """Bắt đầu lại TOÀN BỘ ván chơi từ đầu (như vừa mở game) - gọi khi
+        người chơi bấm nút "Chơi lại tu dau" trên màn hình Game Over. Giữ
+        nguyên kích thước cửa sổ hiện tại (người chơi có thể đã tự kéo
+        giãn) thay vì quay về kích thước mặc định trong config.py - tái sử
+        dụng handle_resize() để vừa khôi phục đúng kích thước vừa dựng lại
+        toàn bộ toolbar/panel cho khớp (handle_resize gọi hud.build_toolbar
+        bên trong)."""
+        old_w, old_h = self.SCREEN_W, self.SCREEN_H
+        self.__init__()
+        self.handle_resize(old_w, old_h)
 
     # ------------------------------------------------------------------
     # Lưu / tải ván chơi - dùng pickle để lưu nguyên trạng thái mô phỏng
@@ -637,3 +726,12 @@ class GameState:
             self.pop_history_main.append(int(self.colony.alive.sum()))
             if len(self.pop_history_main) > cfg.HISTORY_MAX_POINTS:
                 del self.pop_history_main[0]
+
+        # Dùng trực tiếp np.sum(alive) (rẻ) thay vì colony.counts() (tính
+        # nhiều số liệu khác không cần ở đây) - theo dõi dân số CAO NHẤT
+        # từng đạt được, hiển thị lại lúc Game Over (xem _trigger_game_over)
+        # để người chơi thấy được thành quả tốt nhất, không chỉ con số 0
+        # lúc tổ vừa tuyệt chủng.
+        pop_now = int(self.colony.alive.sum())
+        if pop_now > self.peak_population:
+            self.peak_population = pop_now

@@ -90,11 +90,16 @@ class InvasionManager:
         self.path_idx = np.zeros(n, dtype=np.int16)      # ~ tiến vào tổ
         self.retreat_path_idx = np.zeros(n, dtype=np.int16)  # ~ rút lui ra
 
+        # Animation: nhấp nháy/rung khi đang giao chiến tại cửa hang - xem
+        # cfg.HIT_FLASH_DURATION_TICKS, decay trong update() bên dưới.
+        self.combat_flash_ticks = np.zeros(n, dtype=np.int16)
+
     # ------------------------------------------------------------------
     def update(self, colony):
         """colony: AntColony của người chơi (mục tiêu DUY NHẤT - không còn
         khái niệm 2 tổ đối xứng như raid cũ)."""
         self.tick_count += 1
+        self.combat_flash_ticks = np.maximum(0, self.combat_flash_ticks - 1).astype(np.int16)
 
         if not self.active:
             if cfg.INVASION_ENABLED and self.tick_count >= self.next_wave_tick:
@@ -312,6 +317,14 @@ class InvasionManager:
         idx = np.where(mask)[0]
         self.entrance_fight_ticks += 1
         defenders = self._find_defenders(colony)
+
+        # Hiệu ứng: MỌI quân đang tham chiến (cả 2 phe) nhấp nháy/rung nhẹ
+        # trong lúc giao tranh đang diễn ra - xem draw_ants() trong
+        # render_surface.py - để trận đánh trông "có va chạm" thay vì 2
+        # đám đứng yên lặng lẽ rồi bỗng dưng vài con biến mất.
+        self.combat_flash_ticks[idx] = cfg.HIT_FLASH_DURATION_TICKS
+        if len(defenders) > 0:
+            colony.combat_flash_ticks[defenders] = cfg.HIT_FLASH_DURATION_TICKS
 
         if len(defenders) > 0:
             is_def_major = colony.role[defenders] == cfg.ROLE_MAJOR

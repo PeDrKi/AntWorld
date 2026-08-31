@@ -98,5 +98,127 @@ class TestUndergroundWorld(unittest.TestCase):
         self.assertFalse(np.isnan(self.ug.water_in_storage))
 
 
+class TestFoodSpoilage(unittest.TestCase):
+    """SurfaceWorld.decay_food() - thuc an de lau khong ai nhat se HONG
+    dan roi bien mat, khac han hanh vi cu (ton tai vinh vien cho toi khi
+    bi an het). Xem FOOD_SPOIL_* trong config.py."""
+
+    def setUp(self):
+        self.sw = SurfaceWorld()
+        self.sw.food[:] = 0
+        self.sw.food_age[:] = 0
+
+    def test_fresh_food_does_not_decay_before_threshold(self):
+        self.sw.food[10, 10] = 8.0
+        for _ in range(cfg.FOOD_SPOIL_TICKS):
+            self.sw.decay_food()
+        self.assertEqual(self.sw.food[10, 10], 8.0, "Khong duoc giam gia tri truoc nguong FOOD_SPOIL_TICKS")
+
+    def test_food_age_resets_when_cell_becomes_empty(self):
+        self.sw.food[10, 10] = 8.0
+        for _ in range(500):
+            self.sw.decay_food()
+        self.sw.food[10, 10] = 0.0  # gia lap kien an het
+        self.sw.decay_food()
+        self.assertEqual(self.sw.food_age[10, 10], 0.0)
+
+    def test_food_fully_expires_after_spoiling(self):
+        """Regression test cho 1 loi cu the da gap: dung sai nguong so
+        sanh (>0.5 thay vi >0) de xac dinh 'o con thuc an' khien qua
+        trinh hong TU DUNG LAI som (ngay luc gia tri giam duoi 0.5), de
+        lai 1 luong 'tan du' ton tai VINH VIEN, khong bao gio dat toi
+        FOOD_MIN_VALUE de bi xoa han."""
+        self.sw.food[10, 10] = 8.0
+        for _ in range(cfg.FOOD_SPOIL_TICKS + 2000):
+            self.sw.decay_food()
+            if self.sw.food[10, 10] <= 0:
+                break
+        self.assertEqual(self.sw.food[10, 10], 0.0, "Thuc an hong phai bien mat HAN, khong con tan du")
+        self.assertEqual(self.sw.food_age[10, 10], 0.0)
+
+    def test_refreshing_food_prevents_early_spoilage(self):
+        self.sw.food[5, 5] = 8.0
+        for t in range(cfg.FOOD_SPOIL_TICKS + 100):
+            self.sw.decay_food()
+            if t == cfg.FOOD_SPOIL_TICKS // 2:
+                self.sw.food[5, 5] += 1.0
+                self.sw.food_age[5, 5] = 0.0
+        self.assertGreater(
+            self.sw.food[5, 5], 8.0,
+            "Lam moi (bo sung them) thuc an phai reset dong ho hong, chua duoc phep hong som",
+        )
+
+    def test_respawned_cluster_starts_fresh(self):
+        self.sw.terrain[:] = cfg.TERRAIN_EMPTY
+        cx, cy = self.sw.respawn_random_cluster()
+        self.assertEqual(self.sw.food_age[cx, cy], 0.0)
+
+    def test_manual_placement_starts_fresh(self):
+        """place_food_at() trong game_state.py cung phai reset food_age -
+        kiem tra gian tiep qua GameState de bao phu ca duong nay."""
+        import pygame
+        from antworld.game_state import GameState
+        pygame.init()
+        gs = GameState()
+        gs.surface_world.terrain[12, 12] = cfg.TERRAIN_EMPTY  # dam bao khong bi chan boi da/nuoc ngau nhien
+        gs.surface_world.food_age[12, 12] = 999.0
+        gs.place_food_at(12, 12, amount=5.0)
+        self.assertEqual(gs.surface_world.food_age[12, 12], 0.0)
+
+
+class TestNestRoomGrowth(unittest.TestCase):
+    """UndergroundWorld.update_room_sizes() - phong gan lien quy mo dan
+    (Kho/Au trung/Nuoc/Trung) phai LON DAN theo dan so, cac phong con lai
+    (Chua/Gac cua/Nghia dia/Nhong) phai GIU NGUYEN kich thuoc goc."""
+
+    def setUp(self):
+        self.ug = UndergroundWorld(nest_pos=cfg.NEST_POS)
+
+    def _radius(self, room_id):
+        for r in self.ug.rooms:
+            if r[0] == room_id:
+                return r[3]
+        return None
+
+    def test_growable_rooms_increase_with_population(self):
+        for room_id in cfg.ROOM_GROWABLE_IDS:
+            self.ug.update_room_sizes(population=10)
+            r10 = self._radius(room_id)
+            self.ug.update_room_sizes(population=200)
+            r200 = self._radius(room_id)
+            self.assertGreater(
+                r200, r10,
+                f"Phong id={room_id} khong lon them khi dan so tang tu 10 len 200",
+            )
+
+    def test_non_growable_rooms_stay_fixed(self):
+        fixed_ids = [r[0] for r in self.ug.rooms if r[0] not in cfg.ROOM_GROWABLE_IDS]
+        before = {rid: self._radius(rid) for rid in fixed_ids}
+        self.ug.update_room_sizes(population=200)
+        for rid in fixed_ids:
+            self.assertEqual(
+                self._radius(rid), before[rid],
+                f"Phong id={rid} KHONG duoc phep doi kich thuoc theo dan so",
+            )
+
+    def test_update_is_idempotent_for_same_population(self):
+        self.ug.update_room_sizes(population=77)
+        r1 = self._radius(cfg.ROOM_GROWABLE_IDS[0])
+        self.ug.update_room_sizes(population=77)
+        r2 = self._radius(cfg.ROOM_GROWABLE_IDS[0])
+        self.assertEqual(r1, r2, "Goi lai voi CUNG 1 dan so khong duoc cong don sai")
+
+    def test_room_can_shrink_back_if_population_drops(self):
+        """Khong bi ket o kich thuoc lon nhat tung dat - phai PHAN ANH
+        DAN SO HIEN TAI, khong phai dinh cao lich su (dan so co the giam
+        do chet choc/xam luoc)."""
+        room_id = cfg.ROOM_GROWABLE_IDS[0]
+        self.ug.update_room_sizes(population=200)
+        r_big = self._radius(room_id)
+        self.ug.update_room_sizes(population=5)
+        r_small = self._radius(room_id)
+        self.assertLess(r_small, r_big)
+
+
 if __name__ == "__main__":
     unittest.main()

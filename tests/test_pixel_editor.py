@@ -241,5 +241,298 @@ class TestAnimationPairing(unittest.TestCase):
             pe.state.current = original_current
 
 
+class TestSpriteFrames(unittest.TestCase):
+    """Sprite.add_frame()/delete_frame()/move_frame() + tuong thich nguoc
+    cua `pixels` (property tro toi frames[frame_idx]) - dung fresh_state(),
+    khong dung toi global pe.state, nen khong can don dep sau test."""
+
+    def test_new_sprite_starts_with_one_frame(self):
+        st = fresh_state()
+        self.assertEqual(st.sp().n_frames, 1)
+        self.assertEqual(st.sp().frame_idx, 0)
+
+    def test_pixels_property_reads_current_frame(self):
+        st = fresh_state()
+        sp = st.sp()
+        sp.frames.append([None] * (sp.size * sp.size))
+        sp.frame_idx = 1
+        sp.pixels[0] = "#abcdef"
+        self.assertEqual(sp.frames[1][0], "#abcdef")
+        self.assertIsNone(sp.frames[0][0])
+
+    def test_add_frame_copies_current_by_default(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#ff0000")
+        sp.add_frame(copy_current=True)
+        self.assertEqual(sp.n_frames, 2)
+        self.assertEqual(sp.frame_idx, 1)
+        self.assertEqual(sp.pixels[0], "#ff0000")  # da nhan ban tu khung truoc
+
+    def test_add_frame_blank_is_empty(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#ff0000")
+        sp.add_frame(copy_current=False)
+        self.assertTrue(all(p is None for p in sp.pixels))
+
+    def test_add_frame_inserts_right_after_current_not_at_end(self):
+        """Them khung moi luc dang o khung DAU (frame_idx=0) trong 1
+        sprite da co san 3 khung - khung moi phai chen ngay SAU vi tri
+        dang xem, khong phai luon luon bi don xuong cuoi danh sach."""
+        st = fresh_state()
+        sp = st.sp()
+        sp.add_frame(copy_current=False)
+        sp.add_frame(copy_current=False)
+        self.assertEqual(sp.n_frames, 3)
+        sp.frame_idx = 0
+        sp.add_frame(copy_current=False)
+        self.assertEqual(sp.n_frames, 4)
+        self.assertEqual(sp.frame_idx, 1)
+
+    def test_delete_frame_refuses_when_only_one_left(self):
+        st = fresh_state()
+        sp = st.sp()
+        self.assertFalse(sp.delete_frame())
+        self.assertEqual(sp.n_frames, 1)
+
+    def test_delete_frame_removes_current_and_clamps_index(self):
+        st = fresh_state()
+        sp = st.sp()
+        sp.add_frame(copy_current=False)
+        sp.add_frame(copy_current=False)
+        self.assertEqual(sp.frame_idx, 2)
+        self.assertTrue(sp.delete_frame())
+        self.assertEqual(sp.n_frames, 2)
+        self.assertEqual(sp.frame_idx, 1)  # da clamp ve khung cuoi con lai
+
+    def test_move_frame_swaps_content_and_follows_selection(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_frame(copy_current=False)
+        st.set_pixel(0, 0, "#222222")
+        # frame 0 = #111111, frame 1 (dang chon) = #222222
+        self.assertTrue(sp.move_frame(-1))
+        self.assertEqual(sp.frame_idx, 0)
+        self.assertEqual(sp.frames[0][0], "#222222")  # da doi cho noi dung
+        self.assertEqual(sp.frames[1][0], "#111111")
+
+    def test_move_frame_out_of_bounds_returns_false_and_no_change(self):
+        st = fresh_state()
+        sp = st.sp()
+        self.assertFalse(sp.move_frame(-1))  # da o dau, khong the sang trai them
+        self.assertFalse(sp.move_frame(1))   # chi co 1 khung, khong the sang phai
+
+
+class TestFrameHistorySnapshot(unittest.TestCase):
+    """push_history()/undo()/redo() phai chup TOAN BO danh sach khung +
+    frame_idx (khong chi mot minh pixels cua khung dang xem) - de Hoan
+    tac dung ngay ca khi giua chung nguoi dung co chuyen qua khung khac."""
+
+    def test_undo_restores_full_frame_list_and_index(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.push_history()
+        sp.add_frame(copy_current=False)
+        self.assertEqual(sp.n_frames, 2)
+        st.undo()
+        self.assertEqual(sp.n_frames, 1)
+        self.assertEqual(sp.frame_idx, 0)
+
+    def test_redo_after_undo_brings_back_added_frame(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.push_history()
+        sp.add_frame(copy_current=False)
+        st.undo()
+        st.redo()
+        self.assertEqual(sp.n_frames, 2)
+
+    def test_undo_does_not_bleed_into_other_frames(self):
+        """Ve tren khung 1, hoan tac, KHONG duoc lam mat noi dung da ve o
+        khung 0 truoc do (moi frame doc lap, undo/redo khong duoc tron
+        lan noi dung giua cac khung)."""
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_frame(copy_current=False)
+        st.push_history()
+        st.set_pixel(1, 1, "#222222")
+        st.undo()
+        self.assertIsNone(sp.frames[1][1 * sp.size + 1])
+        self.assertEqual(sp.frames[0][0], "#111111")  # khung 0 khong bi anh huong
+
+
+class TestAppFrameActions(unittest.TestCase):
+    """App.add_frame()/delete_frame()/move_frame_left()/right()/
+    select_frame() - cac ham nay thao tac thang len pe.state (global),
+    nen swap tam pe.state sang 1 AppState moi tinh trong setUp/tearDown de
+    khong lam ban trang thai cho cac test khac."""
+
+    def setUp(self):
+        self._orig_state = pe.state
+        pe.state = pe.AppState()
+        pe.state.new_sprite("test_sprite", 8, "Test")
+        pe.state.current = "test_sprite"
+        self.app = pe.App()
+
+    def tearDown(self):
+        pe.state = self._orig_state
+
+    def test_add_frame_via_app_increments_count(self):
+        self.app.add_frame()
+        self.assertEqual(pe.state.sp().n_frames, 2)
+
+    def test_add_blank_frame_via_app_is_empty(self):
+        pe.state.set_pixel(0, 0, "#ff0000")
+        self.app.add_blank_frame()
+        self.assertTrue(all(p is None for p in pe.state.sp().pixels))
+
+    def test_delete_frame_via_app_respects_minimum(self):
+        self.app.delete_frame()
+        self.assertEqual(pe.state.sp().n_frames, 1, "Khong duoc xoa khung DUY NHAT con lai")
+
+    def test_select_frame_switches_active_frame(self):
+        self.app.add_frame()
+        self.app.select_frame(0)
+        self.assertEqual(pe.state.sp().frame_idx, 0)
+
+    def test_select_frame_stops_playback(self):
+        self.app.add_frame()
+        self.app.toggle_frame_anim()
+        self.assertTrue(pe.state.frame_anim_playing)
+        self.app.select_frame(0)
+        self.assertFalse(pe.state.frame_anim_playing)
+
+    def test_prev_next_frame_wrap_around(self):
+        self.app.add_frame()
+        self.app.add_frame()  # 3 khung, dang o frame_idx=2
+        self.app.next_frame()
+        self.assertEqual(pe.state.sp().frame_idx, 0, "Phai quay vong ve khung dau")
+        self.app.prev_frame()
+        self.assertEqual(pe.state.sp().frame_idx, 2, "Phai quay vong ve khung cuoi")
+
+    def test_toggle_frame_anim_flips_flag(self):
+        self.app.add_frame()
+        self.assertFalse(pe.state.frame_anim_playing)
+        self.app.toggle_frame_anim()
+        self.assertTrue(pe.state.frame_anim_playing)
+        self.app.toggle_frame_anim()
+        self.assertFalse(pe.state.frame_anim_playing)
+
+    def test_toggle_frame_anim_with_single_frame_autostops_on_update(self):
+        """Sprite chi co 1 khung ma nguoi dung van bam Phat thu - phai tu
+        dung ngay o lan _update_frame_anim() dau tien (khong co gi de
+        chay vong lap ca)."""
+        self.app.toggle_frame_anim()
+        self.app._update_frame_anim()
+        self.assertFalse(pe.state.frame_anim_playing)
+
+    def test_frame_anim_cycles_through_frames_over_time(self):
+        self.app.add_frame()
+        self.app.add_frame()
+        self.app.toggle_frame_anim()
+        pe.state.frame_fps = 60  # 1 khung/tick de test nhanh, khong phu thuoc thoi gian that
+        seen = set()
+        for _ in range(10):
+            self.app._update_frame_anim()
+            seen.add(pe.state.frame_anim_idx)
+        self.assertEqual(seen, {0, 1, 2}, "Phai luot qua du ca 3 khung theo thoi gian")
+
+    def test_change_frame_fps_clamped(self):
+        pe.state.frame_fps = 6
+        self.app.change_frame_fps(-100)
+        self.assertEqual(pe.state.frame_fps, 1)
+        self.app.change_frame_fps(100)
+        self.assertEqual(pe.state.frame_fps, 24)
+
+    def test_move_frame_left_right_via_app(self):
+        pe.state.set_pixel(0, 0, "#111111")
+        self.app.add_frame()
+        pe.state.set_pixel(0, 0, "#222222")
+        self.app.move_frame_left()
+        self.assertEqual(pe.state.sp().frame_idx, 0)
+        self.assertEqual(pe.state.sp().frames[0][0], "#222222")
+
+    def test_dup_sprite_preserves_all_frames(self):
+        self.app.add_frame()
+        self.app.add_frame()
+        self.assertEqual(pe.state.sp().n_frames, 3)
+        self.app.dup_sprite()
+        self.assertEqual(pe.state.sp().n_frames, 3, "Nhan ban sprite phai giu nguyen SO KHUNG")
+
+
+class TestSpritesheetExport(unittest.TestCase):
+    """App.sprite_to_spritesheet_surface()/export_native() - sprite nhieu
+    khung phai xuat thanh 1 spritesheet ngang chua DU moi khung, sprite 1
+    khung phai xuat GIONG HET hanh vi cu (khong doi kich thuoc anh)."""
+
+    def setUp(self):
+        self._orig_state = pe.state
+        pe.state = pe.AppState()
+        pe.state.new_sprite("test_sprite", 8, "Test")
+        pe.state.current = "test_sprite"
+        self.app = pe.App()
+
+    def tearDown(self):
+        pe.state = self._orig_state
+
+    def test_single_frame_sprite_surface_size_unchanged(self):
+        surf = self.app.sprite_to_surface(pe.state.sp())
+        self.assertEqual(surf.get_size(), (8, 8))
+
+    def test_multiframe_spritesheet_width_is_size_times_frame_count(self):
+        pe.state.set_pixel(0, 0, "#ff0000")
+        self.app.add_frame()
+        pe.state.set_pixel(1, 1, "#00ff00")
+        self.app.add_frame()
+        pe.state.set_pixel(2, 2, "#0000ff")
+        sheet = self.app.sprite_to_spritesheet_surface(pe.state.sp())
+        self.assertEqual(sheet.get_size(), (24, 8))
+
+    def test_multiframe_spritesheet_places_each_frame_at_correct_offset(self):
+        pe.state.set_pixel(0, 0, "#ff0000")
+        self.app.add_frame()
+        pe.state.set_pixel(1, 1, "#00ff00")
+        sheet = self.app.sprite_to_spritesheet_surface(pe.state.sp())
+        self.assertEqual(tuple(sheet.get_at((0, 0)))[:3], (255, 0, 0))
+        self.assertEqual(tuple(sheet.get_at((8 + 1, 1)))[:3], (0, 255, 0))
+
+    def test_export_native_single_frame_matches_old_behavior(self):
+        import os
+        import tempfile
+        import pygame
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_dir = pe.SPRITES_DIR
+            pe.SPRITES_DIR = tmpdir
+            try:
+                self.app.export_native()
+                path = os.path.join(tmpdir, "test_sprite.png")
+                self.assertTrue(os.path.exists(path))
+                img = pygame.image.load(path)
+                self.assertEqual(img.get_size(), (8, 8))
+            finally:
+                pe.SPRITES_DIR = orig_dir
+
+    def test_export_native_multiframe_saves_full_spritesheet(self):
+        import os
+        import tempfile
+        import pygame
+        pe.state.set_pixel(0, 0, "#ff0000")
+        self.app.add_frame()
+        pe.state.set_pixel(1, 1, "#00ff00")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_dir = pe.SPRITES_DIR
+            pe.SPRITES_DIR = tmpdir
+            try:
+                self.app.export_native()
+                path = os.path.join(tmpdir, "test_sprite.png")
+                img = pygame.image.load(path)
+                self.assertEqual(img.get_size(), (16, 8), "Phai xuat DU CA 2 khung, khong chi khung dang xem")
+            finally:
+                pe.SPRITES_DIR = orig_dir
+
+
 if __name__ == "__main__":
     unittest.main()

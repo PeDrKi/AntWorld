@@ -15,7 +15,7 @@ import numpy as np
 import pygame
 
 from . import config as cfg
-from .ui_widgets import Button, Panel
+from .ui_widgets import Button, Panel, draw_pixel_rect
 from .render_underground import layer_name
 from .fonts import render_cached, get_flat_alpha_surface
 
@@ -276,11 +276,9 @@ def _draw_layer_box(state, surf, btn):
     # 2 nút Tang^/Tang v trong sidebar) để không cần đọc chữ cũng biết
     # ngay đang ở đâu; các tầng khác tối, không cạnh tranh thị giác.
     if is_current:
-        pygame.draw.rect(surf, (72, 62, 30), r, border_radius=6)
-        pygame.draw.rect(surf, (225, 180, 70), r, width=2, border_radius=6)
+        draw_pixel_rect(surf, r, (72, 62, 30), (225, 180, 70), border_width=2)
     else:
-        pygame.draw.rect(surf, (30, 30, 36), r, border_radius=6)
-        pygame.draw.rect(surf, (60, 60, 68), r, width=1, border_radius=6)
+        draw_pixel_rect(surf, r, (30, 30, 36), (60, 60, 68), border_width=1)
 
     # Dải màu dọc bên trái đại diện (các) phòng thuộc tầng này - biết
     # ngay tầng này có gì mà không cần đọc hết chữ (chữ dễ bị cắt trong
@@ -290,7 +288,7 @@ def _draw_layer_box(state, surf, btn):
     seg_h = (r.h - 8) / n
     for i, (color, _name) in enumerate(swatches):
         seg = pygame.Rect(r.x + 5, int(r.y + 4 + i * seg_h), 7, max(2, int(seg_h) - 1))
-        pygame.draw.rect(surf, color, seg, border_radius=2)
+        pygame.draw.rect(surf, color, seg)
 
     text_x = r.x + 5 + 7 + 8
     depth_label = "Mat dat" if btn.depth == 0 else f"Tang {btn.depth}"
@@ -410,13 +408,13 @@ def _blit_row(surf, font, x, y, segments):
 
 
 def _draw_progress_bar(surf, x, y, w, h, frac, fill_color, bg_color=(40, 40, 46)):
-    """Thanh progress đơn giản (khung bo góc + phần lấp đầy theo frac
-    0.0-1.0) - dùng cho năng lượng dự trữ của chúa lúc lập tổ."""
+    """Thanh progress đơn giản (khung góc vuông kiểu pixel + phần lấp đầy
+    theo frac 0.0-1.0) - dùng cho năng lượng dự trữ của chúa lúc lập tổ."""
     frac = max(0.0, min(1.0, frac))
-    pygame.draw.rect(surf, bg_color, (x, y, w, h), border_radius=4)
+    pygame.draw.rect(surf, bg_color, (x, y, w, h))
     if frac > 0:
-        pygame.draw.rect(surf, fill_color, (x, y, max(3, int(w * frac)), h), border_radius=4)
-    pygame.draw.rect(surf, (90, 90, 100), (x, y, w, h), width=1, border_radius=4)
+        pygame.draw.rect(surf, fill_color, (x, y, max(3, int(w * frac)), h))
+    pygame.draw.rect(surf, (90, 90, 100), (x, y, w, h), width=1)
 
 
 def draw_hud(state, surf):

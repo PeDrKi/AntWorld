@@ -48,10 +48,15 @@ class EnemyManager:
         self.carcass_decay_left = 0
         self.total_carcasses_hauled = 0
 
+        # Animation: nhấp nháy/rung khi vừa trúng đòn từ lính - xem
+        # cfg.HIT_FLASH_DURATION_TICKS, decay ở đầu update() bên dưới.
+        self.hit_flash_ticks = 0
+
     def update(self, colonies):
         """colonies: danh sách các AntColony (tổ chính + tổ đối thủ nếu
         có) - kẻ thù trung lập, đe dọa TẤT CẢ các tổ như nhau."""
         self._decay_carcass()
+        self.hit_flash_ticks = max(0, self.hit_flash_ticks - 1)
 
         if not self.active:
             if not self.auto_spawn_enabled:
@@ -171,9 +176,17 @@ class EnemyManager:
             # --- Lính (thợ lớn) trong tầm gây sát thương lên kẻ thù ---
             major_near = near[is_major]
             if len(major_near) > 0:
-                hits = np.random.uniform(0, 1, len(major_near)) < cfg.SOLDIER_DAMAGE_PROB
-                dmg = float(np.sum(hits)) * cfg.SOLDIER_DAMAGE_PER_HIT
+                hit_rolls = np.random.uniform(0, 1, len(major_near)) < cfg.SOLDIER_DAMAGE_PROB
+                hits = int(np.sum(hit_rolls))
+                dmg = float(hits) * cfg.SOLDIER_DAMAGE_PER_HIT
                 if dmg > 0:
+                    # Hiệu ứng: lính vừa đánh trúng NHẤP NHÁY/RUNG nhẹ (xem
+                    # render_surface.py draw_ants()), kẻ thù cũng vậy (xem
+                    # self.hit_flash_ticks bên dưới) - phản hồi trực quan
+                    # "vừa xảy ra 1 đòn đánh" thay vì chỉ số máu âm thầm
+                    # giảm không ai để ý.
+                    colony.combat_flash_ticks[major_near[hit_rolls]] = cfg.HIT_FLASH_DURATION_TICKS
+                    self.hit_flash_ticks = cfg.HIT_FLASH_DURATION_TICKS
                     self.health -= dmg
                     if self.health <= 0:
                         self.total_defeated += 1

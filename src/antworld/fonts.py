@@ -108,10 +108,21 @@ _RENDER_CACHE_MAX = 4000  # tran an toan - qua nguong thi xoa sach de tranh
                            # lien tuc moi tick tao ra vo so key khac nhau)
 
 
-def render_cached(font, text, color, antialias=True):
+def render_cached(font, text, color, antialias=False):
     """Nhu font.render(text, antialias, color) nhung co cache - xem giai
     thich day du o docstring module phia tren. `color` co the la tuple 3
-    hoac 4 phan tu, deu hoat dong binh thuong (dung lam key thang)."""
+    hoac 4 phan tu, deu hoat dong binh thuong (dung lam key thang).
+
+    MAC DINH antialias=False (KHAC pygame goc luon mac dinh True) - de
+    chu co CANH SAC/RANG CUA giong chu bitmap thay vi vien mo lam mem
+    (feathering) - dong nhat voi phong cach PIXEL ART cua toan bo game
+    (xem sprite_manager.py dung nearest-neighbor scale, khong smoothscale,
+    cho cung ly do). KHONG doi sang font bitmap/pixel that su duoc vi 2
+    font hien co (Be Vietnam Pro/JetBrains Mono) la 2 font DUY NHAT da
+    kiem chung day du dau tieng Viet co san trong du an - da tim nhung
+    khong co font pixel 8-bit nao ho tro day du bang chu cai + dau tieng
+    Viet (a, a, a, e, e, o, o, u, u, d + day du 5 dau thanh) de thay the
+    an toan; tat AA la each cai thien phong cach ma KHONG lam vo chu."""
     key = (id(font), text, color, antialias)
     img = _render_cache.get(key)
     if img is None:

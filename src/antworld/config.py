@@ -57,6 +57,33 @@ TURN_NOISE = 0.6             # độ nhiễu góc quay mỗi tick (radian) khi
                              # KHÔNG dùng cho việc tìm đường trên mặt đất
                              # (xem PATH_* bên dưới, dùng pathfinding.py thật)
 
+# ----- Animation - trước đây kiến chỉ là 3 hình tròn TRƯỢT cứng theo vị
+# trí (chỉ xoay hướng qua get_rotated, không có dáng đi/phản hồi hành động
+# nào) - xem render_surface.py draw_ants()/_leg_wiggle_offsets() để biết
+# cách dùng các hằng số dưới đây. -----
+ANT_LEG_ANIM_SPEED = 0.9     # tốc độ dao động chân/thân khi vẽ dáng đi
+                             # (nhân với frame_counter - xem draw_ants) -
+                             # KHÔNG phụ thuộc tốc độ di chuyển thật của
+                             # từng con (đơn giản hóa: coi như "bước chân
+                             # đều", không tính vận tốc tức thời)
+ANT_LEG_MIN_RADIUS_PX = 1.8  # chỉ vẽ chân khi kiến đủ to trên màn hình
+                             # (zoom đủ gần) - xa hơn thì chân chỉ còn 1
+                             # chấm vô nghĩa, bỏ qua để đỡ tốn vẽ
+
+BOUNCE_DURATION_TICKS = 14   # độ dài hiệu ứng "nảy lên" khi nhặt/giao đồ
+                             # (thức ăn, nước, xác, mồi lớn) - xem các chỗ
+                             # gán self.bounce_ticks trong ants.py
+BOUNCE_HEIGHT_FACTOR = 1.1   # chiều cao cú nảy = bấy nhiêu lần bán kính
+                             # thân kiến trên màn hình
+
+HIT_FLASH_DURATION_TICKS = 10  # độ dài hiệu ứng nhấp nháy/rung khi vừa
+                             # đánh trúng hoặc đang giao chiến - xem
+                             # EnemyManager.hit_flash_ticks (kẻ thù trúng
+                             # đòn) và AntColony/InvasionManager.
+                             # combat_flash_ticks (đang giao chiến ở cửa tổ)
+HIT_SHAKE_PX = 2.0           # biên độ rung (dịch vị trí vẽ ngẫu nhiên mỗi
+                             # khung hình) khi đang trong hiệu ứng va chạm
+
 # ----- Tìm đường (pathfinding.py): kiến trên mặt đất (SEARCHING/RETURNING)
 # và lính gác rút về tổ giờ đi theo ĐƯỜNG ĐI TÍNH SẴN (any-angle, ngắn
 # nhất, dựng từ visibility graph các góc vật cản) thay vì "dò mùi + né vật
@@ -234,6 +261,26 @@ FOOD_TYPE_WEIGHTS = {
     FOOD_TYPE_NECTAR: 0.22,
 }
 FOOD_PER_CLUSTER = 6.0  # số "đơn vị" thức ăn (không phải giá trị dinh dưỡng)
+
+# ----- Thức ăn HỎNG theo thời gian nếu không được nhặt - xem
+# SurfaceWorld.decay_food() trong world.py. Trước đây thức ăn để bao lâu
+# trên bản đồ cũng không mất giá trị, chỉ biến mất khi bị ăn hết - khác
+# hẳn thực tế nuôi kiến: mồi/thức ăn để lâu (dế chết, giọt mật khô) sẽ
+# mốc/hỏng, người nuôi phải dọn đi trước khi sinh ruồi giấm/ve hại. Ở đây
+# đơn giản hóa thành: quá hạn "tươi" mà chưa được nhặt hết -> giá trị TỰ
+# GIẢM DẦN rồi biến mất hẳn, đồng thời đổi màu ngả xám/mốc để BÁO TRƯỚC
+# cho người chơi thấy (xem render_surface.py) - không có kiến nào phải đi
+# "dọn mốc" (khác hẳn xác chết - đó là việc CỐ Ý thêm task lao động qua
+# necrophoresis; ở đây thức ăn mốc chỉ đơn giản là lãng phí, mất luôn).
+FOOD_SPOIL_TICKS = 1800        # thức ăn "tươi" được ngần này tick (~30
+                                # giây ở tốc độ x1) trước khi bắt đầu hỏng
+FOOD_SPOIL_RATE_PER_TICK = 0.996  # sau ngưỡng trên, mỗi tick còn lại
+                                # bấy nhiêu % giá trị (giảm dần, không mất
+                                # NGAY LẬP TỨC - người chơi vẫn có 1 "cửa
+                                # sổ" để kịp thấy và tận dụng nốt)
+FOOD_MIN_VALUE = 0.15          # giá trị dưới mức này coi như hỏng HẲN,
+                                # biến mất khỏi bản đồ (kiến không nhặt
+                                # được phần thức ăn "vụn mốc" còn sót lại)
 
 # ----- Địa hình (chướng ngại vật trên mặt đất) -----
 TERRAIN_EMPTY = 0
@@ -562,6 +609,30 @@ ROOM_RADIUS_EGG = ROOM_RADIUS * 0.75
 ROOM_RADIUS_PUPA = ROOM_RADIUS * 0.6
 ROOM_RADIUS_GUARD = ROOM_RADIUS * 0.9
 ROOM_RADIUS_GRAVEYARD = ROOM_RADIUS * 0.8
+
+# ----- Tổ MỞ RỘNG theo dân số - xem UndergroundWorld.update_room_sizes()
+# trong world.py: trước đây kích thước MỌI phòng CỐ ĐỊNH suốt ván bất kể
+# đàn 10 con hay 200 con, khác hẳn thực tế nuôi kiến (người nuôi phải
+# chuyển đàn sang tổ lớn hơn khi đàn đông lên, nếu không đàn chật chội).
+# CHỈ 4 phòng gắn liền trực tiếp với QUY MÔ đàn mới "phình" ra theo dân
+# số (Kho/Ấu trùng/Bể nước/Trứng - nơi chứa TÀI NGUYÊN & CON NON, càng
+# đông đàn càng cần nhiều); Phòng gác cửa/Nghĩa địa/Phòng nhộng/Phòng
+# chúa GIỮ NGUYÊN kích thước cố định như trước (không liên quan trực
+# tiếp tới "cần chứa được bao nhiêu", hoặc đã có cơ chế riêng - phòng chúa
+# đã tự lớn dần lúc lập tổ xong, xem ROOM_RADIUS_FOUNDING_CHAMBER).
+#
+# Công thức dùng CĂN BẬC HAI của dân số (không phải tỉ lệ thuận) để tăng
+# CHẬM DẦN theo quy mô - đàn 200 con không làm phòng to gấp 20 lần đàn 10
+# con, chỉ to hơn hợp lý (~gấp 1.6-2 lần bán kính gốc ở dân số tối đa),
+# giống cách 1 tổ ong/kiến thật không "nở" tuyến tính vô hạn theo số cá
+# thể mà có xu hướng bão hòa dần.
+ROOM_GROWTH_PER_SQRT_ANT = 0.4     # mỗi đơn vị sqrt(dân_số) cộng thêm
+                                    # bấy nhiêu vào bán kính phòng (đơn vị
+                                    # ô lưới) - xem ROOM_GROWABLE_IDS
+ROOM_GROWABLE_IDS = (0, 1, 3, 4)   # id các phòng ĐƯỢC mở rộng: 0=Kho thức
+                                    # ăn, 1=Ấu trùng, 3=Bể trữ nước,
+                                    # 4=Phòng trứng (khớp room_id trong
+                                    # UndergroundWorld.rooms)
 
 # ----- Trạng thái kiến (state machine) -----
 STATE_SEARCHING = 0        # trên mặt đất, đang tìm thức ăn

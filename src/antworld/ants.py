@@ -88,6 +88,12 @@ class AntColony:
         self.undertaker_target_x = np.zeros(self.n, dtype=np.float32)
         self.undertaker_target_y = np.zeros(self.n, dtype=np.float32)
 
+        # --- Animation: hiệu ứng tạm thời (đếm ngược mỗi tick, xem
+        # decay ở đầu update() bên dưới) - KHÔNG ảnh hưởng gì tới mô
+        # phỏng/logic, chỉ đọc bởi render_surface.py để vẽ hiệu ứng. ---
+        self.bounce_ticks = np.zeros(self.n, dtype=np.int16)         # nảy lên khi nhặt/giao đồ
+        self.combat_flash_ticks = np.zeros(self.n, dtype=np.int16)   # nhấp nháy/rung khi giao chiến
+
         # --- Tìm đường trên mặt đất (pathfinding.py): mỗi kiến giữ sẵn 1
         # "hàng đợi" điểm rẽ hướng (waypoint) của đường đi any-angle NGẮN
         # NHẤT đang đi theo (tới điểm khám phá ngẫu nhiên nếu đang
@@ -204,6 +210,8 @@ class AntColony:
     def update(self, enemy=None, invasion=None):
         self.tick_count += 1
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
+        self.bounce_ticks = np.maximum(0, self.bounce_ticks - 1).astype(np.int16)
+        self.combat_flash_ticks = np.maximum(0, self.combat_flash_ticks - 1).astype(np.int16)
         self._path_budget = cfg.PATH_REPLAN_BUDGET_PER_TICK
         if self.trophallaxis_events:
             cutoff = self.tick_count - cfg.TROPHALLAXIS_TTL_TICKS
@@ -217,7 +225,13 @@ class AntColony:
         self._update_haulers(enemy)
         self.surface.decay_pheromone()
         self.surface.decay_visit()
+        self.surface.decay_food()
         population = int(np.sum(self.alive))
+        # Tổ MỞ RỘNG theo dân số (xem UndergroundWorld.update_room_sizes)
+        # - trước đây kích thước phòng CỐ ĐỊNH suốt ván, không phản ánh
+        # việc đàn đông lên cần nhiều không gian hơn, khác hẳn thực tế
+        # nuôi kiến (phải chuyển đàn sang tổ lớn hơn khi đàn phát triển).
+        self.underground.update_room_sizes(population)
         if not self.founding_phase:
             # Bỏ qua theo dõi "cạn kho" trong lúc lập tổ - kho THẬT SỰ
             # chưa tồn tại (chưa có ai tha mồi về), tính như bình thường
@@ -472,6 +486,7 @@ class AntColony:
             self.carry_food_type[got_idx] = food_types[got_food]
             self.state[got_idx] = cfg.STATE_RETURNING
             self.total_food_collected += len(got_idx)
+            self.bounce_ticks[got_idx] = cfg.BOUNCE_DURATION_TICKS
             # Vừa nhặt được mồi -> hủy đường khám phá dở dang, tick sau sẽ
             # tự tính đường mới thẳng về tổ (xem _update_returning_ants)
             self.path_len[got_idx] = 0
@@ -498,6 +513,7 @@ class AntColony:
                     self.state[drink_idx] = cfg.STATE_RETURNING
                     self.path_len[drink_idx] = 0
                     self.path_idx[drink_idx] = 0
+                    self.bounce_ticks[drink_idx] = cfg.BOUNCE_DURATION_TICKS
 
     def _update_returning_ants(self, idx):
         nest_x, nest_y = self.nest_pos
@@ -631,6 +647,7 @@ class AntColony:
                     self.carry_amount[food_idx] = 0.0
                     self.carrying[food_idx] = False
                     self.carry_type[food_idx] = 0
+                    self.bounce_ticks[food_idx] = cfg.BOUNCE_DURATION_TICKS
 
                     # Trophallaxis: nếu đúng lúc có nurse đang chờ sẵn ở
                     # kho, thợ vừa về "mớm" trực tiếp cho nurse thay vì chỉ
@@ -657,6 +674,7 @@ class AntColony:
                     self.carry_amount[water_idx] = 0.0
                     self.carry_type[water_idx] = 0
                     self.carrying[water_idx] = False
+                    self.bounce_ticks[water_idx] = cfg.BOUNCE_DURATION_TICKS
                     self._start_dwell(water_idx, cfg.STATE_UG_TO_SHAFT, room_id=3)
 
         # --- quay lại giếng (vị trí lỗ tổ, TRÊN TẦNG HIỆN TẠI) để lên mặt đất ---
@@ -904,6 +922,7 @@ class AntColony:
                 self.x[arrived] = self.underground.shaft_xy[0]
                 self.y[arrived] = self.underground.shaft_xy[1]
                 self.state[arrived] = cfg.STATE_UNDERTAKER_TO_GRAVEYARD
+                self.bounce_ticks[arrived] = cfg.BOUNCE_DURATION_TICKS
 
         # --- đang khiêng xác về Nghĩa địa ---
         mask = self.alive & (self.state == cfg.STATE_UNDERTAKER_TO_GRAVEYARD)
@@ -918,6 +937,7 @@ class AntColony:
                 self.x[arrived] = self.underground.shaft_xy[0]
                 self.y[arrived] = self.underground.shaft_xy[1]
                 self.state[arrived] = cfg.STATE_NURSE_AT_STORAGE
+                self.bounce_ticks[arrived] = cfg.BOUNCE_DURATION_TICKS
 
     def _update_haulers(self, enemy):
         """Khiêng mồi lớn theo nhóm (cooperative transport) - xem HAUL_*
@@ -975,6 +995,7 @@ class AntColony:
             self.path_len[grip_idx] = 0
             self.path_idx[grip_idx] = 0
             self.total_food_collected += len(grip_idx)
+            self.bounce_ticks[grip_idx] = cfg.BOUNCE_DURATION_TICKS
             enemy.carcass_active = False
             enemy.total_carcasses_hauled += 1
 

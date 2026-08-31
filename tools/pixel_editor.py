@@ -99,12 +99,63 @@ def hex_to_rgba(h, alpha=255):
 # STATE
 # ============================================================
 class Sprite:
-    __slots__ = ("size", "pixels", "label")
+    """1 sprite = 1 hoặc NHIỀU khung hình (frame) cùng kích thước, dùng để
+    dựng hoạt ảnh (đi bộ, vẫy càng...) - xem FRAME_* trong AppState và
+    App.build_frame_strip(). Trước đây mỗi sprite chỉ có ĐÚNG 1 tấm pixel
+    tĩnh duy nhất.
+
+    `pixels` được giữ lại làm PROPERTY trỏ tới khung đang chọn
+    (frames[frame_idx]) - để toàn bộ phần code còn lại của tool (vẽ, tô
+    màu, đối xứng, undo/redo, xuất PNG...) vốn thao tác thẳng trên
+    `sp.pixels` không cần sửa gì cả: chúng tự động "chỉ áp dụng lên khung
+    đang mở", đúng như 1 công cụ animation cần hoạt động."""
+    __slots__ = ("size", "frames", "frame_idx", "label")
 
     def __init__(self, size, label):
         self.size = size
-        self.pixels = [None] * (size * size)
+        self.frames = [[None] * (size * size)]
+        self.frame_idx = 0
         self.label = label
+
+    @property
+    def pixels(self):
+        return self.frames[self.frame_idx]
+
+    @pixels.setter
+    def pixels(self, value):
+        self.frames[self.frame_idx] = value
+
+    @property
+    def n_frames(self):
+        return len(self.frames)
+
+    def add_frame(self, copy_current=True):
+        """Chèn 1 khung MỚI ngay SAU khung đang chọn, rồi chuyển sang
+        khung mới đó. copy_current=True: nhân bản nội dung khung hiện tại
+        (thường tiện hơn khi vẽ hoạt ảnh - chỉnh sửa nhỏ từ khung trước,
+        thay vì vẽ lại từ đầu); False: khung trắng hoàn toàn."""
+        blank_or_copy = self.frames[self.frame_idx][:] if copy_current else [None] * (self.size * self.size)
+        self.frames.insert(self.frame_idx + 1, blank_or_copy)
+        self.frame_idx += 1
+
+    def delete_frame(self):
+        """Xóa khung đang chọn - LUÔN giữ lại ít nhất 1 khung (trả về
+        False, không làm gì, nếu đây là khung DUY NHẤT)."""
+        if len(self.frames) <= 1:
+            return False
+        del self.frames[self.frame_idx]
+        self.frame_idx = min(self.frame_idx, len(self.frames) - 1)
+        return True
+
+    def move_frame(self, delta):
+        """Đổi chỗ khung đang chọn với khung liền kề (delta=-1 sang trái/
+        delta=+1 sang phải) - dùng để sắp lại THỨ TỰ phát hoạt ảnh."""
+        new_idx = self.frame_idx + delta
+        if 0 <= new_idx < len(self.frames):
+            self.frames[self.frame_idx], self.frames[new_idx] = self.frames[new_idx], self.frames[self.frame_idx]
+            self.frame_idx = new_idx
+            return True
+        return False
 
 
 class AppState:
@@ -129,6 +180,23 @@ class AppState:
         self.anim_playing = False
         self.anim_timer = 0
         self.anim_frame_idx = 0
+
+        # --- Phát hoạt ảnh CÁC KHUNG HÌNH của CHÍNH sprite đang mở (khác
+        # anim_playing ở trên - đó là lướt/đổi qua CÁC SPRITE KHÁC NHAU,
+        # vd thợ<->thợ đang mang đồ, không phải các khung trong 1 sprite).
+        # Xem App.build_frame_strip()/_update_frame_anim(). ---
+        self.frame_anim_playing = False
+        self.frame_anim_timer = 0.0
+        self.frame_anim_idx = 0
+        self.frame_fps = 6          # số khung/giây lúc phát xem trước - 6
+                                     # khung/giây là tốc độ "đi bộ" dễ xem,
+                                     # chỉnh được qua nút +/- (xem
+                                     # App.change_frame_fps)
+        self.onion_skin = True      # hiện MỜ khung TRƯỚC đó ngay dưới
+                                     # khung đang vẽ - giúp canh đúng vị
+                                     # trí từng chi tiết giữa 2 khung liên
+                                     # tiếp (kỹ thuật "onion skinning" kinh
+                                     # điển của mọi phần mềm vẽ hoạt ảnh)
         self.history = {}
         self.status = ""
         self.status_timer = 0
@@ -151,8 +219,13 @@ class AppState:
         self.status_timer = 160  # frames (~2.6s at 60fps)
 
     def push_history(self):
+        """Lưu snapshot TOÀN BỘ danh sách khung + khung đang chọn (không
+        chỉ mỗi `pixels` của khung hiện tại) - để Hoàn tác/Làm lại hoạt
+        động ĐÚNG ngay cả khi giữa lúc đó người dùng có chuyển qua lại
+        giữa các khung khác nhau."""
         h = self.history[self.current]
-        h["undo"].append(self.sp().pixels[:])
+        sp = self.sp()
+        h["undo"].append(([f[:] for f in sp.frames], sp.frame_idx))
         if len(h["undo"]) > 60:
             h["undo"].pop(0)
         h["redo"].clear()
@@ -161,15 +234,17 @@ class AppState:
         h = self.history[self.current]
         if not h["undo"]:
             return
-        h["redo"].append(self.sp().pixels[:])
-        self.sp().pixels = h["undo"].pop()
+        sp = self.sp()
+        h["redo"].append(([f[:] for f in sp.frames], sp.frame_idx))
+        sp.frames, sp.frame_idx = h["undo"].pop()
 
     def redo(self):
         h = self.history[self.current]
         if not h["redo"]:
             return
-        h["undo"].append(self.sp().pixels[:])
-        self.sp().pixels = h["redo"].pop()
+        sp = self.sp()
+        h["undo"].append(([f[:] for f in sp.frames], sp.frame_idx))
+        sp.frames, sp.frame_idx = h["redo"].pop()
 
     def remember_color(self, hexcolor):
         """Ghi mau vao danh sach 'vua dung', moi nhat len dau, khong
@@ -290,6 +365,19 @@ class AppState:
         # "line" va "rect" khong ve ngay o day - chung duoc xu ly rieng
         # bang shape_start/shape_preview_end (xem handle_mouse_down/up
         # trong App) vi can XEM TRUOC khi dang keo, chi commit luc tha chuot.
+
+
+class _FramePreviewShim:
+    """Vỏ bọc NHẸ (giả lập) chỉ có đúng 2 thuộc tính (size, pixels) - dùng
+    để đưa 1 KHUNG CỤ THỂ của sprite vào ô xem trước (preview_game_rect/
+    preview_big_rect trong App.draw_canvas) khi đang PHÁT hoạt ảnh nhiều
+    khung, mà không cần tạo hẳn 1 Sprite() đầy đủ (không cần frames/
+    frame_idx/label ở đây, chỉ cần đọc pixel để vẽ)."""
+    __slots__ = ("size", "pixels")
+
+    def __init__(self, size, pixels):
+        self.size = size
+        self.pixels = pixels
 
 
 state = AppState()
@@ -474,9 +562,13 @@ class App:
     def dup_sprite(self):
         sp = state.sp()
         name = state.new_sprite(state.current + "_copy", sp.size, sp.label + " (2)")
-        state.sprites[name].pixels = sp.pixels[:]
+        # Nhân bản TOÀN BỘ danh sách khung (không chỉ khung đang mở) - nếu
+        # không, nhân bản 1 sprite đang có sẵn hoạt ảnh nhiều khung sẽ vô
+        # tình làm MẤT hết các khung khác, chỉ còn lại khung đang xem.
+        state.sprites[name].frames = [f[:] for f in sp.frames]
+        state.sprites[name].frame_idx = sp.frame_idx
         self.select_sprite(name)
-        state.toast("Đã nhân bản sprite")
+        state.toast(f"Đã nhân bản sprite ({sp.n_frames} khung)")
 
     def del_sprite(self):
         if len(state.order) <= 1:
@@ -494,6 +586,64 @@ class App:
             return
         state.sp().label = label
         state.toast(f'Đã đổi tên hiển thị (tên file xuất vẫn là "{state.current}.png")')
+
+    # ---------- khung hình (frame) - dựng hoạt ảnh nhiều khung ----------
+    def add_frame(self):
+        state.push_history()
+        state.sp().add_frame(copy_current=True)
+        state.toast(f"Đã thêm khung mới (nhân bản khung trước) - tổng {state.sp().n_frames} khung")
+
+    def add_blank_frame(self):
+        state.push_history()
+        state.sp().add_frame(copy_current=False)
+        state.toast(f"Đã thêm khung TRẮNG mới - tổng {state.sp().n_frames} khung")
+
+    def delete_frame(self):
+        sp = state.sp()
+        if sp.n_frames <= 1:
+            state.toast("Phải còn ít nhất 1 khung")
+            return
+        state.push_history()
+        sp.delete_frame()
+        state.toast(f"Đã xóa khung - còn lại {sp.n_frames} khung")
+
+    def move_frame_left(self):
+        if state.sp().frame_idx == 0:
+            return
+        state.push_history()
+        state.sp().move_frame(-1)
+
+    def move_frame_right(self):
+        sp = state.sp()
+        if sp.frame_idx >= sp.n_frames - 1:
+            return
+        state.push_history()
+        sp.move_frame(1)
+
+    def select_frame(self, idx):
+        sp = state.sp()
+        if 0 <= idx < sp.n_frames:
+            sp.frame_idx = idx
+            state.frame_anim_playing = False  # chon tay 1 khung -> dung phat tu dong, tranh giat hinh
+
+    def prev_frame(self):
+        sp = state.sp()
+        self.select_frame((sp.frame_idx - 1) % sp.n_frames)
+
+    def next_frame(self):
+        sp = state.sp()
+        self.select_frame((sp.frame_idx + 1) % sp.n_frames)
+
+    def toggle_frame_anim(self):
+        state.frame_anim_playing = not state.frame_anim_playing
+        state.frame_anim_timer = 0.0
+        state.frame_anim_idx = state.sp().frame_idx
+
+    def toggle_onion_skin(self):
+        state.onion_skin = not state.onion_skin
+
+    def change_frame_fps(self, delta):
+        state.frame_fps = max(1, min(24, state.frame_fps + delta))
 
     def apply_hex_color(self):
         txt = self.hexinput_box.text.strip()
@@ -525,9 +675,13 @@ class App:
         if sp.size == new_size:
             return
         sp.size = new_size
-        sp.pixels = [None] * (new_size * new_size)
+        # Làm TRỐNG LẠI TOÀN BỘ khung (không chỉ khung đang mở) - giữ
+        # nguyên SỐ LƯỢNG khung hiện có (đổi kích thước không có lý do gì
+        # xóa mất tiến độ dựng hoạt ảnh, chỉ cần vẽ lại nội dung từng khung
+        # ở kích thước mới).
+        sp.frames = [[None] * (new_size * new_size) for _ in sp.frames]
         state.history[state.current] = {"undo": [], "redo": []}
-        state.toast(f"Đã đổi kích thước canvas sang {new_size}x{new_size} (canvas được làm trống)")
+        state.toast(f"Đã đổi kích thước canvas sang {new_size}x{new_size} (mọi khung đều được làm trống)")
 
     def change_zoom(self, delta):
         state.zoom = max(6, min(40, state.zoom + delta))
@@ -574,15 +728,32 @@ class App:
         state.show_grid = not state.show_grid
 
     # ---------- export ----------
-    def sprite_to_surface(self, sp):
+    def sprite_to_surface(self, sp, frame_idx=None):
+        """Ve 1 KHUNG DUY NHAT cua sprite ra Surface - mac dinh la khung
+        DANG CHON (sp.frame_idx), truyen frame_idx de lay khung khac (dung
+        khi ghep spritesheet - xem sprite_to_spritesheet_surface)."""
+        frame = sp.frames[sp.frame_idx if frame_idx is None else frame_idx]
         surf = pygame.Surface((sp.size, sp.size), pygame.SRCALPHA)
         surf.fill((0, 0, 0, 0))
         for y in range(sp.size):
             for x in range(sp.size):
-                c = sp.pixels[y * sp.size + x]
+                c = frame[y * sp.size + x]
                 if c:
                     surf.set_at((x, y), hex_to_rgba(c, 255))
         return surf
+
+    def sprite_to_spritesheet_surface(self, sp):
+        """Ghép TẤT CẢ khung của sprite thành 1 ảnh spritesheet NGANG (mỗi
+        khung size x size, xếp liên tiếp trái->phải theo ĐÚNG thứ tự phát)
+        - định dạng xuất chuẩn cho sprite nhiều khung, để phần engine của
+        game (sprite_manager.py) có thể đọc/cắt lại sau này (mỗi khung =
+        tổng_chiều_rộng // số_khung)."""
+        n = sp.n_frames
+        sheet = pygame.Surface((sp.size * n, sp.size), pygame.SRCALPHA)
+        sheet.fill((0, 0, 0, 0))
+        for i in range(n):
+            sheet.blit(self.sprite_to_surface(sp, frame_idx=i), (i * sp.size, 0))
+        return sheet
 
     def ensure_dir(self):
         os.makedirs(SPRITES_DIR, exist_ok=True)
@@ -590,10 +761,20 @@ class App:
     def export_native(self):
         self.ensure_dir()
         sp = state.sp()
-        surf = self.sprite_to_surface(sp)
         path = os.path.join(SPRITES_DIR, f"{state.current}.png")
-        pygame.image.save(surf, path)
-        state.toast(f"Đã lưu: assets/sprites/{state.current}.png")
+        if sp.n_frames > 1:
+            # NHIỀU khung: xuất thành 1 spritesheet ngang DUY NHẤT chứa
+            # đủ mọi khung - nếu chỉ xuất khung đang xem như sprite tĩnh sẽ
+            # LÀM MẤT toàn bộ các khung còn lại một cách âm thầm, rất dễ
+            # gây nhầm "tưởng đã lưu xong cả hoạt ảnh" mà thực ra chỉ lưu
+            # được 1 khung.
+            surf = self.sprite_to_spritesheet_surface(sp)
+            pygame.image.save(surf, path)
+            state.toast(f"Đã lưu {sp.n_frames} khung (spritesheet ngang, {sp.size}x{sp.size}/khung): assets/sprites/{state.current}.png")
+        else:
+            surf = self.sprite_to_surface(sp)
+            pygame.image.save(surf, path)
+            state.toast(f"Đã lưu: assets/sprites/{state.current}.png")
 
     def export_big(self):
         self.ensure_dir()
@@ -602,14 +783,19 @@ class App:
         big = pygame.transform.scale(surf, (sp.size * 8, sp.size * 8))
         path = os.path.join(SPRITES_DIR, f"{state.current}@8x.png")
         pygame.image.save(big, path)
-        state.toast(f"Đã lưu bản phóng to 8x: assets/sprites/{state.current}@8x.png")
+        suffix = f" (chỉ khung #{sp.frame_idx + 1}/{sp.n_frames} đang xem)" if sp.n_frames > 1 else ""
+        state.toast(f"Đã lưu bản phóng to 8x: assets/sprites/{state.current}@8x.png{suffix}")
 
     def export_all(self):
         self.ensure_dir()
         for name in state.order:
-            surf = self.sprite_to_surface(state.sprites[name])
+            sp = state.sprites[name]
+            surf = (self.sprite_to_spritesheet_surface(sp) if sp.n_frames > 1
+                    else self.sprite_to_surface(sp))
             pygame.image.save(surf, os.path.join(SPRITES_DIR, f"{name}.png"))
-        # sprite sheet tong hop (tham khao nhanh, khong dung de game doc)
+        # sprite sheet tong hop (tham khao nhanh, khong dung de game doc) -
+        # voi sprite nhieu khung, chi lay khung DANG XEM cho gon (spritesheet
+        # nay chi de xem tong quan, khong phai file dung de game doc)
         pad, label_h, cell, cols = 6, 14, 96, 4
         rows = (len(state.order) + cols - 1) // cols
         sheet = pygame.Surface((cols * (cell + pad) + pad, rows * (cell + pad + label_h) + pad))
@@ -624,7 +810,8 @@ class App:
             scaled = pygame.transform.scale(src, (cell, cell))
             sheet.blit(scaled, (ox, oy))
             pygame.draw.rect(sheet, COL_BORDER, (ox, oy, cell, cell), width=1)
-            img = font_mono.render(name, True, COL_TEXT)
+            label_text = name + (f" ({sp.n_frames}kh)" if sp.n_frames > 1 else "")
+            img = font_mono.render(label_text, True, COL_TEXT)
             sheet.blit(img, (ox, oy + cell + 2))
         pygame.image.save(sheet, os.path.join(SPRITES_DIR, "antworld_sprite_sheet.png"))
         state.toast(f"Đã lưu TOÀN BỘ {len(state.order)} sprite + 1 sprite sheet vào assets/sprites/")
@@ -897,9 +1084,9 @@ class App:
         # nut xem hoat anh - doi nhan tuy co "cap doi" (vd _carry) hay khong
         pair = self.anim_pair_name()
         if pair:
-            label = "⏸ Dừng hoạt ảnh" if state.anim_playing else "▶ Xem hoạt ảnh (đổi/mang)"
+            label = "[X] Dừng hoạt ảnh" if state.anim_playing else "[>] Xem hoạt ảnh (đổi/mang)"
         else:
-            label = "⏸ Dừng lướt" if state.anim_playing else "▶ Lướt qua tất cả sprite"
+            label = "[X] Dừng lướt" if state.anim_playing else "[>] Lướt qua tất cả sprite"
         anim_btn_w = max(170, self.preview_big_rect.w)
         anim_y = self.preview_big_rect.bottom + 10
         self.buttons.append(Button((pcx, anim_y, anim_btn_w, 28), label, self.toggle_anim,
@@ -907,6 +1094,88 @@ class App:
         if state.anim_playing:
             anim_sp_name = self._anim_frame_names()[state.anim_frame_idx % max(1, len(self._anim_frame_names()))]
             draw_text(screen, f"đang chiếu: {anim_sp_name}", (pcx, anim_y + 32), font_small, COL_TEXT_DIM)
+
+    def build_frame_strip(self):
+        """Khu vực KHUNG HÌNH (frame) ngay dưới canvas chính - nơi quản lý
+        nhiều khung pixel-art của CÙNG 1 sprite để dựng hoạt ảnh (đi bộ,
+        vẫy càng...): thêm/nhân bản/xóa/đổi thứ tự khung, phát thử vòng
+        lặp, và bật/tắt xem mờ khung trước (onion skin). Trước đây mỗi
+        sprite chỉ vẽ được ĐÚNG 1 tấm tĩnh, không có khái niệm "khung"."""
+        sp = state.sp()
+        x0 = self.canvas_rect.x
+        y = self.canvas_rect.bottom + 14
+        w_avail = max(320, self.canvas_rect.w)
+
+        draw_text(screen, f"KHUNG HÌNH (ANIMATION) - {sp.n_frames} khung", (x0, y), font_small, COL_TEXT_DIM)
+        y += 20
+
+        # --- Hàng 1: dải thumbnail từng khung, bấm vào để chọn ---
+        thumb_slot = 40   # khoảng cách tâm-tới-tâm giữa 2 ô thumbnail liên tiếp
+        thumb_box = 34    # kích thước khung viền hiển thị (px)
+        self.frame_thumb_rects = []
+        for i, frame_px in enumerate(sp.frames):
+            fx = x0 + i * thumb_slot
+            rect = pygame.Rect(fx, y, thumb_box, thumb_box)
+            selected = (i == sp.frame_idx)
+            pygame.draw.rect(screen, COL_CANVAS_BG, rect)
+            cell_px = max(1, thumb_box // sp.size)
+            off = (thumb_box - cell_px * sp.size) // 2
+            for py in range(sp.size):
+                for px_ in range(sp.size):
+                    c = frame_px[py * sp.size + px_]
+                    if c:
+                        pygame.draw.rect(screen, hex_to_rgb(c),
+                                          (rect.x + off + px_ * cell_px, rect.y + off + py * cell_px,
+                                           cell_px, cell_px))
+            pygame.draw.rect(screen, COL_ACCENT2 if selected else COL_BORDER, rect,
+                              width=2 if selected else 1)
+            idx_img = font_small.render(str(i + 1), True, COL_TEXT_DIM)
+            screen.blit(idx_img, (rect.centerx - idx_img.get_width() // 2, rect.bottom + 1))
+            self.frame_thumb_rects.append((rect.copy(), i))
+        y += thumb_box + 18
+
+        # --- Hàng 2: các nút thao tác khung + phát thử + onion skin ---
+        bw, bh, gap = 96, 26, 6
+        bx = x0
+        self.buttons.append(Button((bx, y, bw, bh), "+ Nhân bản", self.add_frame, font=font_small,
+                                    tip="Thêm khung mới, sao chép từ khung đang xem"))
+        bx += bw + gap
+        self.buttons.append(Button((bx, y, bw, bh), "+ Trắng", self.add_blank_frame, font=font_small))
+        bx += bw + gap
+        self.buttons.append(Button((bx, y, bw, bh), "Xóa khung", self.delete_frame,
+                                    danger=(sp.n_frames > 1), font=font_small))
+        bx += bw + gap + 4
+        self.buttons.append(Button((bx, y, 34, bh), "<", self.move_frame_left, font=font_small,
+                                    tip="Đổi chỗ với khung trước (,)"))
+        bx += 34 + 4
+        self.buttons.append(Button((bx, y, 34, bh), ">", self.move_frame_right, font=font_small,
+                                    tip="Đổi chỗ với khung sau (.)"))
+        bx += 34 + gap + 8
+
+        play_label = "[X] Dừng phát" if state.frame_anim_playing else "[>] Phát thử"
+        self.buttons.append(Button((bx, y, 110, bh), play_label, self.toggle_frame_anim,
+                                    active=state.frame_anim_playing, font=font_small))
+        bx += 110 + gap
+        draw_text(screen, f"{state.frame_fps} fps", (bx, y + 6), font_small, COL_TEXT)
+        bx += 42
+        self.buttons.append(Button((bx, y, 24, bh), "-", lambda: self.change_frame_fps(-1), font=font_small))
+        bx += 24 + 4
+        self.buttons.append(Button((bx, y, 24, bh), "+", lambda: self.change_frame_fps(1), font=font_small))
+        bx += 24 + gap + 8
+
+        self.buttons.append(Button((bx, y, 150, bh), f"Xem mờ khung trước: {'BẬT' if state.onion_skin else 'TẮT'}",
+                                    self.toggle_onion_skin, active=state.onion_skin, font=font_small))
+        self.frame_strip_bottom = y + bh + 8
+
+    def handle_frame_thumb_click(self, pos):
+        """Trả về True nếu click trúng 1 thumbnail khung (đã xử lý), để
+        handle_mouse_down() biết dừng lại, không coi đó là 1 nét vẽ trên
+        canvas chính."""
+        for rect, idx in getattr(self, "frame_thumb_rects", []):
+            if rect.collidepoint(pos):
+                self.select_frame(idx)
+                return True
+        return False
 
     def draw_canvas(self):
         sp = state.sp()
@@ -919,6 +1188,23 @@ class App:
                 if (gx // cb + gy // cb) % 2 == 0:
                     pygame.draw.rect(screen, (40, 33, 24),
                                       (self.canvas_rect.x + gx, self.canvas_rect.y + gy, cb, cb))
+
+        # Onion skin: hiện MỜ khung TRƯỚC khung đang vẽ, giúp canh đúng vị
+        # trí giữa 2 khung hoạt ảnh liên tiếp (vd chân bước sang bước kế
+        # tiếp lệch bao nhiêu) mà không cần liên tục bấm qua lại xem thử.
+        # Chỉ hiện khi: có bật (onion_skin), sprite có từ 2 khung trở lên,
+        # và KHÔNG phải đang xem khung đầu tiên (không có khung nào trước
+        # nó để hiện).
+        if state.onion_skin and sp.n_frames > 1 and sp.frame_idx > 0:
+            prev_frame = sp.frames[sp.frame_idx - 1]
+            onion = pygame.Surface(self.canvas_rect.size, pygame.SRCALPHA)
+            for y in range(sp.size):
+                for x in range(sp.size):
+                    c = prev_frame[y * sp.size + x]
+                    if c:
+                        pygame.draw.rect(onion, (*hex_to_rgb(c), 100), (x * z, y * z, z, z))
+            screen.blit(onion, self.canvas_rect.topleft)
+
         for y in range(sp.size):
             for x in range(sp.size):
                 c = sp.pixels[y * sp.size + x]
@@ -981,7 +1267,7 @@ class App:
         pygame.draw.line(screen, COL_BORDER, (0, self.header_h), (self.W, self.header_h), 2)
         draw_text(screen, "ANTWORLD PIXEL STUDIO", (18, 16), font_title, COL_ACCENT2)
         draw_text(screen, "Vẽ asset pixel art cho game đàn kiến", (330, 20), font_small, COL_TEXT_DIM)
-        hint = "B bút · E tẩy · G đổ màu · I hút màu · L đường · R hcn · [ ] cỡ bút · Ctrl+Z hoàn tác"
+        hint = "B bút · E tẩy · G đổ màu · I hút màu · L đường · R hcn · [ ] cỡ bút · , . đổi khung · Ctrl+Z hoàn tác"
         hint_w = font_small.size(hint)[0]
         draw_text(screen, hint, (self.W - hint_w - 18, 20), font_small, COL_TEXT_DIM)
 
@@ -1029,6 +1315,7 @@ class App:
         self.build_canvas_toolbar()
         self.build_canvas()
         self.draw_canvas()
+        self.build_frame_strip()
         self.build_right_panel()
         self.build_footer()
 
@@ -1056,6 +1343,7 @@ class App:
             self.right_scroll += diff * 0.25
 
     def _update_animation(self):
+        self._update_frame_anim()
         if not state.anim_playing:
             return
         state.anim_timer += 1
@@ -1064,6 +1352,23 @@ class App:
             names = self._anim_frame_names()
             if names:
                 state.anim_frame_idx = (state.anim_frame_idx + 1) % len(names)
+
+    def _update_frame_anim(self):
+        """Tick bo dem phat hoat anh CAC KHUNG cua CHINH sprite dang mo -
+        toc do phat theo state.frame_fps (khung/giay), chinh duoc qua nut
+        +/- (xem App.change_frame_fps), khac han toc do co dinh 0.4s/lan
+        cua anim_playing (luot qua sprite khac) o tren."""
+        if not state.frame_anim_playing:
+            return
+        sp = state.sp()
+        if sp.n_frames <= 1:
+            state.frame_anim_playing = False
+            return
+        state.frame_anim_timer += 1.0
+        ticks_per_frame = 60.0 / max(1, state.frame_fps)
+        if state.frame_anim_timer >= ticks_per_frame:
+            state.frame_anim_timer -= ticks_per_frame
+            state.frame_anim_idx = (state.frame_anim_idx + 1) % sp.n_frames
 
     def anim_pair_name(self):
         """Neu sprite dang chon co 1 'ban sao mang do vat' (hau to
@@ -1084,11 +1389,19 @@ class App:
         return state.order  # khong co cap doi -> luot qua TAT CA sprite
 
     def _anim_current_sprite(self):
+        # Uu tien phat hoat anh CAC KHUNG cua sprite dang mo (neu dang
+        # bat) - day la thu nguoi dung MUON THAY nhat luc dang dung hoat
+        # anh nhieu khung, nen kiem tra truoc ca anim_playing (luot sprite
+        # khac) o duoi.
+        sp = state.sp()
+        if state.frame_anim_playing and sp.n_frames > 1:
+            idx = state.frame_anim_idx % sp.n_frames
+            return _FramePreviewShim(sp.size, sp.frames[idx])
         if not state.anim_playing:
-            return state.sp()
+            return sp
         names = self._anim_frame_names()
         if not names:
-            return state.sp()
+            return sp
         idx = state.anim_frame_idx % len(names)
         return state.sprites[names[idx]]
 
@@ -1124,6 +1437,8 @@ class App:
             if self.rename_box.rect.collidepoint(pos):
                 self.rename_box.active = True
                 self.hexinput_box.active = False
+                return
+            if self.handle_frame_thumb_click(pos):
                 return
             self.hexinput_box.active = False
             self.rename_box.active = False
@@ -1230,6 +1545,10 @@ class App:
             self.set_brush_size(max(1, state.brush_size - 1))
         elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_EQUALS):
             self.set_brush_size(min(3, state.brush_size + 1))
+        elif event.key == pygame.K_COMMA:
+            self.prev_frame()
+        elif event.key == pygame.K_PERIOD:
+            self.next_frame()
 
     def run(self):
         while self.running:

@@ -282,6 +282,7 @@ class GameState:
             food_type = int(np.random.choice(types, p=weights))
         self.surface_world.food[gx, gy] += amount
         self.surface_world.food_type[gx, gy] = food_type
+        self.surface_world.food_age[gx, gy] = 0.0  # "làm mới" độ tươi - vừa đặt xong
 
     def do_random_food_respawn(self):
         self.surface_world.respawn_random_cluster()

@@ -1,4 +1,6 @@
 """Định nghĩa lớp mặt đất (surface) và lớp hầm ngầm (underground)."""
+import math
+
 import numpy as np
 from . import config as cfg
 
@@ -10,6 +12,12 @@ class SurfaceWorld:
         n = cfg.GRID_SIZE
         self.food = np.zeros((n, n), dtype=np.float32)
         self.food_type = np.zeros((n, n), dtype=np.int8)  # loại thức ăn tại mỗi ô
+        # Số tick liên tục 1 ô CÓ thức ăn mà CHƯA hết (kể từ lần gần nhất
+        # được bổ sung/tái sinh) - dùng để biết khi nào thức ăn "quá hạn
+        # tươi" và bắt đầu hỏng dần, xem decay_food() bên dưới + FOOD_SPOIL_*
+        # trong config.py. Reset về 0 mỗi khi thức ăn Ở Ô ĐÓ được bổ sung
+        # thêm (coi như "làm mới" độ tươi), và khi ô hết sạch thức ăn.
+        self.food_age = np.zeros((n, n), dtype=np.float32)
         self.pheromone = np.zeros((n, n), dtype=np.float32)
         self.danger_pheromone = np.zeros((n, n), dtype=np.float32)
         self.terrain = np.zeros((n, n), dtype=np.int8)  # 0=đất, 1=đá, 2=nước
@@ -222,6 +230,36 @@ class SurfaceWorld:
     def decay_visit(self):
         self.visit_heat *= cfg.VISIT_HEAT_DECAY
 
+    def decay_food(self):
+        """Thức ăn để LÂU không ai nhặt sẽ HỎNG dần rồi biến mất - xem
+        FOOD_SPOIL_* trong config.py. Gọi 1 LẦN MỖI TICK (như
+        decay_pheromone()/decay_visit() ở trên) từ AntColony.update().
+
+        Trước đây thức ăn tồn tại vĩnh viễn cho tới khi bị ăn hết - khác
+        thực tế nuôi kiến (mồi để lâu sẽ mốc/hỏng, phải dọn trước khi sinh
+        hại). Ở đây food_age đếm số tick liên tục 1 ô CÒN thức ăn; qua
+        ngưỡng FOOD_SPOIL_TICKS thì giá trị tự nhân dần với
+        FOOD_SPOIL_RATE_PER_TICK (<1) cho tới khi dưới FOOD_MIN_VALUE thì
+        coi như hỏng hẳn, xóa sạch khỏi bản đồ."""
+        # LƯU Ý: dùng ngưỡng "> 1e-6" (gần như bất kỳ giá trị dương nào),
+        # KHÔNG PHẢI "> 0.5" (ngưỡng dùng ở chỗ khác trong game để coi 1 ô
+        # là "có thức ăn hiển thị được") - lý do: nếu dùng > 0.5 ở đây,
+        # quá trình hỏng sẽ TỰ DỪNG NGAY LÚC giá trị giảm xuống dưới 0.5,
+        # để lại 1 lượng "tàn dư" nhỏ (giữa 0.15 và 0.5) tồn tại VĨNH VIỄN,
+        # không bao giờ đạt tới FOOD_MIN_VALUE để bị xóa hẳn - đã tự phát
+        # hiện lỗi này qua kiểm thử thực tế trước khi commit.
+        has_food = self.food > 1e-6
+        self.food_age[has_food] += 1.0
+        self.food_age[~has_food] = 0.0  # ô trống thì không có gì để tính "tuổi"
+
+        spoiling = has_food & (self.food_age > cfg.FOOD_SPOIL_TICKS)
+        if np.any(spoiling):
+            self.food[spoiling] *= cfg.FOOD_SPOIL_RATE_PER_TICK
+            expired = spoiling & (self.food < cfg.FOOD_MIN_VALUE)
+            if np.any(expired):
+                self.food[expired] = 0.0
+                self.food_age[expired] = 0.0
+
     def deposit_visit(self, xi, yi):
         np.add.at(self.visit_heat, (xi, yi), cfg.VISIT_HEAT_DEPOSIT)
         np.clip(self.visit_heat, 0, cfg.VISIT_HEAT_MAX, out=self.visit_heat)
@@ -281,6 +319,7 @@ class SurfaceWorld:
         empty_mask = self.terrain[x0:x1, y0:y1] == cfg.TERRAIN_EMPTY
         self.food[x0:x1, y0:y1][empty_mask] += cfg.FOOD_RESPAWN_AMOUNT
         self.food_type[x0:x1, y0:y1][empty_mask] = self._random_food_type(rng)
+        self.food_age[x0:x1, y0:y1][empty_mask] = 0.0  # "làm mới" độ tươi
         return (int(cx), int(cy))
 
 
@@ -322,19 +361,32 @@ class UndergroundWorld:
         self.pupa_depth = cfg.DEPTH_PUPA
 
         # Danh sách phòng để vẽ (id, tên, tâm(x,y), bán kính, màu gợi ý,
-        # tầng) - LUÔN ĐÚNG 8 phòng GỐC/CHỨC NĂNG cố định, không đổi trong
-        # suốt ván (không còn chức năng tự đào thêm phòng như bản trước).
-        # Kích thước (bán kính) khác nhau theo đúng vai trò: kho/nước chứa
-        # số lượng lớn nên to nhất, trứng/gác cửa/nghĩa địa/nhộng nhỏ hơn.
+        # tầng) - LUÔN ĐÚNG 8 phòng GỐC/CHỨC NĂNG, không đổi SỐ LƯỢNG
+        # trong suốt ván (không có chức năng tự đào thêm phòng mới) -
+        # nhưng BÁN KÍNH của 4 phòng gắn liền quy mô đàn (xem
+        # ROOM_GROWABLE_IDS trong config.py) SẼ tự lớn dần theo dân số,
+        # xem update_room_sizes() bên dưới - vì vậy mỗi phần tử là 1 LIST
+        # (có thể sửa lại phần tử [3]=bán kính), KHÔNG PHẢI tuple bất biến
+        # như trước, dù cấu trúc/thứ tự các trường vẫn giữ y hệt.
+        self._base_radius = {
+            0: cfg.ROOM_RADIUS_STORAGE,
+            1: cfg.ROOM_RADIUS_NURSERY,
+            2: cfg.ROOM_RADIUS_QUEEN,
+            3: cfg.ROOM_RADIUS_WATER,
+            4: cfg.ROOM_RADIUS_EGG,
+            5: cfg.ROOM_RADIUS_GUARD,
+            6: cfg.ROOM_RADIUS_GRAVEYARD,
+            7: cfg.ROOM_RADIUS_PUPA,
+        }
         self.rooms = [
-            (0, f"{label_prefix}Kho thức ăn", self.storage, cfg.ROOM_RADIUS_STORAGE, (170, 130, 70), self.storage_depth),
-            (1, f"{label_prefix}Ấu trùng", self.nursery, cfg.ROOM_RADIUS_NURSERY, (200, 190, 120), self.nursery_depth),
-            (2, f"{label_prefix}Phòng chúa", self.queen_room, cfg.ROOM_RADIUS_QUEEN, (180, 90, 140), self.queen_depth),
-            (3, f"{label_prefix}Bể trữ nước", self.water_room, cfg.ROOM_RADIUS_WATER, (70, 130, 190), self.water_depth),
-            (4, f"{label_prefix}Phòng trứng", self.egg_room, cfg.ROOM_RADIUS_EGG, (235, 225, 200), self.egg_depth),
-            (5, f"{label_prefix}Phòng gác cửa", self.guard_room, cfg.ROOM_RADIUS_GUARD, (120, 110, 100), self.guard_depth),
-            (6, f"{label_prefix}Nghĩa địa", self.graveyard, cfg.ROOM_RADIUS_GRAVEYARD, (90, 80, 75), self.graveyard_depth),
-            (7, f"{label_prefix}Phòng nhộng", self.pupa_room, cfg.ROOM_RADIUS_PUPA, (150, 130, 95), self.pupa_depth),
+            [0, f"{label_prefix}Kho thức ăn", self.storage, self._base_radius[0], (170, 130, 70), self.storage_depth],
+            [1, f"{label_prefix}Ấu trùng", self.nursery, self._base_radius[1], (200, 190, 120), self.nursery_depth],
+            [2, f"{label_prefix}Phòng chúa", self.queen_room, self._base_radius[2], (180, 90, 140), self.queen_depth],
+            [3, f"{label_prefix}Bể trữ nước", self.water_room, self._base_radius[3], (70, 130, 190), self.water_depth],
+            [4, f"{label_prefix}Phòng trứng", self.egg_room, self._base_radius[4], (235, 225, 200), self.egg_depth],
+            [5, f"{label_prefix}Phòng gác cửa", self.guard_room, self._base_radius[5], (120, 110, 100), self.guard_depth],
+            [6, f"{label_prefix}Nghĩa địa", self.graveyard, self._base_radius[6], (90, 80, 75), self.graveyard_depth],
+            [7, f"{label_prefix}Phòng nhộng", self.pupa_room, self._base_radius[7], (150, 130, 95), self.pupa_depth],
         ]
 
         # Thống kê tổ
@@ -355,6 +407,21 @@ class UndergroundWorld:
         # trên CHỈ tăng khi xác THỰC SỰ được khiêng tới graveyard, không
         # phải ngay lúc chết.
         self.pending_corpses = []
+
+    def update_room_sizes(self, population):
+        """Cập nhật bán kính CÁC PHÒNG GẮN LIỀN QUY MÔ ĐÀN (xem
+        ROOM_GROWABLE_IDS trong config.py) theo dân số hiện tại - gọi mỗi
+        tick từ AntColony.update(). Phòng KHÔNG nằm trong danh sách này
+        giữ nguyên bán kính gốc, không đổi gì.
+
+        AN TOÀN GỌI LẶP LẠI: tính lại từ `_base_radius` gốc mỗi lần (không
+        cộng dồn), nên gọi bao nhiêu lần cũng cho kết quả nhất quán, không
+        bị "phình to" sai do gọi nhầm nhiều lần trong 1 tick."""
+        growth = cfg.ROOM_GROWTH_PER_SQRT_ANT * math.sqrt(max(0, population))
+        for room in self.rooms:
+            room_id = room[0]
+            if room_id in cfg.ROOM_GROWABLE_IDS:
+                room[3] = self._base_radius[room_id] + growth
 
     def room_center_and_radius(self, depth):
         """Tra tâm + bán kính phòng ở 1 tầng cho trước - dùng cho trường

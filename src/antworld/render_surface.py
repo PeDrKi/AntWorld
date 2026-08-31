@@ -58,6 +58,31 @@ def _use_sprite_for_food_type(ftype):
     return ftype == cfg.FOOD_TYPE_SEED
 
 
+# Cache sprite thức ăn đã "nhuộm mốc" (tối dần đi) theo từng mức độ hỏng
+# - xem cfg.FOOD_SPOIL_* + SurfaceWorld.decay_food() trong world.py. Chỉ
+# tối màu đi (BLEND_RGBA_MULT với màu xám) - KHÔNG dùng BLEND_RGBA_ADD (đã
+# từng thử cho hiệu ứng khác và gặp lỗi: vùng trong suốt của sprite bị
+# "tô" thành mảng đặc xấu xí - xem lịch sử sửa carcass/enemy hit-flash).
+# Nhân với màu xám (giữ nguyên alpha=255, không đổi kênh alpha) là AN
+# TOÀN vì vùng alpha=0 (trong suốt) nhân với bất kỳ gì vẫn ra 0.
+_spoil_tint_cache = {}
+
+
+def _get_spoiled_food_sprite(base_sprite, spoil_frac, food_size):
+    bucket = round(spoil_frac, 1)  # lượng tử hóa 10 bậc - tránh cache phình
+                                    # to vô hạn vì spoil_frac biến thiên liên tục
+    key = (food_size, bucket)
+    tinted = _spoil_tint_cache.get(key)
+    if tinted is None:
+        if len(_spoil_tint_cache) > 60:
+            _spoil_tint_cache.clear()
+        mold_gray = int(255 * (1.0 - bucket * 0.55))
+        tinted = base_sprite.copy()
+        tinted.fill((mold_gray, mold_gray, mold_gray, 255), special_flags=pygame.BLEND_RGBA_MULT)
+        _spoil_tint_cache[key] = tinted
+    return tinted
+
+
 def draw_grid_lines(state, surf):
     camera = state.camera
     cell = camera.cell_px()
@@ -233,6 +258,7 @@ def draw_surface_layer(state, surf):
     # ~1600 ô mỗi khung hình. ---
     food = surface_world.food
     food_type = surface_world.food_type
+    food_age = surface_world.food_age
     fstep = 1 if cell > 10 else 2
     # Giới hạn trần ở 82% kích thước ô lưới dù ENTITY_SPRITE_SCALE lớn cỡ
     # nào - PHẢI luôn nhỏ hơn rõ rệt so với đá/nước (vốn lấp ĐẦY TRỌN 1 ô,
@@ -259,10 +285,24 @@ def draw_surface_layer(state, surf):
             # ăn KHÔNG dùng sprite (NECTAR, xem _use_sprite_for_food_type).
             sx, sy = float(fsxs[i]), float(fsys[i])
             ftype = int(food_type[gx_int[i], gy_int[i]])
+            # Càng gần/quá hạn "tươi" (FOOD_SPOIL_TICKS) càng tối/mốc dần
+            # đi - báo trước cho người chơi TRƯỚC KHI thức ăn biến mất hẳn
+            # (xem SurfaceWorld.decay_food() trong world.py), thay vì mất
+            # đột ngột không dấu hiệu gì.
+            age = float(food_age[gx_int[i], gy_int[i]])
+            spoil_frac = 0.0
+            if age > cfg.FOOD_SPOIL_TICKS:
+                spoil_frac = min(1.0, (age - cfg.FOOD_SPOIL_TICKS) / (cfg.FOOD_SPOIL_TICKS * 0.5))
             if food_sprite is not None and _use_sprite_for_food_type(ftype):
-                surf.blit(food_sprite, food_sprite.get_rect(center=(int(sx), int(sy))))
+                sprite_to_draw = food_sprite
+                if spoil_frac > 0.05:
+                    sprite_to_draw = _get_spoiled_food_sprite(food_sprite, spoil_frac, food_size)
+                surf.blit(sprite_to_draw, sprite_to_draw.get_rect(center=(int(sx), int(sy))))
             else:
                 fc = cfg.FOOD_TYPE_COLOR.get(ftype, (60, 150, 60))
+                if spoil_frac > 0.05:
+                    mold = (95, 90, 78)
+                    fc = tuple(int(c + (m - c) * spoil_frac) for c, m in zip(fc, mold))
                 pygame.draw.rect(surf, fc, (sx - food_size / 2, sy - food_size / 2, food_size, food_size))
 
     # --- lỗ tổ - dùng sprite nest_main.png tùy chỉnh nếu có, không thì vẽ
@@ -282,12 +322,57 @@ def draw_surface_layer(state, surf):
     if enemy.active:
         sx, sy = camera.world_to_screen(enemy.x, enemy.y, state.CENTER_X, state.CENTER_Y)
         r = max(3, int(cell * 0.6 * cfg.ENTITY_SPRITE_SCALE))
+
+        # Animation: nhấp nháy trắng + rung nhẹ khi vừa trúng đòn từ lính
+        # (xem cfg.HIT_FLASH_DURATION_TICKS + enemy.hit_flash_ticks trong
+        # enemy.py) - trước đây máu chỉ âm thầm giảm, không ai để ý được
+        # là VỪA có 1 đòn đánh trúng.
+        flash = enemy.hit_flash_ticks / cfg.HIT_FLASH_DURATION_TICKS if enemy.hit_flash_ticks > 0 else 0.0
+        if flash > 0.01:
+            shake = cfg.HIT_SHAKE_PX * flash
+            sx += np.random.uniform(-shake, shake)
+            sy += np.random.uniform(-shake, shake)
+
         if state.sprites.has("enemy.png"):
             sprite = state.sprites.get_rotated("enemy.png", r * 2, float(enemy.theta))
             surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
         else:
+            body_color = (220, 30, 30)
+            if flash > 0.01:
+                flicker = 0.5 + 0.5 * math.sin(state.frame_counter * 0.9)
+                mix = flash * (0.4 + 0.6 * flicker)
+                body_color = tuple(int(c + (255 - c) * mix) for c in body_color)
             pts = [(sx, sy - r), (sx + r, sy), (sx, sy + r), (sx - r, sy)]
-            pygame.draw.polygon(surf, (220, 30, 30), pts)
+            pygame.draw.polygon(surf, body_color, pts)
+
+    # --- Xác con mồi lớn (carcass) đang chờ được khiêng - xem HAUL_* trong
+    # config.py + EnemyManager._spawn_carcass()/AntColony._update_haulers().
+    # Trước đây HOÀN TOÀN không vẽ gì (xác chỉ tồn tại "trong logic", người
+    # chơi không thấy nó ở đâu để biết mà kéo kiến tới) - giờ vẽ 1 khối màu
+    # nâu sẫm CO LẠI DẦN theo thời gian còn "tươi" (carcass_decay_left),
+    # nhấp nháy nhẹ để dễ chú ý giữa đám thức ăn/địa hình xung quanh. ---
+    if enemy.carcass_active:
+        sx, sy = camera.world_to_screen(enemy.carcass_x, enemy.carcass_y, state.CENTER_X, state.CENTER_Y)
+        freshness = enemy.carcass_decay_left / cfg.HAUL_DECAY_TICKS
+        r = max(2, int(cell * 0.55 * cfg.ENTITY_SPRITE_SCALE * (0.6 + 0.4 * freshness)))
+        pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.12)
+        base_color = (90, 55, 40)
+        glow_color = tuple(min(255, int(c + 40 * pulse)) for c in base_color)
+        # Hình THOI (không phải hình tròn) - CÙNG dáng với hình vector dự
+        # phòng của chính con kẻ thù (xem nhánh else phía trên: pts =
+        # [(sx,sy-r),...]) để rõ ràng đây là "xác của đúng con vật đó",
+        # đồng thời khớp phong cách góc cạnh/pixel-art của toàn bộ game
+        # thay vì 1 hình tròn mượt lạc quẻ.
+        pts = [(sx, sy - r), (sx + r, sy), (sx, sy + r), (sx - r, sy)]
+        pygame.draw.polygon(surf, glow_color, pts)
+        pygame.draw.polygon(surf, (40, 20, 15), pts, 2)
+        # Vài "chân" chĩa ra ngoài cho ra dáng xác côn trùng lật ngửa, thay
+        # vì 1 chấm tròn vô nghĩa dễ nhầm với đá/thức ăn
+        for k in range(6):
+            ang = k * math.pi / 3 + 0.3
+            lx = sx + math.cos(ang) * r * 1.4
+            ly = sy + math.sin(ang) * r * 1.4
+            pygame.draw.line(surf, (40, 20, 15), (int(sx), int(sy)), (int(lx), int(ly)), 1)
 
     draw_ants(state, surf, state.colony, (25, 25, 25), (215, 120, 30))
     draw_ants(state, surf, state.invasion, (80, 15, 15), (150, 40, 20))
@@ -327,6 +412,24 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
 
+    # --- Animation: hiệu ứng "nảy lên" khi nhặt/giao đồ (xem
+    # cfg.BOUNCE_DURATION_TICKS + các chỗ gán bounce_ticks trong ants.py) -
+    # chỉ AntColony có mảng này (InvasionManager không tha đồ về tổ theo
+    # kiểu này), getattr AN TOÀN để hàm dùng chung cho cả 2 loại. ---
+    bounce_arr = getattr(colony_obj, "bounce_ticks", None)
+    if bounce_arr is not None:
+        bticks = bounce_arr[idx].astype(np.float32)
+        bt = np.clip(1.0 - bticks / cfg.BOUNCE_DURATION_TICKS, 0.0, 1.0)
+        bounce_mag = np.where(bticks > 0, np.sin(np.pi * bt), 0.0)
+    else:
+        bounce_mag = np.zeros(len(idx), dtype=np.float32)
+
+    # --- Animation: nhấp nháy/rung khi đang giao chiến (xem
+    # cfg.HIT_FLASH_DURATION_TICKS + combat_flash_ticks trong ants.py/
+    # invasion.py) - CẢ 2 loại đàn đều có mảng này. ---
+    flash_arr = colony_obj.combat_flash_ticks[idx].astype(np.float32)
+    flash_frac = np.clip(flash_arr / cfg.HIT_FLASH_DURATION_TICKS, 0.0, 1.0)
+
     # Tên sprite TÙY CHỌN cho đàn này (ant_worker_main*/ant_invader*) - xem
     # sprite_manager.py. None nếu colony_obj không xác định (an toàn phòng
     # hờ) - khi đó luôn vẽ vector như cũ.
@@ -347,7 +450,38 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         if is_nanitic[i]:
             # Thợ lứa đầu (lập tổ) - nhỏ con hơn hẳn, xem NANITIC_SIZE_SCALE
             r *= cfg.NANITIC_SIZE_SCALE
+
+        # --- Áp hiệu ứng nảy lên (bounce): dịch vị trí VẼ lên trên, giữ
+        # lại vị trí GỐC trên mặt đất để đổ 1 cái bóng nhỏ bên dưới - bán
+        # ảo giác đang "nhấc bổng" 1 vật (mồi/xác) lên khỏi mặt đất. ---
+        ground_sx, ground_sy = sx, sy
+        bmag = float(bounce_mag[i])
+        if bmag > 0.01:
+            sy = ground_sy - bmag * r * cfg.BOUNCE_HEIGHT_FACTOR
+            shadow_r = max(1, int(r * 0.7 * (1.0 - bmag * 0.4)))
+            shadow_alpha = int(90 * (1.0 - bmag * 0.5))
+            # Hình VUÔNG (không phải tròn mượt) cho bóng đổ - nhất quán
+            # phong cách pixel-art góc cạnh của toàn bộ game.
+            shadow_surf = pygame.Surface((shadow_r * 2, shadow_r * 2), pygame.SRCALPHA)
+            shadow_surf.fill((0, 0, 0, shadow_alpha))
+            surf.blit(shadow_surf, shadow_surf.get_rect(center=(int(ground_sx), int(ground_sy))))
+
+        # --- Áp hiệu ứng rung khi giao chiến: dịch vị trí vẽ 1 chút ngẫu
+        # nhiên MỖI KHUNG HÌNH (không phải mỗi tick mô phỏng - rung càng
+        # "giật giật/lag" càng thật) trong lúc còn hiệu lực. ---
+        fmag = float(flash_frac[i])
+        if fmag > 0.01:
+            shake = cfg.HIT_SHAKE_PX * fmag
+            sx += np.random.uniform(-shake, shake)
+            sy += np.random.uniform(-shake, shake)
+
         color = color_carry if carrying[i] else color_normal
+        if fmag > 0.01:
+            # Nhấp nháy trắng - flicker theo thời gian (không mờ dần đều
+            # đặn) để trông như "vừa ăn 1 đòn" chứ không phải đổi màu êm
+            flicker = 0.5 + 0.5 * math.sin(state.frame_counter * 0.9 + idx[i])
+            mix = fmag * (0.4 + 0.6 * flicker)
+            color = tuple(int(c + (255 - c) * mix) for c in color)
         head_color = tuple(max(0, c - 75) for c in color)
 
         th = float(thetas[i])
@@ -384,6 +518,26 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
                 pygame.draw.circle(surf, rim, (int(abd_x), int(abd_y)), abdomen_r + 1)
                 pygame.draw.circle(surf, rim, (int(sx), int(sy)), thorax_r + 1)
                 pygame.draw.circle(surf, rim, (int(hd_x), int(hd_y)), head_r + 1)
+
+            # --- Dáng đi (walk cycle): 3 đôi chân (6 chân), mỗi đôi lệch
+            # pha nhau theo kiểu "tripod gait" thật của côn trùng (3 chân
+            # 1 bên + 3 chân bên kia luân phiên chạm đất) - VẼ TRƯỚC thân
+            # để chân nằm "dưới" thân, không đè lên. Chỉ vẽ khi đủ to
+            # (zoom gần, xem ANT_LEG_MIN_RADIUS_PX) - tránh vài pixel vô
+            # nghĩa lúc zoom xa, cũng tránh tốn vẽ không cần thiết. Trước
+            # đây kiến hoàn toàn không có chân, chỉ trượt vị trí cứng nhắc.
+            if r >= cfg.ANT_LEG_MIN_RADIUS_PX:
+                phase = state.frame_counter * cfg.ANT_LEG_ANIM_SPEED + (int(idx[i]) % 17) * 0.9
+                leg_len = head_r * 1.35
+                for k, along in enumerate((-0.5, 0.0, 0.45)):
+                    base_x = sx + dirx * r * along
+                    base_y = sy + diry * r * along
+                    swing = math.sin(phase + k * math.pi) * leg_len * 0.55
+                    for side in (-1, 1):
+                        s = swing if side > 0 else -swing
+                        tip_x = base_x + perp_x * leg_len * side + dirx * s
+                        tip_y = base_y + perp_y * leg_len * side + diry * s
+                        pygame.draw.line(surf, head_color, (int(base_x), int(base_y)), (int(tip_x), int(tip_y)), 1)
 
             pygame.draw.circle(surf, color, (int(abd_x), int(abd_y)), abdomen_r)
             pygame.draw.circle(surf, color, (int(sx), int(sy)), thorax_r)

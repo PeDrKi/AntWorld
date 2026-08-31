@@ -33,6 +33,28 @@ BUTTON_STYLES = {
 }
 
 
+def draw_pixel_rect(surf, rect, fill_color, border_color=None, border_width=1, bevel=True):
+    """Vẽ 1 khối chữ nhật GÓC VUÔNG (không bo tròn) kiểu UI pixel-art cổ
+    điển - tùy chọn thêm "bevel" (viền sáng ở cạnh trên/trái, viền tối ở
+    cạnh dưới/phải) để trông như 1 nút bấm nổi khối 8-bit thay vì 1 khối
+    màu phẳng lì. Dùng THAY cho mọi chỗ trước đây gọi
+    `pygame.draw.rect(..., border_radius=N)` - toàn bộ game (panel, nút,
+    thanh máu/năng lượng, ô tầng...) đổi sang cùng 1 kiểu bo góc vuông này
+    để đồng nhất phong cách pixel art xuyên suốt, thay vì chỉ sprite nhân
+    vật là pixel còn khung UI lại bo tròn/mượt hiện đại."""
+    rect = pygame.Rect(rect)
+    pygame.draw.rect(surf, fill_color, rect)
+    if bevel and rect.w > 2 and rect.h > 2:
+        light = tuple(min(255, c + 40) for c in fill_color[:3])
+        dark = tuple(max(0, c - 40) for c in fill_color[:3])
+        pygame.draw.line(surf, light, rect.topleft, (rect.right - 1, rect.top))
+        pygame.draw.line(surf, light, rect.topleft, (rect.left, rect.bottom - 1))
+        pygame.draw.line(surf, dark, (rect.left, rect.bottom - 1), (rect.right - 1, rect.bottom - 1))
+        pygame.draw.line(surf, dark, (rect.right - 1, rect.top), (rect.right - 1, rect.bottom - 1))
+    if border_color is not None and border_width > 0:
+        pygame.draw.rect(surf, border_color, rect, width=border_width)
+
+
 class Button:
     def __init__(self, rect, text, on_click=None, toggle=False, active=False, style="default"):
         self.rect = pygame.Rect(rect)
@@ -63,8 +85,7 @@ class Button:
     def draw(self, surf, font):
         base, active_c, border = BUTTON_STYLES.get(self.style, BUTTON_STYLES["default"])
         color = active_c if self.active else base
-        pygame.draw.rect(surf, color, self.rect, border_radius=6)
-        pygame.draw.rect(surf, border, self.rect, width=2 if self.active else 1, border_radius=6)
+        draw_pixel_rect(surf, self.rect, color, border, border_width=2 if self.active else 1)
         label = render_cached(font, self.text, (250, 250, 250))
         lr = label.get_rect(center=self.rect.center)
         surf.blit(label, lr)
@@ -173,21 +194,22 @@ class Panel:
             self._bg_cache_surf = bg
             self._bg_cache_key = cache_key
         surf.blit(self._bg_cache_surf, r.topleft)
-        pygame.draw.rect(surf, (90, 90, 100), r, width=1, border_radius=4)
+        pygame.draw.rect(surf, (90, 90, 100), r, width=1)
 
         tb = self.title_bar_rect()
-        pygame.draw.rect(surf, (42, 42, 50), tb, border_top_left_radius=4, border_top_right_radius=4)
-        pygame.draw.rect(surf, (90, 90, 100), tb, width=1, border_top_left_radius=4, border_top_right_radius=4)
+        pygame.draw.rect(surf, (42, 42, 50), tb)
+        pygame.draw.rect(surf, (90, 90, 100), tb, width=1)
         # Chấm "tay cầm" nhỏ để gợi ý có thể kéo, tránh người chơi không
-        # biết panel này di chuyển được
+        # biết panel này di chuyển được - vẽ Ô VUÔNG nhỏ (không phải chấm
+        # tròn) để nhất quán với phong cách pixel-art góc vuông của toàn
+        # bộ UI, thay vì lẫn 1 chi tiết tròn mượt vào giữa các khối vuông
         for i in range(3):
-            pygame.draw.circle(surf, (140, 140, 150), (tb.x + 10, tb.y + 8 + i * 5), 1)
+            pygame.draw.rect(surf, (140, 140, 150), (tb.x + 9, tb.y + 7 + i * 5, 2, 2))
         label = render_cached(font_title, self.title, (235, 235, 235))
         surf.blit(label, (tb.x + 20, tb.y + 5))
 
         cb = self.collapse_button_rect()
-        pygame.draw.rect(surf, (60, 60, 72), cb, border_radius=3)
-        pygame.draw.rect(surf, (100, 100, 112), cb, width=1, border_radius=3)
+        draw_pixel_rect(surf, cb, (60, 60, 72), (100, 100, 112))
         symbol = "+" if self.collapsed else "-"
         sym = render_cached(font_title, symbol, (230, 230, 230))
         surf.blit(sym, sym.get_rect(center=cb.center))

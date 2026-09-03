@@ -4,9 +4,12 @@ module render_*.py/hud.py chỉ cần nhận `state` để đọc dữ liệu c�
 vì main.py cũ nhồi tất cả (world, colony, camera, toolbar, render, vòng
 lặp...) vào 1 hàm main() 900 dòng dùng closures.
 """
+import math
 import os
 import pickle
+import random
 import sys
+from collections import deque
 
 import numpy as np
 import pygame
@@ -112,22 +115,42 @@ class GameState:
         # thường); > 0 = đang mờ dần, đếm ngược mỗi khung hình render tới 0.
         self.layer_fade_tick = 0
 
-        # Đang lập tổ (xem cfg.FOUNDING_MODE_ENABLED): mặc định camera +
-        # tầng đang xem trỏ vào MẶT ĐẤT trống trơn - vì lúc này chưa có
-        # con thợ nào để thấy, người chơi sẽ tưởng nhầm là game bị lỗi/
-        # trống rỗng nếu không được đưa thẳng xuống chỗ chúa ngay từ đầu.
-        # Tự động focus vào "Phòng chúa" (nơi con chúa DUY NHẤT đang ở,
-        # xem draw_queen trong render_underground.py - luôn vẽ chúa bất kể
-        # dân số) với zoom vừa đủ để nhìn rõ cả phòng.
+        # Đang lập tổ (xem cfg.FOUNDING_MODE_ENABLED): trước khi có bất kỳ
+        # con thợ nào, chúa TỰ ĐI TÌM CHỖ trên mặt đất rồi mới đào hang lập
+        # tổ - THAY VÌ đã được đặt sẵn yên vị trong 1 hốc lập tổ có sẵn.
+        # Toàn bộ trình tự "đi bộ -> đào xuống -> chuyển camera vào lòng
+        # đất" do update_queen_founding() (gọi mỗi tick từ step_simulation)
+        # điều khiển - xem hàm đó để biết chi tiết từng giai đoạn.
+        self.queen_walk_active = False
+        self.queen_walk_x = 0.0
+        self.queen_walk_y = 0.0
+        self.queen_walk_target = None
+        self.queen_walk_hops_left = 0
+        self.queen_has_wings = False
+        self.queen_dig_timer = 0
+        # 3 THAM SỐ CHỈNH ĐƯỢC TRONG GAME (panel "Điều khiển lập tổ", chỉ
+        # hiện lúc queen_walk_active=True - xem hud.draw_founding_controls)
+        # - khởi tạo bằng giá trị mặc định trong config.py, nhưng LƯU RIÊNG
+        # ở đây (không sửa thẳng cfg.*) để chỉnh trong game không ảnh
+        # hưởng ván sau/game khác đang mở.
+        self.queen_walk_speed = cfg.QUEEN_WALK_SPEED
+        self.queen_wander_radius = cfg.QUEEN_WALK_RADIUS
+        self.queen_dig_speed_mult = 1.0
+
         if self.colony.founding_phase:
-            self.current_layer = cfg.DEPTH_QUEEN
-            qx, qy = self.underground_world.queen_room
-            self.camera.cx, self.camera.cy = float(qx), float(qy)
-            # Zoom tính theo HỐC LẬP TỔ nhỏ (ROOM_RADIUS_FOUNDING_CHAMBER),
-            # KHÔNG phải "Phòng chúa" đầy đủ (ROOM_RADIUS_QUEEN, to hơn gần
-            # 5 lần) - xem giải thích trong config.py. Zoom gần hơn hẳn so
-            # với phòng chúa trưởng thành vì hốc lúc này bé tí.
-            self.camera.zoom = 3.8
+            self.queen_walk_active = True
+            nx, ny = cfg.NEST_POS
+            self.queen_walk_x, self.queen_walk_y = float(nx), float(ny)
+            self.queen_walk_hops_left = random.randint(cfg.QUEEN_WALK_HOPS_MIN, cfg.QUEEN_WALK_HOPS_MAX)
+            self.queen_walk_target = self._pick_queen_walk_target()
+            self.queen_has_wings = True
+            self.current_layer = 0
+            self.camera.cx, self.camera.cy = self.queen_walk_x, self.queen_walk_y
+            # Zoom vừa đủ để thấy hết bán kính lượn quanh (QUEEN_WALK_RADIUS)
+            # mà vẫn thấy rõ chính con chúa - gần hơn hẳn zoom mặc định lúc
+            # chơi bình thường (1.0) nhưng KHÔNG sát bằng zoom lúc chúa đã
+            # yên vị trong hốc lập tổ chật hẹp dưới lòng đất (3.8).
+            self.camera.zoom = 2.4
 
         # --- Trạng thái công cụ / thời gian mô phỏng ---
         self.current_tool = None  # None | "food" | "enemy" | "rock" | "water" | "erase" | "follow"
@@ -140,6 +163,18 @@ class GameState:
         self.frame_counter = 0
         self.history_tick = 0
         self.pop_history_main = []
+
+        # --- Camera "TỰ LÁI" (chế độ ngắm cảnh - xem cfg.CRUISE_* và
+        # update_camera_cruise()/touch_activity() bên dưới) ---
+        self.cruise_enabled = True   # bật SẴN - nhưng CHỈ thực sự kích
+                                      # hoạt sau khi rảnh tay đủ lâu (xem
+                                      # cfg.CRUISE_IDLE_TICKS), không làm
+                                      # phiền gì trong lúc đang thao tác
+        self.cruise_active = False
+        self.last_activity_tick = 0
+        self.cruise_waypoints = []
+        self.cruise_idx = 0
+        self.cruise_hold_timer = 0
 
         # --- Game Over (tổ tuyệt chủng) - xem check_alerts()/_trigger_game_over()
         # /restart_game() bên dưới - trước đây khi dân số về 0 game chỉ
@@ -156,6 +191,28 @@ class GameState:
                                      # báo khi CHUYỂN từ bình thường -> có vấn
                                      # đề (không báo liên tục mỗi frame khi
                                      # tình trạng đó vẫn đang tiếp diễn)
+
+        # --- NHẬT KÝ SỰ KIỆN ("Nhật ký sự kiện" panel - xem
+        # hud.draw_event_log()) - ghi lại các cột mốc/biến cố đáng chú ý
+        # (mốc dân số, chiến sự, chúa lập tổ...) kèm VỊ TRÍ TRONG THẾ GIỚI
+        # để BẬT "Tự động ghé xem sự kiện" (xem toggle_auto_visit_events)
+        # có chỗ để đưa camera tới. Khác với self.toasts (chỉ hiện thoáng
+        # qua vài giây rồi biến mất) - self.events GIỮ LẠI lịch sử lâu dài
+        # (tối đa 40 mục gần nhất) để xem lại bất cứ lúc nào. ---
+        self.events = deque(maxlen=40)
+        self.auto_visit_events = False  # mặc định TẮT - tránh camera tự ý
+                                         # nhảy đi trong lúc người chơi
+                                         # đang chủ động ngắm 1 chỗ nào đó
+        self._pop_milestones = [10, 25, 50, 100, 200, 400, 800, 1600, 3200]
+        self._next_milestone_idx = 0
+
+        if self.queen_walk_active:
+            self.add_toast(
+                "Kiến chúa vừa hạ cánh sau chuyến bay giao phối - đang đi tìm chỗ lập tổ...",
+                color=(230, 200, 230),
+            )
+            self.log_event("Chúa hạ cánh sau chuyến bay giao phối, bắt đầu tìm chỗ lập tổ",
+                            pos=(self.queen_walk_x, self.queen_walk_y), layer=0, color=(230, 200, 230))
 
         self.DRAG_TOOLS = {"food", "rock", "water", "erase"}
         self.DRAG_PLACE_INTERVAL_FRAMES = 6
@@ -398,6 +455,173 @@ class GameState:
     def is_following(self):
         return self.follow_colony is not None and self.follow_idx is not None
 
+    # ------------------------------------------------------------------
+    # KIẾN CHÚA TỰ TÌM CHỖ RỒI ĐÀO HANG LẬP TỔ (xem cfg.QUEEN_WALK_*)
+    # ------------------------------------------------------------------
+    def adjust_queen_walk_speed(self, delta):
+        self.queen_walk_speed = max(cfg.QUEEN_WALK_SPEED_MIN,
+                                     min(cfg.QUEEN_WALK_SPEED_MAX, self.queen_walk_speed + delta))
+
+    def adjust_queen_dig_speed_mult(self, delta):
+        self.queen_dig_speed_mult = max(cfg.QUEEN_DIG_SPEED_MULT_MIN,
+                                         min(cfg.QUEEN_DIG_SPEED_MULT_MAX, self.queen_dig_speed_mult + delta))
+
+    def adjust_queen_wander_radius(self, delta):
+        self.queen_wander_radius = max(cfg.QUEEN_WALK_RADIUS_MIN,
+                                        min(cfg.QUEEN_WALK_RADIUS_MAX, self.queen_wander_radius + delta))
+
+    def adjust_queen_walk_hops(self, delta):
+        self.queen_walk_hops_left = max(cfg.QUEEN_WALK_HOPS_STEP_MIN,
+                                         min(cfg.QUEEN_WALK_HOPS_STEP_MAX, self.queen_walk_hops_left + delta))
+
+    def _pick_queen_walk_target(self):
+        """Chọn 1 điểm dừng MỚI, NGẪU NHIÊN quanh lỗ tổ (trong bán kính
+        self.queen_wander_radius - CHỈNH ĐƯỢC trong game, mặc định
+        cfg.QUEEN_WALK_RADIUS) cho chúa đi tới tiếp theo - né đá/nước
+        (is_blocked) và không đi ra ngoài rìa bản đồ, giống hệt cách thợ
+        né vật cản khi kiếm ăn, để chúa không "chui" vào đá."""
+        nx, ny = cfg.NEST_POS
+        for _ in range(12):  # thử tối đa 12 lần, không kẹt vô hạn nếu xui
+            ang = random.uniform(0, 2 * math.pi)
+            dist = random.uniform(0.5, 1.0) * self.queen_wander_radius
+            tx = nx + dist * math.cos(ang)
+            ty = ny + dist * math.sin(ang)
+            tx = max(1.0, min(cfg.GRID_SIZE - 2.0, tx))
+            ty = max(1.0, min(cfg.GRID_SIZE - 2.0, ty))
+            if not self.surface_world.is_blocked(int(tx), int(ty)):
+                return (tx, ty)
+        return (float(nx), float(ny))  # xui hết 12 lần -> quay về lỗ tổ, an toàn
+
+    def update_queen_founding(self):
+        """Gọi 1 LẦN MỖI TICK mô phỏng (từ step_simulation) trong SUỐT giai
+        đoạn chúa còn đang trên mặt đất tìm chỗ/đào hang - TỰ TẮT
+        (queen_walk_active=False) ngay khi đào xong, từ đó về sau không
+        còn tốn gì mỗi tick nữa. 3 giai đoạn tuần tự:
+        1) "walking": đi qua vài điểm dừng ngẫu nhiên quanh lỗ tổ (như
+           đang "dò dẫm" tìm chỗ tốt), tốc độ = self.queen_walk_speed -
+           bỏ cánh (queen_has_wings=False) ngay khi tới điểm dừng ĐẦU
+           TIÊN, đúng thực tế (chúa rụng cánh ngay sau khi hạ cánh, không
+           giữ mãi).
+        2) "digging": hết điểm dừng cuối cùng (self.queen_walk_hops_left)
+           -> đứng yên tại chỗ, đếm ngược cfg.QUEEN_DIG_TICKS mỗi tick
+           TRỪ ĐI self.queen_dig_speed_mult (mặc định 1.0 = đúng bằng
+           QUEEN_DIG_TICKS tick như cũ; >1.0 = đào NHANH hơn).
+        3) xong: chuyển camera + tầng đang xem xuống thẳng Phòng chúa dưới
+           lòng đất, y hệt trình tự __init__ trước đây làm ngay từ đầu."""
+        if not self.queen_walk_active:
+            return
+        if self.queen_dig_timer > 0:
+            self.queen_dig_timer -= self.queen_dig_speed_mult
+            if self.queen_dig_timer <= 0:
+                self.queen_dig_timer = 0
+                self.queen_walk_active = False
+                self.current_layer = cfg.DEPTH_QUEEN
+                qx, qy = self.underground_world.queen_room
+                self.camera.cx, self.camera.cy = float(qx), float(qy)
+                self.camera.zoom = 3.8
+                self.trigger_layer_fade()
+                self.add_toast("Chúa đã đào xong hang - bắt đầu đẻ lứa trứng đầu tiên!",
+                                color=(230, 200, 230))
+                self.log_event("Chúa đã đào xong hang, bắt đầu đẻ lứa trứng đầu tiên",
+                                pos=(qx, qy), layer=cfg.DEPTH_QUEEN, color=(230, 200, 230))
+            return
+        tx, ty = self.queen_walk_target
+        dx, dy = tx - self.queen_walk_x, ty - self.queen_walk_y
+        dist = (dx * dx + dy * dy) ** 0.5
+        if dist < self.queen_walk_speed:
+            self.queen_walk_x, self.queen_walk_y = tx, ty
+            self.queen_has_wings = False  # rụng cánh ngay sau điểm dừng đầu tiên
+            self.queen_walk_hops_left -= 1
+            if self.queen_walk_hops_left <= 0:
+                self.queen_dig_timer = cfg.QUEEN_DIG_TICKS
+                self.add_toast("Chúa đã chọn được chỗ ưng ý - bắt đầu đào hang...",
+                                color=(230, 200, 230))
+                self.log_event("Chúa đã chọn được chỗ ưng ý, bắt đầu đào hang",
+                                pos=(self.queen_walk_x, self.queen_walk_y), layer=0, color=(230, 200, 230))
+            else:
+                self.queen_walk_target = self._pick_queen_walk_target()
+        else:
+            self.queen_walk_x += dx / dist * self.queen_walk_speed
+            self.queen_walk_y += dy / dist * self.queen_walk_speed
+
+    def update_queen_walk_camera(self):
+        """Gọi 1 lần mỗi khung hình render (không phải mỗi tick mô phỏng),
+        y hệt update_follow_camera() nhưng bám theo CHÚA đang đi tìm chỗ
+        thay vì 1 con kiến - để người chơi luôn thấy chúa trong khung hình
+        suốt quá trình lập tổ mà không cần tự kéo camera."""
+        if not self.queen_walk_active:
+            return
+        smooth = cfg.FOLLOW_CAMERA_SMOOTH
+        self.camera.cx += (self.queen_walk_x - self.camera.cx) * smooth
+        self.camera.cy += (self.queen_walk_y - self.camera.cy) * smooth
+
+    # ------------------------------------------------------------------
+    # CAMERA "TỰ LÁI" - chế độ ngắm cảnh kiểu screensaver, chỉ kích hoạt
+    # sau khi rảnh tay đủ lâu (xem cfg.CRUISE_*).
+    # ------------------------------------------------------------------
+    def toggle_cruise_enabled(self, btn):
+        self.cruise_enabled = not self.cruise_enabled
+        if not self.cruise_enabled:
+            self.cruise_active = False
+        btn.text = f"Camera tu lai (ranh tay): {'BAT' if self.cruise_enabled else 'TAT'}"
+        btn.active = self.cruise_enabled
+
+    def touch_activity(self):
+        """Gọi mỗi khi người chơi THỰC SỰ thao tác gì đó (bấm chuột, cuộn,
+        nhấn phím, kéo camera) - xem __main__.handle_events(). Reset đồng
+        hồ đếm rảnh tay, và NGẮT NGAY camera tự lái nếu đang chạy, trả lại
+        toàn quyền điều khiển cho người chơi ngay lập tức (không đợi tới
+        khi tới điểm dừng kế tiếp)."""
+        self.last_activity_tick = self.frame_counter
+        self.cruise_active = False
+
+    def _build_cruise_waypoints(self):
+        """Dựng danh sách điểm dừng để camera tự lái LƯỢN QUA: mặt đất
+        (nơi có lỗ tổ) + TẤT CẢ các phòng dưới hầm hiện có - thứ tự các
+        phòng dưới hầm được XÁO TRỘN NGẪU NHIÊN mỗi lần bắt đầu 1 vòng tự
+        lái mới, để không lặp lại y hệt tuyến đường quen thuộc mỗi lần."""
+        wps = [(float(cfg.NEST_POS[0]), float(cfg.NEST_POS[1]), 0, "Mặt đất")]
+        room_wps = [(float(center[0]), float(center[1]), depth, name)
+                    for (_id, name, center, _radius, _color, depth) in self.underground_world.rooms]
+        random.shuffle(room_wps)
+        wps.extend(room_wps)
+        self.cruise_waypoints = wps
+
+    def update_camera_cruise(self):
+        """Gọi 1 lần mỗi khung hình render (như update_follow_camera()) -
+        KHÔNG làm gì nếu: đang theo dõi 1 con kiến, đang giữa cảnh chúa lập
+        tổ (cả 2 đã tự có camera riêng), đang ở tab Mê cung, hoặc tính
+        năng đang tắt (self.cruise_enabled=False). Sau cfg.CRUISE_IDLE_TICKS
+        không thao tác gì, tự bắt đầu lượn êm ái qua từng phòng, dừng lại
+        ngắm mỗi phòng cfg.CRUISE_HOLD_TICKS trước khi sang phòng kế tiếp -
+        DỪNG NGAY (touch_activity()) chỉ với 1 thao tác bất kỳ của người
+        chơi."""
+        if (not self.cruise_enabled or self.is_following() or self.queen_walk_active
+                or self.active_tab != "sim"):
+            self.cruise_active = False
+            return
+        idle = self.frame_counter - self.last_activity_tick
+        if not self.cruise_active:
+            if idle < cfg.CRUISE_IDLE_TICKS:
+                return
+            self._build_cruise_waypoints()
+            if not self.cruise_waypoints:
+                return
+            self.cruise_active = True
+            self.cruise_idx = 0
+            self.cruise_hold_timer = cfg.CRUISE_HOLD_TICKS
+        wx, wy, wlayer, _name = self.cruise_waypoints[self.cruise_idx]
+        if self.current_layer != wlayer:
+            self.current_layer = wlayer
+            self.trigger_layer_fade()
+        smooth = cfg.CRUISE_CAMERA_SMOOTH
+        self.camera.cx += (wx - self.camera.cx) * smooth
+        self.camera.cy += (wy - self.camera.cy) * smooth
+        self.cruise_hold_timer -= 1
+        if self.cruise_hold_timer <= 0:
+            self.cruise_idx = (self.cruise_idx + 1) % len(self.cruise_waypoints)
+            self.cruise_hold_timer = cfg.CRUISE_HOLD_TICKS
+
     def update_follow_camera(self):
         """Gọi 1 lần mỗi khung hình render (không phải mỗi tick mô phỏng):
         nếu đang theo dõi 1 con kiến, tự chuyển sang đúng tầng nó đang ở và
@@ -447,6 +671,24 @@ class GameState:
             mang = " | dang mang: " + ("thuc an" if ct == 1 else "nuoc" if ct == 2 else "au trung/khac")
         return f"Theo doi: {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
 
+    def follow_next(self, direction):
+        """Chuyển sang theo dõi con kiến CÒN SỐNG kế tiếp (direction=+1) hoặc
+        trước đó (direction=-1) trong CÙNG đàn đang theo dõi, theo thứ tự
+        chỉ số - để "duyệt" qua từng con kiến liên tục mà không cần bấm
+        trúng chính xác từng con nhỏ xíu trên màn hình. Không làm gì nếu
+        hiện KHÔNG đang theo dõi con nào (nút bấm tương ứng chỉ hiện khi
+        đang theo dõi - xem hud.draw_ant_card)."""
+        if not self.is_following():
+            return
+        colony = self.follow_colony
+        alive_idx = np.where(colony.alive)[0]
+        if len(alive_idx) == 0:
+            self.stop_follow()
+            return
+        pos = np.searchsorted(alive_idx, self.follow_idx)
+        new_pos = int((pos + direction) % len(alive_idx))
+        self.start_follow(colony, int(alive_idx[new_pos]))
+
     # ------------------------------------------------------------------
     def switch_tab(self, name):
         """Chuyển giữa tab \"Mo phong\" (ván chơi chính) và \"Demo me cung\"
@@ -475,7 +717,12 @@ class GameState:
             panels = [p for p in (self.tab_panel, self.maze_panel) if p is not None]
         else:
             panels = [p for p in (self.tab_panel, self.toolbar_panel, self.stats_panel,
-                                   self.graph_panel, getattr(self, "layer_map_panel", None)) if p is not None]
+                                   self.graph_panel, getattr(self, "layer_map_panel", None),
+                                   getattr(self, "event_log_panel", None)) if p is not None]
+            if self.is_following() and getattr(self, "ant_panel", None) is not None:
+                panels = [self.ant_panel] + panels
+            if self.queen_walk_active and getattr(self, "founding_panel", None) is not None:
+                panels = [self.founding_panel] + panels
         if self.game_over and self.game_over_panel is not None:
             panels = [self.game_over_panel] + panels
         return panels
@@ -532,6 +779,58 @@ class GameState:
             t for t in self.toasts if self.frame_counter - t["created"] < cfg.TOAST_TTL_FRAMES
         ]
 
+    # ------------------------------------------------------------------
+    # NHẬT KÝ SỰ KIỆN + "tự động ghé xem" (xem giải thích self.events ở
+    # __init__ và hud.draw_event_log()).
+    # ------------------------------------------------------------------
+    def log_event(self, text, pos=None, layer=0, color=(220, 220, 225)):
+        """Ghi 1 mục vào Nhật ký sự kiện. `pos` là (x, y) trong thế giới
+        mô phỏng (None nếu sự kiện không gắn với 1 vị trí cụ thể nào, ví
+        dụ thông báo chung) - nếu có `pos` VÀ đang bật "Tự động ghé xem
+        sự kiện" (self.auto_visit_events) VÀ người chơi KHÔNG đang theo
+        dõi 1 con kiến cụ thể (is_following() - ưu tiên cái đó hơn), đưa
+        camera tới xem NGAY."""
+        self.events.append({"text": text, "tick": self.history_tick, "pos": pos,
+                             "layer": layer, "color": color})
+        if pos is not None and self.auto_visit_events and not self.is_following():
+            self.current_layer = layer
+            self.camera.cx, self.camera.cy = float(pos[0]), float(pos[1])
+
+    def toggle_auto_visit_events(self, btn):
+        self.auto_visit_events = not self.auto_visit_events
+        btn.text = f"Tu dong ghe xem su kien: {'BAT' if self.auto_visit_events else 'TAT'}"
+        btn.active = self.auto_visit_events
+
+    def jump_to_event(self, row_index):
+        """Bấm vào 1 dòng trong panel Nhật ký sự kiện -> đưa camera tới
+        đúng vị trí sự kiện đó (nếu có - 1 số sự kiện không gắn vị trí cụ
+        thể thì bấm không làm gì). `row_index` = thứ tự hiển thị TỪ TRÊN
+        XUỐNG trong panel (0 = mới nhất) - xem hud.draw_event_log() vẽ
+        đúng theo thứ tự này."""
+        recent = list(self.events)[::-1]
+        if row_index >= len(recent):
+            return
+        ev = recent[row_index]
+        if ev["pos"] is None:
+            return
+        self.stop_follow()
+        self.current_layer = ev["layer"]
+        self.camera.cx, self.camera.cy = float(ev["pos"][0]), float(ev["pos"][1])
+
+    def _check_population_milestones(self, population):
+        """Ghi 1 sự kiện + toast MỖI KHI dân số vừa VƯỢT QUA 1 mốc mới
+        trong self._pop_milestones (10/25/50/100/200...) - chỉ bắn ĐÚNG 1
+        LẦN cho mỗi mốc (self._next_milestone_idx chỉ tăng, không lùi lại
+        kể cả nếu dân số sau đó giảm xuống dưới mốc do chết chóc)."""
+        while (self._next_milestone_idx < len(self._pop_milestones)
+               and population >= self._pop_milestones[self._next_milestone_idx]):
+            m = self._pop_milestones[self._next_milestone_idx]
+            qx, qy = self.underground_world.queen_room
+            self.log_event(f"Tổ đã đạt {m} cá thể!", pos=(qx, qy), layer=cfg.DEPTH_QUEEN,
+                            color=(150, 220, 150))
+            self.add_toast(f"Cột mốc: tổ đã đạt {m} cá thể!", color=(150, 220, 150))
+            self._next_milestone_idx += 1
+
     def check_alerts(self):
         """So sánh các tình trạng quan trọng (đói/khát/kẻ thù/đàn ngoại lai/
         tuyệt chủng) với khung hình TRƯỚC - chỉ bắn ra 1 toast đúng lúc
@@ -557,13 +856,33 @@ class GameState:
             # vừa mở ván chơi mới.
             "main_extinct": (c["population"] == 0 and not c["founding_phase"], "To da tuyet chung!", col_bad),
         }
+        qx, qy = self.underground_world.queen_room
+        event_pos = {
+            "main_starving": ((qx, qy), cfg.DEPTH_QUEEN),
+            "main_dehydrated": ((qx, qy), cfg.DEPTH_QUEEN),
+            "enemy_active": ((self.enemy.x, self.enemy.y), 0),
+            "invasion_active": (cfg.NEST_POS, 0),
+            "main_extinct": ((qx, qy), cfg.DEPTH_QUEEN),
+        }
         for key, (active, msg, color) in flags.items():
             was_active = self._prev_alert_flags.get(key, False)
             if active and not was_active:
                 self.add_toast(msg, color)
+                pos, layer = event_pos.get(key, (None, 0))
+                self.log_event(msg, pos=pos, layer=layer, color=color)
                 if key == "main_extinct" and not self.game_over:
                     self._trigger_game_over()
             self._prev_alert_flags[key] = active
+
+        if not c["founding_phase"]:
+            self._check_population_milestones(c["population"])
+
+        if self._prev_alert_flags.get("_was_founding", False) and not c["founding_phase"]:
+            qx, qy = self.underground_world.queen_room
+            msg = "Lứa nanitic đầu tiên đã ra đời - tổ chính thức hoạt động!"
+            self.add_toast(msg, color=(150, 220, 150))
+            self.log_event(msg, pos=(qx, qy), layer=cfg.DEPTH_QUEEN, color=(150, 220, 150))
+        self._prev_alert_flags["_was_founding"] = c["founding_phase"]
 
     def _trigger_game_over(self):
         """Kích hoạt màn hình Game Over khi tổ CHÍNH THỨC tuyệt chủng (dân
@@ -629,6 +948,19 @@ class GameState:
             "food_respawn_tick": self.food_respawn_tick,
             "history_tick": self.history_tick,
             "pop_history_main": list(self.pop_history_main),
+            "queen_walk_active": self.queen_walk_active,
+            "queen_walk_x": self.queen_walk_x,
+            "queen_walk_y": self.queen_walk_y,
+            "queen_walk_target": self.queen_walk_target,
+            "queen_walk_hops_left": self.queen_walk_hops_left,
+            "queen_has_wings": self.queen_has_wings,
+            "queen_dig_timer": self.queen_dig_timer,
+            "queen_walk_speed": self.queen_walk_speed,
+            "queen_wander_radius": self.queen_wander_radius,
+            "queen_dig_speed_mult": self.queen_dig_speed_mult,
+            "events": list(self.events),
+            "auto_visit_events": self.auto_visit_events,
+            "next_milestone_idx": self._next_milestone_idx,
         }
         try:
             tmp_path = SAVE_PATH + ".tmp"
@@ -676,6 +1008,24 @@ class GameState:
             self.food_respawn_tick = data.get("food_respawn_tick", 0)
             self.history_tick = data.get("history_tick", 0)
             self.pop_history_main = list(data.get("pop_history_main", []))
+            # File lưu TỪ BẢN CŨ hơn (trước khi có chúa tự đi tìm chỗ) sẽ
+            # không có các trường queen_walk_* này - .get(..., False/mặc
+            # định an toàn) để KHÔNG crash, coi như chúa (nếu đang lập tổ)
+            # đã yên vị ngay tại lỗ tổ như hành vi cũ.
+            self.queen_walk_active = data.get("queen_walk_active", False)
+            nx, ny = cfg.NEST_POS
+            self.queen_walk_x = data.get("queen_walk_x", float(nx))
+            self.queen_walk_y = data.get("queen_walk_y", float(ny))
+            self.queen_walk_target = data.get("queen_walk_target", (float(nx), float(ny)))
+            self.queen_walk_hops_left = data.get("queen_walk_hops_left", 0)
+            self.queen_has_wings = data.get("queen_has_wings", False)
+            self.queen_dig_timer = data.get("queen_dig_timer", 0)
+            self.queen_walk_speed = data.get("queen_walk_speed", cfg.QUEEN_WALK_SPEED)
+            self.queen_wander_radius = data.get("queen_wander_radius", cfg.QUEEN_WALK_RADIUS)
+            self.queen_dig_speed_mult = data.get("queen_dig_speed_mult", 1.0)
+            self.events = deque(data.get("events", []), maxlen=40)
+            self.auto_visit_events = data.get("auto_visit_events", False)
+            self._next_milestone_idx = data.get("next_milestone_idx", 0)
             self.stop_follow()  # tránh tham chiếu "lơ lửng" tới đàn kiến cũ
             self._prev_alert_flags = {}  # để tình trạng cảnh báo tính lại
                                           # đúng từ đầu, không báo nhầm ngay
@@ -692,6 +1042,7 @@ class GameState:
         lai (nếu đang có đợt xâm nhập), tái sinh thức ăn, lấy mẫu lịch sử
         dân số cho biểu đồ. Gọi sim_speed lần mỗi khung hình."""
         was_founding = self.colony.founding_phase
+        self.update_queen_founding()
         self.colony.update(enemy=self.enemy, invasion=self.invasion)
         if was_founding and not self.colony.founding_phase:
             # Vừa chuyển giao xong (đủ FOUNDING_NANITIC_TARGET thợ đầu

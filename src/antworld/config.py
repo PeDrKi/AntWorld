@@ -522,6 +522,15 @@ TROPHALLAXIS_TTL_TICKS = 22  # 1 "khoảnh khắc mớm mồi" (xem
                              # dần) - ngắn, chỉ là 1 điểm nhấn thoáng qua
                              # chứ không phải hiệu ứng thường trực
 
+GROOMING_DISTANCE = 0.3     # 2 con kiến RẢNH RỖI (STATE_DWELL) đứng cách
+                             # nhau trong bán kính này (đơn vị ô mô phỏng)
+                             # thì THỈNH THOẢNG được vẽ lấp lánh "chải
+                             # chuốt" (grooming) - xem
+                             # render_underground.draw_ant_social_fx().
+                             # Hiệu ứng THUẦN HIỂN THỊ, tính lại mỗi khung
+                             # hình từ vị trí hiện tại - KHÔNG lưu state gì
+                             # mới vào AntColony, không ảnh hưởng mô phỏng.
+
 # ----- Đàn kiến ngoại lai (xâm nhập theo đợt, không có tổ cố định) -----
 # Thay vì nuôi song song 1 tổ đối thủ tồn tại vĩnh viễn, bản đồ giờ chỉ có
 # ĐÚNG 1 tổ (của người chơi). Thỉnh thoảng 1 đàn kiến LẠ (không có tổ/nhà
@@ -774,11 +783,48 @@ EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG ph�
 # như lập tổ THÀNH CÔNG, chuyển hẳn sang luật chơi bình thường (đẻ trứng
 # lại cần kho thức ăn như cũ).
 # =======================================================================
-FOUNDING_MODE_ENABLED = False  # bật thử bằng cách đổi True - UI bật/tắt
-                             # trong menu sẽ làm ở bước sau; giá trị này
-                             # CHỈ áp dụng cho tổ CHÍNH (người chơi), tổ
-                             # đối thủ luôn bắt đầu đã ổn định như cũ để
-                             # tránh cả 2 tổ cùng yếu ớt lúc mở màn.
+FOUNDING_MODE_ENABLED = True  # BẬT MẶC ĐỊNH - đúng thực tế: mọi ván LUÔN
+                             # bắt đầu từ 1 kiến chúa tự đi tìm chỗ rồi
+                             # đào hang lập tổ (xem QUEEN_WALK_* ngay dưới
+                             # đây), không có tổ nào "đã có sẵn thợ" ngay
+                             # từ đầu như trước - CHỈ áp dụng cho tổ CHÍNH
+                             # (người chơi), tổ đối thủ luôn bắt đầu đã ổn
+                             # định như cũ để tránh cả 2 tổ cùng yếu ớt lúc
+                             # mở màn.
+QUEEN_WALK_SPEED = 0.045       # ô/tick MẶC ĐỊNH - CHẬM hơn hẳn ANT_SPEED
+                             # (0.14) vì chúa đang "dò dẫm" tìm chỗ tốt để
+                             # đào hang, không vội vã như thợ kiếm ăn.
+                             # Chỉnh được TRONG GAME lúc đang lập tổ (xem
+                             # panel "Điều khiển lập tổ" trong hud.py) -
+                             # 2 hằng số MIN/MAX dưới đây là giới hạn của
+                             # thanh trượt đó.
+QUEEN_WALK_SPEED_MIN = 0.015
+QUEEN_WALK_SPEED_MAX = 0.18
+QUEEN_WALK_HOPS_MIN = 3         # đi qua ÍT NHẤT bấy nhiêu điểm dừng ngẫu
+QUEEN_WALK_HOPS_MAX = 6         # nhiên (nhiều nhất) trước khi CHỌN chỗ
+                             # cuối cùng và bắt đầu đào - tạo cảm giác
+                             # chúa đang "cân nhắc" thay vì đào ngay tại
+                             # chỗ hạ cánh. Số điểm dừng CÒN LẠI cũng chỉnh
+                             # được trong game bằng nút +/- (giới hạn
+                             # QUEEN_WALK_HOPS_STEP_MIN/MAX bên dưới).
+QUEEN_WALK_HOPS_STEP_MIN = 0
+QUEEN_WALK_HOPS_STEP_MAX = 15
+QUEEN_WALK_RADIUS = 3.5 * ROOM_LAYOUT_SCALE  # bán kính lượn quanh vị trí
+                             # lỗ tổ (NEST_POS) khi tìm chỗ MẶC ĐỊNH - đủ
+                             # gần để người chơi luôn thấy chúa trong
+                             # khung hình. Cũng chỉnh được trong game.
+QUEEN_WALK_RADIUS_MIN = 1.0 * ROOM_LAYOUT_SCALE
+QUEEN_WALK_RADIUS_MAX = 8.0 * ROOM_LAYOUT_SCALE
+QUEEN_DIG_TICKS = 200           # ~3.3 giây ở 60 FPS MẶC ĐỊNH - khoảng dừng
+                             # "đang đào xuống" trước khi chuyển hẳn vào
+                             # lòng đất (camera tự động đưa xuống Phòng
+                             # chúa). TỐC ĐỘ đào thực tế = QUEEN_DIG_TICKS
+                             # / queen_dig_speed_mult (chỉnh được trong
+                             # game, xem GameState.queen_dig_speed_mult) -
+                             # mult=1.0 (mặc định) đúng bằng QUEEN_DIG_TICKS
+                             # tick, mult=2.0 thì NHANH GẤP ĐÔI, v.v.
+QUEEN_DIG_SPEED_MULT_MIN = 0.25
+QUEEN_DIG_SPEED_MULT_MAX = 4.0
 QUEEN_INITIAL_ENERGY = 600.0   # dự trữ ban đầu - đủ dùng THOẢI MÁI ở tốc
                              # độ tiêu hao mặc định bên dưới (không thiết
                              # kế để dễ "thua ngay từ đầu" - đây là mảng
@@ -956,6 +1002,23 @@ FOLLOW_AUTO_ZOOM = 2.4       # khi BẮT ĐẦU theo dõi 1 con kiến, tự ph�
                              # nhìn rõ "từng chút một" ngay lập tức - nếu
                              # đang zoom gần hơn mức này rồi thì giữ nguyên,
                              # không tự thu nhỏ lại
+
+# ----- Camera "TỰ LÁI" (chế độ ngắm cảnh kiểu screensaver) - xem
+# GameState.update_camera_cruise()/touch_activity(): sau 1 khoảng KHÔNG
+# thao tác gì (chuột/phím), camera tự nhẹ nhàng lượn qua từng phòng của
+# tổ để "mời" người chơi ngồi ngắm mà không cần tự lái - CHỈ kích hoạt
+# lúc THỰC SỰ rảnh tay (không đang theo dõi 1 con kiến, không đang giữa
+# cảnh chúa lập tổ - 2 cái đó đã tự có camera riêng) và DỪNG NGAY lập
+# tức, trả quyền lại cho người chơi, chỉ với 1 cái chạm chuột/phím bất kỳ. -----
+CRUISE_IDLE_TICKS = 20 * FPS    # ~20 giây không thao tác gì thì bắt đầu
+                             # tự lái
+CRUISE_HOLD_TICKS = 8 * FPS     # dừng lại ngắm mỗi phòng khoảng bấy
+                             # nhiêu tick (~8 giây) trước khi lượn sang
+                             # phòng kế tiếp
+CRUISE_CAMERA_SMOOTH = 0.02     # lượn CHẬM RÃI, êm hơn hẳn lúc theo dõi
+                             # 1 con kiến (FOLLOW_CAMERA_SMOOTH=0.15) -
+                             # đúng tinh thần "ngồi ngắm" nhàn tản, không
+                             # vội vã
 
 # ----- Lưu / tải ván chơi -----
 SAVE_FILE_NAME = "antworld_savegame.pkl"  # lưu ngay cạnh main.py (1 slot

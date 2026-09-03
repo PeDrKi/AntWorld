@@ -254,11 +254,11 @@ class TestSpriteFrames(unittest.TestCase):
     def test_pixels_property_reads_current_frame(self):
         st = fresh_state()
         sp = st.sp()
-        sp.frames.append([None] * (sp.size * sp.size))
+        sp.frames.append(sp._blank_frame())
         sp.frame_idx = 1
         sp.pixels[0] = "#abcdef"
-        self.assertEqual(sp.frames[1][0], "#abcdef")
-        self.assertIsNone(sp.frames[0][0])
+        self.assertEqual(sp.frames[1]["layers"][0].pixels[0], "#abcdef")
+        self.assertIsNone(sp.frames[0]["layers"][0].pixels[0])
 
     def test_add_frame_copies_current_by_default(self):
         st = fresh_state()
@@ -315,8 +315,8 @@ class TestSpriteFrames(unittest.TestCase):
         # frame 0 = #111111, frame 1 (dang chon) = #222222
         self.assertTrue(sp.move_frame(-1))
         self.assertEqual(sp.frame_idx, 0)
-        self.assertEqual(sp.frames[0][0], "#222222")  # da doi cho noi dung
-        self.assertEqual(sp.frames[1][0], "#111111")
+        self.assertEqual(sp.frames[0]["layers"][0].pixels[0], "#222222")  # da doi cho noi dung
+        self.assertEqual(sp.frames[1]["layers"][0].pixels[0], "#111111")
 
     def test_move_frame_out_of_bounds_returns_false_and_no_change(self):
         st = fresh_state()
@@ -360,8 +360,8 @@ class TestFrameHistorySnapshot(unittest.TestCase):
         st.push_history()
         st.set_pixel(1, 1, "#222222")
         st.undo()
-        self.assertIsNone(sp.frames[1][1 * sp.size + 1])
-        self.assertEqual(sp.frames[0][0], "#111111")  # khung 0 khong bi anh huong
+        self.assertIsNone(sp.frames[1]["layers"][0].pixels[1 * sp.size + 1])
+        self.assertEqual(sp.frames[0]["layers"][0].pixels[0], "#111111")  # khung 0 khong bi anh huong
 
 
 class TestAppFrameActions(unittest.TestCase):
@@ -453,7 +453,7 @@ class TestAppFrameActions(unittest.TestCase):
         pe.state.set_pixel(0, 0, "#222222")
         self.app.move_frame_left()
         self.assertEqual(pe.state.sp().frame_idx, 0)
-        self.assertEqual(pe.state.sp().frames[0][0], "#222222")
+        self.assertEqual(pe.state.sp().frames[0]["layers"][0].pixels[0], "#222222")
 
     def test_dup_sprite_preserves_all_frames(self):
         self.app.add_frame()
@@ -532,6 +532,329 @@ class TestSpritesheetExport(unittest.TestCase):
                 self.assertEqual(img.get_size(), (16, 8), "Phai xuat DU CA 2 khung, khong chi khung dang xem")
             finally:
                 pe.SPRITES_DIR = orig_dir
+
+
+class TestLayers(unittest.TestCase):
+    """Sprite.add_layer()/delete_layer()/move_layer()/toggle_layer_visible()/
+    merge_layer_down() + composite() - he thong lop moi. sp.pixels van
+    tro toi LOP DANG CHON (tuong thich nguoc voi moi test o tren)."""
+
+    def test_new_sprite_starts_with_one_layer(self):
+        st = fresh_state()
+        self.assertEqual(len(st.sp().layers), 1)
+
+    def test_add_layer_becomes_active_and_starts_blank(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_layer()
+        self.assertEqual(len(sp.layers), 2)
+        self.assertEqual(sp.active_idx, 1)
+        self.assertTrue(all(c is None for c in sp.pixels))
+
+    def test_composite_merges_visible_layers_top_over_bottom(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_layer()
+        st.set_pixel(0, 0, "#222222")
+        st.set_pixel(1, 0, "#333333")
+        comp = sp.composite()
+        self.assertEqual(comp[0], "#222222")  # lop tren de len lop duoi
+        self.assertEqual(comp[1], "#333333")  # o rieng cua lop tren van hien
+
+    def test_hidden_layer_excluded_from_composite(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_layer()
+        st.set_pixel(0, 0, "#222222")
+        sp.toggle_layer_visible()  # an lop dang chon (lop tren)
+        comp = sp.composite()
+        self.assertEqual(comp[0], "#111111")  # chi con thay lop duoi
+
+    def test_delete_layer_refuses_when_only_one_left(self):
+        st = fresh_state()
+        sp = st.sp()
+        self.assertFalse(sp.delete_layer())
+        self.assertEqual(len(sp.layers), 1)
+
+    def test_delete_layer_removes_active_and_clamps_index(self):
+        st = fresh_state()
+        sp = st.sp()
+        sp.add_layer()
+        sp.add_layer()
+        self.assertEqual(sp.active_idx, 2)
+        self.assertTrue(sp.delete_layer())
+        self.assertEqual(len(sp.layers), 2)
+        self.assertEqual(sp.active_idx, 1)
+
+    def test_move_layer_swaps_order(self):
+        st = fresh_state()
+        sp = st.sp()
+        sp.layers[0].name = "Duoi"
+        sp.add_layer("Tren")
+        self.assertTrue(sp.move_layer(-1))
+        self.assertEqual([ly.name for ly in sp.layers], ["Tren", "Duoi"])
+
+    def test_merge_layer_down_combines_pixels_and_removes_top(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_layer()
+        st.set_pixel(1, 0, "#222222")
+        self.assertTrue(sp.merge_layer_down())
+        self.assertEqual(len(sp.layers), 1)
+        self.assertEqual(sp.layers[0].pixels[0], "#111111")
+        self.assertEqual(sp.layers[0].pixels[1], "#222222")
+
+    def test_add_frame_copies_all_layers(self):
+        st = fresh_state()
+        sp = st.sp()
+        sp.add_layer()
+        sp.add_frame(copy_current=True)
+        self.assertEqual(len(sp.layers), 2, "Khung moi phai nhan ban DU CA 2 lop")
+
+    def test_undo_restores_layers_after_add_layer(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.push_history()
+        sp.add_layer()
+        self.assertEqual(len(sp.layers), 2)
+        st.undo()
+        self.assertEqual(len(sp.layers), 1)
+
+    def test_clear_canvas_via_app_clears_every_layer(self):
+        orig_state = pe.state
+        pe.state = pe.AppState()
+        pe.state.new_sprite("test_sprite", 8, "Test")
+        pe.state.current = "test_sprite"
+        try:
+            app = pe.App()
+            sp = pe.state.sp()
+            pe.state.set_pixel(0, 0, "#111111")
+            sp.add_layer()
+            pe.state.set_pixel(1, 0, "#222222")
+            app.clear_canvas()
+            self.assertTrue(all(c is None for c in sp.layers[0].pixels))
+            self.assertTrue(all(c is None for c in sp.layers[1].pixels))
+        finally:
+            pe.state = orig_state
+
+
+class TestSelection(unittest.TestCase):
+    """copy/cut/paste, lat, xoay, di chuyen vung chon - AppState.selection."""
+
+    def _select(self, st, x0, y0, x1, y1):
+        st.selection = (x0, y0, x1, y1)
+
+    def test_copy_selection_captures_block(self):
+        st = fresh_state()
+        st.set_pixel(1, 1, "#aaaaaa")
+        self._select(st, 1, 1, 2, 2)
+        st.copy_selection()
+        self.assertEqual(st.clipboard["w"], 2)
+        self.assertEqual(st.clipboard["h"], 2)
+        self.assertEqual(st.clipboard["pixels"][0], "#aaaaaa")
+
+    def test_cut_selection_clears_original_area(self):
+        st = fresh_state()
+        st.set_pixel(1, 1, "#aaaaaa")
+        self._select(st, 1, 1, 1, 1)
+        st.cut_selection()
+        self.assertIsNone(st.sp().pixels[1 * st.sp().size + 1])
+        self.assertEqual(st.clipboard["pixels"], ["#aaaaaa"])
+
+    def test_paste_selection_writes_clipboard_at_selection_origin(self):
+        st = fresh_state()
+        st.clipboard = {"w": 2, "h": 1, "pixels": ["#123456", "#654321"]}
+        self._select(st, 3, 3, 3, 3)
+        st.paste_selection()
+        size = st.sp().size
+        self.assertEqual(st.sp().pixels[3 * size + 3], "#123456")
+        self.assertEqual(st.sp().pixels[3 * size + 4], "#654321")
+
+    def test_flip_selection_horizontal(self):
+        st = fresh_state()
+        st.set_pixel(0, 0, "#111111")
+        st.set_pixel(1, 0, "#222222")
+        self._select(st, 0, 0, 1, 0)
+        st.flip_selection("h")
+        size = st.sp().size
+        self.assertEqual(st.sp().pixels[0], "#222222")
+        self.assertEqual(st.sp().pixels[1], "#111111")
+
+    def test_rotate_selection_90_requires_square(self):
+        st = fresh_state()
+        self._select(st, 0, 0, 2, 0)  # 3x1 - khong vuong
+        st.rotate_selection_90()  # khong duoc crash, chi bao khong xoay duoc
+        self.assertIsNotNone(st.selection)
+
+    def test_move_selection_shifts_content_and_selection(self):
+        st = fresh_state()
+        st.set_pixel(0, 0, "#111111")
+        self._select(st, 0, 0, 0, 0)
+        st.move_selection(2, 0)
+        size = st.sp().size
+        self.assertIsNone(st.sp().pixels[0])
+        self.assertEqual(st.sp().pixels[2], "#111111")
+        self.assertEqual(st.selection, (2, 0, 2, 0))
+
+
+class TestGradientAndReplace(unittest.TestCase):
+    def test_apply_gradient_interpolates_endpoints(self):
+        st = fresh_state()
+        st.color = "#000000"
+        st.color2 = "#ff0000"
+        st.apply_gradient(0, 0, 4, 0)
+        size = st.sp().size
+        self.assertEqual(st.sp().pixels[0], "#000000")
+        self.assertEqual(st.sp().pixels[4], "#ff0000")
+
+    def test_replace_color_changes_all_matching_pixels_globally(self):
+        st = fresh_state()
+        st.set_pixel(0, 0, "#111111")
+        st.set_pixel(5, 5, "#111111")
+        st.set_pixel(1, 1, "#222222")
+        n = st.replace_color("#111111", "#ffffff")
+        self.assertEqual(n, 2)
+        self.assertEqual(st.sp().pixels[0], "#ffffff")
+        self.assertEqual(st.sp().pixels[5 * st.sp().size + 5], "#ffffff")
+        self.assertEqual(st.sp().pixels[1 * st.sp().size + 1], "#222222")
+
+    def test_replace_color_no_op_when_same_color(self):
+        st = fresh_state()
+        st.set_pixel(0, 0, "#111111")
+        n = st.replace_color("#111111", "#111111")
+        self.assertEqual(n, 0)
+
+
+class TestBrushShapeCircle(unittest.TestCase):
+    def test_circle_brush_paints_fewer_cells_than_square_at_size_3(self):
+        st = fresh_state()
+        st.brush_size = 3
+        st.brush_shape = "circle"
+        st.paint_stamp(4, 4, "#ffffff")
+        painted = sum(1 for c in st.sp().pixels if c == "#ffffff")
+        self.assertLess(painted, 9)  # < vuong day du 9 o
+        self.assertGreater(painted, 0)
+
+    def test_square_brush_unaffected_by_shape_default(self):
+        st = fresh_state()
+        st.brush_size = 3
+        st.paint_stamp(4, 4, "#ffffff")  # brush_shape mac dinh "square"
+        painted = sum(1 for c in st.sp().pixels if c == "#ffffff")
+        self.assertEqual(painted, 9)
+
+
+class TestLayerOpacityAndMetadata(unittest.TestCase):
+    """opacity/composite blending, doi ten lop, mau nhan (color_tag)."""
+
+    def test_new_layer_defaults_full_opacity_no_tag(self):
+        st = fresh_state()
+        sp = st.sp()
+        self.assertEqual(sp.layers[0].opacity, 1.0)
+        self.assertIsNone(sp.layers[0].color_tag)
+
+    def test_full_opacity_top_layer_overwrites_bottom_exactly(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_layer()
+        st.set_pixel(0, 0, "#222222")
+        self.assertEqual(sp.composite()[0], "#222222")  # giong het hanh vi truoc khi co opacity
+
+    def test_half_opacity_blends_with_layer_below(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#000000")
+        sp.add_layer()
+        st.set_pixel(0, 0, "#ffffff")
+        sp.active_layer.opacity = 0.5
+        comp = sp.composite()
+        r, g, b = pe.hex_to_rgb(comp[0])
+        self.assertTrue(120 <= r <= 135)  # ~50% trang tren den -> xam ~0x80
+
+    def test_zero_opacity_layer_invisible_in_composite(self):
+        st = fresh_state()
+        sp = st.sp()
+        st.set_pixel(0, 0, "#111111")
+        sp.add_layer()
+        st.set_pixel(0, 0, "#ffffff")
+        sp.active_layer.opacity = 0.0
+        self.assertEqual(sp.composite()[0], "#111111")
+
+    def test_clone_preserves_opacity_and_color_tag(self):
+        st = fresh_state()
+        sp = st.sp()
+        sp.layers[0].opacity = 0.4
+        sp.layers[0].color_tag = "#e6c05a"
+        cloned = sp.layers[0].clone()
+        self.assertEqual(cloned.opacity, 0.4)
+        self.assertEqual(cloned.color_tag, "#e6c05a")
+
+    def test_app_rename_layer_via_textbox(self):
+        orig_state = pe.state
+        pe.state = pe.AppState()
+        pe.state.new_sprite("test_sprite", 8, "Test")
+        pe.state.current = "test_sprite"
+        try:
+            app = pe.App()
+            app.layer_rename_box.text = "Nét viền"
+            app.apply_layer_rename()
+            self.assertEqual(pe.state.sp().active_layer.name, "Nét viền")
+        finally:
+            pe.state = orig_state
+
+    def test_app_set_layer_opacity_from_slider_value(self):
+        orig_state = pe.state
+        pe.state = pe.AppState()
+        pe.state.new_sprite("test_sprite", 8, "Test")
+        pe.state.current = "test_sprite"
+        try:
+            app = pe.App()
+            app.set_layer_opacity(35)
+            self.assertAlmostEqual(pe.state.sp().active_layer.opacity, 0.35)
+        finally:
+            pe.state = orig_state
+
+    def test_app_cycle_layer_color_tag(self):
+        orig_state = pe.state
+        pe.state = pe.AppState()
+        pe.state.new_sprite("test_sprite", 8, "Test")
+        pe.state.current = "test_sprite"
+        try:
+            app = pe.App()
+            self.assertIsNone(pe.state.sp().layers[0].color_tag)
+            app.cycle_layer_color_tag(0)
+            self.assertEqual(pe.state.sp().layers[0].color_tag, pe.LAYER_TAG_COLORS[0])
+            for _ in range(len(pe.LAYER_TAG_COLORS)):
+                app.cycle_layer_color_tag(0)
+            self.assertIsNone(pe.state.sp().layers[0].color_tag)  # da xoay het 1 vong ve lai None
+        finally:
+            pe.state = orig_state
+
+
+class TestGradientPreviewHelper(unittest.TestCase):
+    """gradient_colors() - dung chung cho xem truoc va commit that."""
+
+    def test_gradient_colors_matches_apply_gradient_result(self):
+        st = fresh_state()
+        st.color = "#000000"
+        st.color2 = "#ff0000"
+        preview = {(x, y): c for x, y, c in st.gradient_colors(0, 0, 4, 0)}
+        st.apply_gradient(0, 0, 4, 0)
+        size = st.sp().size
+        for (x, y), c in preview.items():
+            self.assertEqual(st.sp().pixels[y * size + x], c)
+
+    def test_gradient_colors_endpoint_values(self):
+        st = fresh_state()
+        st.color = "#000000"
+        st.color2 = "#ff0000"
+        pts = list(st.gradient_colors(0, 0, 4, 0))
+        self.assertEqual(pts[0][2], "#000000")
+        self.assertEqual(pts[-1][2], "#ff0000")
 
 
 if __name__ == "__main__":

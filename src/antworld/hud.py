@@ -41,7 +41,8 @@ def build_toolbar(state):
     (vd đang resize cửa sổ), GIỮ NGUYÊN vị trí/trạng thái thu gọn người
     chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
     old_positions = {}
-    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel", "tab_panel", "maze_panel"):
+    for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel", "tab_panel", "maze_panel",
+                "ant_panel", "founding_panel", "event_log_panel"):
         p = getattr(state, key, None)
         if p is not None:
             old_positions[key] = (p.x, p.y, p.collapsed)
@@ -116,10 +117,14 @@ def build_toolbar(state):
     grid_btn = add_full_button("Luoi o vuong: BAT", None, "toggle", active=True, h=26)
     graph_btn = add_full_button("Bieu do: HIEN", None, "toggle", active=True, h=26)
     enemy_spawn_btn = add_full_button("Ke thu tu nhien: BAT", None, "toggle", active=True, h=26)
+    auto_visit_btn = add_full_button("Tu dong ghe xem su kien: TAT", None, "toggle", active=False, h=26)
+    cruise_btn = add_full_button("Camera tu lai (ranh tay): BAT", None, "toggle", active=True, h=26)
     respawn_btn.on_click = lambda: state.toggle_respawn(respawn_btn)
     grid_btn.on_click = lambda: state.toggle_grid(grid_btn)
     graph_btn.on_click = lambda: state.toggle_graph(graph_btn)
     enemy_spawn_btn.on_click = lambda: state.toggle_enemy_spawn(enemy_spawn_btn)
+    auto_visit_btn.on_click = lambda: state.toggle_auto_visit_events(auto_visit_btn)
+    cruise_btn.on_click = lambda: state.toggle_cruise_enabled(cruise_btn)
 
     cursor["y"] += 4
     add_section("DI CHUYEN TANG")
@@ -210,12 +215,74 @@ def build_toolbar(state):
     maze_panel.h = mcursor["y"] + 78  # + chỗ cho vài dòng giải thích ngắn (draw_maze_panel)
     state.maze_panel = maze_panel
 
-    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel, tab_panel, maze_panel]
+    # -------------------------------------------------------------------
+    # THẺ THÔNG TIN CON KIẾN ĐANG THEO DÕI ("Ant card") - CHỈ hiện khi
+    # đang theo dõi 1 con kiến cụ thể (xem GameState.visible_panels() và
+    # draw_ant_card()). Đặt mặc định GÓC DƯỚI-PHẢI (đối xứng với biểu đồ
+    # dân số ở góc dưới-trái) - vị trí này gần khung nhìn con kiến đang
+    # phóng to nhất mà vẫn không che sidebar công cụ bên phải.
+    # -------------------------------------------------------------------
+    ANT_PANEL_W = 300
+    ant_panel = Panel(state.SCREEN_W - ANT_PANEL_W - 10, state.SCREEN_H - 190 - 10,
+                       ANT_PANEL_W, 190, "Con kien dang theo doi")
+    nav_w = (ANT_PANEL_W - 20 - 2 * 8) / 3
+    ant_prev_btn = Button((0, 0, nav_w, 30), "< Con truoc", on_click=lambda: state.follow_next(-1), style="nav")
+    ant_next_btn = Button((0, 0, nav_w, 30), "Con tiep >", on_click=lambda: state.follow_next(1), style="nav")
+    ant_stop_btn = Button((0, 0, nav_w, 30), "Bo theo doi", on_click=lambda: state.stop_follow(), style="danger")
+    ant_prev_btn.bind_to_panel(ant_panel, 10, 128)
+    ant_next_btn.bind_to_panel(ant_panel, 10 + nav_w + 8, 128)
+    ant_stop_btn.bind_to_panel(ant_panel, 10 + 2 * (nav_w + 8), 128)
+    state.buttons += [ant_prev_btn, ant_next_btn, ant_stop_btn]
+    state.ant_panel = ant_panel
+
+    # -------------------------------------------------------------------
+    # ĐIỀU KHIỂN LẬP TỔ - CHỈ hiện trong lúc chúa còn đang trên mặt đất
+    # tìm chỗ/đào hang (queen_walk_active=True - xem GameState.
+    # update_queen_founding() và draw_founding_controls()). Cùng vị trí
+    # với ant_panel (không bao giờ hiện CÙNG LÚC - lúc chúa còn đang lập
+    # tổ thì chưa có con thợ nào để theo dõi).
+    # -------------------------------------------------------------------
+    FOUND_PANEL_W = 300
+    founding_panel = Panel(state.SCREEN_W - FOUND_PANEL_W - 10, state.SCREEN_H - 172 - 10,
+                            FOUND_PANEL_W, 172, "Điều khiển lập tổ")
+
+    def _found_row(rel_y, minus_cb, plus_cb):
+        minus_btn = Button((0, 0, 28, 26), "-", on_click=minus_cb, style="nav")
+        plus_btn = Button((0, 0, 28, 26), "+", on_click=plus_cb, style="nav")
+        minus_btn.bind_to_panel(founding_panel, 190, rel_y)
+        plus_btn.bind_to_panel(founding_panel, 190 + 28 + 6, rel_y)
+        state.buttons += [minus_btn, plus_btn]
+
+    _found_row(8, lambda: state.adjust_queen_walk_speed(-0.01), lambda: state.adjust_queen_walk_speed(0.01))
+    _found_row(42, lambda: state.adjust_queen_dig_speed_mult(-0.25), lambda: state.adjust_queen_dig_speed_mult(0.25))
+    _found_row(76, lambda: state.adjust_queen_wander_radius(-0.5 * cfg.ROOM_LAYOUT_SCALE),
+               lambda: state.adjust_queen_wander_radius(0.5 * cfg.ROOM_LAYOUT_SCALE))
+    _found_row(110, lambda: state.adjust_queen_walk_hops(-1), lambda: state.adjust_queen_walk_hops(1))
+    state.founding_panel = founding_panel
+
+    # -------------------------------------------------------------------
+    # NHẬT KÝ SỰ KIỆN - LUÔN hiện (không tùy thuộc trạng thái gì, khác
+    # ant_panel/founding_panel) - đặt vào khoảng trống giữa biểu đồ dân số
+    # (góc dưới-trái) và ant_panel/founding_panel (góc dưới-phải).
+    # -------------------------------------------------------------------
+    EVENT_LOG_W = 400
+    event_log_panel = Panel(8 + 310 + 12, state.SCREEN_H - 214 - 10, EVENT_LOG_W, 178, "Nhat ky su kien")
+    state.EVENT_LOG_MAX_ROWS = 6
+    for i in range(state.EVENT_LOG_MAX_ROWS):
+        row_btn = Button((0, 0, EVENT_LOG_W - 20, 20), "", on_click=(lambda ii=i: state.jump_to_event(ii)),
+                          style="default")
+        row_btn.bind_to_panel(event_log_panel, 10, 8 + i * 22)
+        state.buttons.append(row_btn)
+    state.event_log_panel = event_log_panel
+
+    state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel, tab_panel, maze_panel,
+                    ant_panel, founding_panel, event_log_panel]
 
     for key, panel in (
         ("toolbar_panel", toolbar_panel), ("stats_panel", stats_panel),
         ("graph_panel", graph_panel), ("layer_map_panel", layer_map_panel),
-        ("tab_panel", tab_panel), ("maze_panel", maze_panel),
+        ("tab_panel", tab_panel), ("maze_panel", maze_panel), ("ant_panel", ant_panel),
+        ("founding_panel", founding_panel), ("event_log_panel", event_log_panel),
     ):
         if key in old_positions:
             x, y, collapsed = old_positions[key]
@@ -432,14 +499,12 @@ def draw_hud(state, surf):
     if inv["active"]:
         warnings.append((f"*** DAN KIEN NGOAI LAI DANG XAM NHAP ({inv['raiders_left']} con) ***", COL_BAD))
 
-    follow_text = state.follow_status_text()
-
     LINE_H = 22
     # 4 dòng (dân số, tài nguyên, tổn thất, phân bố chức năng) - RIÊNG lúc
     # đang lập tổ (founding_phase) chỉ tốn 2 dòng gọn hơn (xem colony_block)
     # thay vì 4 dòng đầy số "0" vô nghĩa lúc chưa có kho/ấu trùng.
-    main_lines = 2 if c["founding_phase"] else 4
-    n_lines = main_lines + 2 + len(warnings) + (1 if follow_text else 0) + 1
+    main_lines = 2 if c["founding_phase"] else 5
+    n_lines = main_lines + 2 + len(warnings) + 1
     panel = state.stats_panel
     panel.h = max(90, LINE_H * n_lines + 20)
     panel.draw_frame(surf, state.font)
@@ -499,6 +564,28 @@ def draw_hud(state, surf):
             ])
             y[0] += LINE_H
 
+            # Thanh phần trăm PHÂN BỐ CHỨC NĂNG - giúp NHÌN MỘT PHÁT thấy tỉ
+            # lệ (kiếm ăn nhiều hơn hẳn/nuôi non đang thiếu người...) thay vì
+            # phải tự cộng nhẩm mấy con số ở dòng trên.
+            segments = [
+                (cdata["foragers_total"], COL_VALUE, "Kiem an"),
+                (cdata["nurses_total"], (255, 175, 205), "Cham au trung"),
+                (cdata["attendants_total"], (200, 150, 240), "Cham trung+chua"),
+                (cdata["guards_total"], (230, 150, 90), "Linh gac"),
+            ]
+            total_role = max(1, sum(s[0] for s in segments))
+            bar_x = cx + LX + 18
+            bar_w = panel.w - 2 * LX - 18 - 16
+            bar_h = LINE_H - 10
+            bx = bar_x
+            for count, color, _lbl in segments:
+                seg_w = round(bar_w * count / total_role)
+                if seg_w > 0:
+                    pygame.draw.rect(surf, color, (bx, y[0] + 2, seg_w, bar_h))
+                bx += seg_w
+            pygame.draw.rect(surf, (90, 90, 100), (bar_x, y[0] + 2, bar_w, bar_h), width=1)
+            y[0] += LINE_H
+
         colony_block("TO CHINH", COL_MAIN, c, colony)
 
         y[0] += 3
@@ -537,13 +624,6 @@ def draw_hud(state, surf):
             surf.blit(img, (cx + LX + 4, y[0]))
             y[0] += LINE_H
 
-        if follow_text:
-            follow_bg = get_flat_alpha_surface((panel.w - 2 * LX, LINE_H - 2), COL_FOLLOW_BG)
-            surf.blit(follow_bg, (cx + LX, y[0] - 1))
-            img = render_cached(state.font_hud, follow_text, COL_GOOD)
-            surf.blit(img, (cx + LX + 4, y[0]))
-            y[0] += LINE_H
-
         hint = "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat"
         img = render_cached(state.font_small, hint, (135, 135, 145))
         surf.blit(img, (cx + LX, y[0] + 2))
@@ -556,6 +636,190 @@ def draw_hud(state, surf):
     bg = get_flat_alpha_surface((lr.w + 16, lr.h + 10), (0, 0, 0, 150))
     surf.blit(bg, (lr.x - 8, lr.y - 5))
     surf.blit(label, lr)
+
+
+# ---------------------------------------------------------------------
+# Thẻ thông tin CON KIẾN ĐANG THEO DÕI - bản mô tả "đang làm gì" thân
+# thiện dựa trên state.STATE_* (xem config.py), thay vì chỉ hiện đúng 1
+# dòng số hiệu trạng thái khô khan như trước.
+# ---------------------------------------------------------------------
+STATE_ACTIVITY_LABELS = {
+    cfg.STATE_SEARCHING: "Đang tìm thức ăn trên mặt đất",
+    cfg.STATE_RETURNING: "Đang tha đồ về tổ",
+    cfg.STATE_UG_TO_STORAGE: "Đang mang đồ xuống kho",
+    cfg.STATE_UG_TO_SHAFT: "Đang quay lại giếng để lên mặt đất",
+    cfg.STATE_DWELL: "Đang lượn quanh trong phòng",
+    cfg.STATE_GUARD_DUTY: "Đang đứng gác",
+    cfg.STATE_GUARD_RUSH: "Đang lao lên mặt đất nghênh chiến!",
+    cfg.STATE_GUARD_RETURN: "Đang quay về sau khi giao chiến",
+    cfg.STATE_NURSE_AT_STORAGE: "Đang ở kho, chờ lấy thức ăn cho ấu trùng",
+    cfg.STATE_NURSE_TO_NURSERY: "Đang mang thức ăn sang phòng ấu trùng",
+    cfg.STATE_NURSE_AT_NURSERY: "Đang chăm ấu trùng",
+    cfg.STATE_NURSE_TO_STORAGE: "Đang quay lại kho lấy chuyến tiếp theo",
+    cfg.STATE_ATTENDANT_AT_QUEEN: "Đang túc trực cạnh chúa",
+    cfg.STATE_ATTENDANT_TO_EGG: "Đang di chuyển sang phòng trứng",
+    cfg.STATE_ATTENDANT_AT_EGG: "Đang trông trứng",
+    cfg.STATE_ATTENDANT_TO_QUEEN: "Đang quay lại phòng chúa",
+    cfg.STATE_UNDERTAKER_TO_CORPSE: "Đang đi khiêng xác đồng loại",
+    cfg.STATE_UNDERTAKER_TO_GRAVEYARD: "Đang mang xác về nghĩa địa",
+    cfg.STATE_HAUL_APPROACH: "Đang tới chỗ con mồi lớn",
+    cfg.STATE_HAUL_GRIP: "Đang chờ đồng đội cùng khiêng con mồi",
+}
+
+
+def _ant_role_label(colony, idx):
+    if bool(colony.is_guard[idx]):
+        return "Lính gác", COL_INVASION
+    job = int(colony.job[idx])
+    if job == cfg.JOB_NURSE:
+        return "Y tá (chăm ấu trùng)", (255, 175, 205)
+    if job == cfg.JOB_ATTENDANT:
+        return "Hộ vệ (chăm trứng/chúa)", (200, 150, 240)
+    return "Thợ kiếm ăn", COL_MAIN
+
+
+def draw_ant_card(state, surf):
+    """Vẽ THẺ THÔNG TIN con kiến đang theo dõi - panel riêng, chỉ hiện khi
+    state.is_following() (xem GameState.visible_panels()). Cung cấp góc
+    nhìn kiểu "đang ngồi ngắm 1 con kiến cụ thể": vai trò, đang làm gì,
+    tuổi (quy đổi ra thời gian thực để dễ hình dung), tầng, đang mang gì -
+    cùng 3 nút điều hướng CON TRƯỚC/CON TIẾP/BỎ THEO DÕI để "duyệt" qua
+    từng con kiến liên tục mà không cần bấm trúng chính xác từng con nhỏ
+    xíu trên màn hình."""
+    if not state.is_following():
+        return
+    panel = state.ant_panel
+    colony, idx = state.follow_colony, state.follow_idx
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    cx, cy = panel.content_pos()
+    LX = 10
+    LINE_H = 22
+    y = cy + 6
+
+    role_label, role_color = _ant_role_label(colony, idx)
+    _blit_row(surf, state.font_hud, cx + LX, y, [
+        ("Vai trò: ", COL_LABEL), (role_label, role_color),
+    ])
+    y += LINE_H
+
+    activity = STATE_ACTIVITY_LABELS.get(int(colony.state[idx]), "Đang di chuyển")
+    activity_bg = get_flat_alpha_surface((panel.w - 2 * LX, LINE_H - 2), COL_FOLLOW_BG)
+    surf.blit(activity_bg, (cx + LX, y - 1))
+    img = render_cached(state.font_hud, activity, COL_GOOD)
+    surf.blit(img, (cx + LX + 4, y))
+    y += LINE_H
+
+    age_secs = float(colony.age[idx]) / cfg.FPS
+    age_text = f"{age_secs / 60:.1f} phút" if age_secs >= 60 else f"{age_secs:.0f} giây"
+    _blit_row(surf, state.font_hud, cx + LX, y, [
+        ("Tuổi ", COL_LABEL), (f"{age_text}    ", COL_VALUE),
+        ("Tầng ", COL_LABEL), (f"{int(colony.depth[idx])}: {layer_name(int(colony.depth[idx]))}", COL_VALUE),
+    ])
+    y += LINE_H
+
+    if bool(colony.carrying[idx]):
+        ct = int(colony.carry_type[idx])
+        mang = "thức ăn" if ct == 1 else "nước" if ct == 2 else "ấu trùng/xác"
+        _blit_row(surf, state.font_hud, cx + LX, y, [
+            ("Đang mang: ", COL_LABEL), (mang, COL_FOOD if ct == 1 else COL_WATER if ct == 2 else COL_VALUE),
+        ])
+    else:
+        _blit_row(surf, state.font_hud, cx + LX, y, [("Đang không mang gì", COL_LABEL)])
+    y += LINE_H
+
+    hint = "Click con khác trên màn hình cũng đổi kiến theo dõi"
+    img = render_cached(state.font_small, hint, (135, 135, 145))
+    surf.blit(img, (cx + LX, y + 2))
+
+    for b in panel.children:
+        b.draw(surf, state.font)
+
+
+def draw_cruise_indicator(state, surf):
+    """Dòng chữ nhỏ NHẮC người chơi biết camera đang TỰ LÁI (không phải
+    họ tự kéo) - chỉ hiện khi state.cruise_active=True (xem
+    GameState.update_camera_cruise()), để không ai hoang mang tưởng
+    camera bị lỗi/tự nhiên trôi đi."""
+    if not state.cruise_active:
+        return
+    text = "🎥 Đang tự động ngắm cảnh - bấm chuột/phím bất kỳ để tự lái lại"
+    img = render_cached(state.font_hud, text, (210, 205, 190))
+    bg = pygame.Surface((img.get_width() + 20, img.get_height() + 12), pygame.SRCALPHA)
+    bg.fill((20, 18, 15, 170))
+    rect = bg.get_rect(midtop=(state.SCREEN_W // 2, 8))
+    surf.blit(bg, rect)
+    surf.blit(img, (rect.x + 10, rect.y + 6))
+
+
+def draw_event_log(state, surf):
+    """Vẽ panel Nhật ký sự kiện - LUÔN hiện (không tùy trạng thái gì).
+    Liệt kê tối đa state.EVENT_LOG_MAX_ROWS mục GẦN NHẤT (mới nhất trên
+    cùng), mỗi dòng kèm thời điểm (quy đổi tick -> phút:giây thực) - dòng
+    NÀO CÓ GẮN VỊ TRÍ thì bấm vào sẽ đưa camera tới đó ngay (xem
+    GameState.jump_to_event(), đã gắn sẵn nút click vô hình đè lên từng
+    dòng - xem build_toolbar())."""
+    panel = state.event_log_panel
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    cx, cy = panel.content_pos()
+    LX = 10
+    for b in panel.children:
+        b.draw(surf, state.font)
+    recent = list(state.events)[::-1]
+    if not recent:
+        img = render_cached(state.font_small, "Chưa có sự kiện nào - hãy chờ xem điều gì xảy ra...",
+                             (135, 135, 145))
+        surf.blit(img, (cx + LX, cy + 10))
+        return
+    for i in range(min(state.EVENT_LOG_MAX_ROWS, len(recent))):
+        ev = recent[i]
+        secs = ev["tick"] / cfg.FPS
+        tstamp = f"{int(secs // 60):02d}:{int(secs % 60):02d}"
+        text = f"[{tstamp}] {ev['text']}"
+        max_chars = 52
+        if len(text) > max_chars:
+            text = text[:max_chars - 1] + "…"
+        clickable = ev["pos"] is not None
+        color = ev["color"] if clickable else COL_LABEL
+        img = render_cached(state.font_hud, text, color)
+        surf.blit(img, (cx + LX, cy + 8 + i * 22 + 2))
+
+
+def draw_founding_controls(state, surf):
+    """Vẽ panel ĐIỀU KHIỂN LẬP TỔ - chỉ hiện trong lúc chúa còn đang trên
+    mặt đất tìm chỗ/đào hang (state.queen_walk_active - xem
+    GameState.update_queen_founding()). Cho phép chỉnh 4 tham số NGAY
+    TRONG GAME (không cần sửa config.py, không cần khởi động lại):
+    tốc độ đi, tốc độ đào, bán kính lượn quanh, số điểm dừng còn lại."""
+    if not state.queen_walk_active:
+        return
+    panel = state.founding_panel
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    cx, cy = panel.content_pos()
+    LX = 10
+    digging = state.queen_dig_timer > 0
+    rows = [
+        (f"Tốc độ đi: {state.queen_walk_speed:.3f} ô/tick", 8),
+        (f"Tốc độ đào: {state.queen_dig_speed_mult:.2f}x", 42),
+        (f"Bán kính lượn quanh: {state.queen_wander_radius:.1f} ô", 76),
+        (f"Số điểm dừng còn lại: {state.queen_walk_hops_left}"
+         + (" (đang đào, không áp dụng)" if digging else ""), 110),
+    ]
+    for text, rel_y in rows:
+        img = render_cached(state.font_hud, text, COL_LABEL if digging and rel_y == 110 else COL_VALUE)
+        surf.blit(img, (cx + LX, cy + rel_y + 5))
+
+    for b in panel.children:
+        b.draw(surf, state.font)
+
+    hint = "Chỉnh được cả lúc đang đi lẫn đang đào"
+    img = render_cached(state.font_small, hint, (135, 135, 145))
+    surf.blit(img, (cx + LX, cy + 146))
 
 
 def draw_toolbar(state, surf):

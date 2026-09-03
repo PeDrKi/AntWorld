@@ -14,11 +14,25 @@ import pygame
 from antworld import game_state
 
 
+def _advance_past_founding(gs, max_ticks=20000):
+    """Chạy nhanh qua giai đoạn lập tổ (chúa tự đi tìm chỗ + đào hang +
+    đẻ lứa nanitic đầu tiên - xem cfg.FOUNDING_MODE_ENABLED, mặc định BẬT)
+    để có 1 đàn kiến ĐÃ CÓ SẴN vài con, giống hệt hành vi TRƯỚC KHI có
+    tính năng lập tổ - hầu hết test dưới đây kiểm tra hành vi ĐÀN KIẾN ĐÃ
+    ỔN ĐỊNH, không phải bản thân quá trình lập tổ (đã có test riêng trong
+    test_queen_founding.py)."""
+    ticks = 0
+    while int(gs.colony.alive.sum()) == 0 and ticks < max_ticks:
+        gs.step_simulation()
+        ticks += 1
+
+
 class TestGameStateSmoke(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         pygame.init()
         cls.gs = game_state.GameState()
+        _advance_past_founding(cls.gs)
 
     def test_fonts_are_real_font_objects(self):
         for f in (self.gs.font, self.gs.font_small, self.gs.font_big, self.gs.font_hud):
@@ -99,12 +113,89 @@ class TestGameStateSmoke(unittest.TestCase):
         self.assertFalse(gs.game_over)
         self.assertFalse(gs.sim_paused)
         self.assertIsNone(gs.game_over_panel)
+        # Ngay sau restart, dan so = 0 la BINH THUONG (chua lai bat dau tu
+        # dau, dang lap to - xem test_queen_founding.py) - chay nhanh qua
+        # giai doan do de xac nhan restart THAT SU hoat dong dung, khong
+        # chi la "khong crash" ma con thuc su lap duoc to moi.
+        _advance_past_founding(gs)
         self.assertGreater(int(gs.colony.alive.sum()), 0)
 
         # Chay tiep vai tick sau restart phai on, khong loi
         for _ in range(20):
             gs.step_simulation()
             gs.check_alerts()
+
+    def test_follow_ant_card_shows_and_hides_with_follow_state(self):
+        """Thẻ thông tin con kiến đang theo dõi (ant_panel) chỉ được xuất
+        hiện trong visible_panels() (và do đó nhận click) khi THỰC SỰ đang
+        theo dõi 1 con kiến - không được lẫn vào danh sách panel khi không
+        theo dõi ai, kẻo chiếm chỗ click vô hình ở góc màn hình."""
+        from antworld import hud
+        import numpy as np
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        self.assertNotIn(gs.ant_panel, gs.visible_panels())
+
+        _advance_past_founding(gs)
+        idx = int(np.where(gs.colony.alive)[0][0])
+        gs.start_follow(gs.colony, idx)
+        self.assertIn(gs.ant_panel, gs.visible_panels())
+
+        gs.stop_follow()
+        self.assertNotIn(gs.ant_panel, gs.visible_panels())
+
+    def test_draw_ant_card_does_not_crash_while_following_and_simulating(self):
+        """draw_ant_card() phải vẽ được (không crash) trong lúc đang theo
+        dõi 1 con kiến CÒN SỐNG qua nhiều tick mô phỏng, kể cả khi trạng
+        thái/vai trò/tầng của nó thay đổi liên tục."""
+        from antworld import hud
+        import numpy as np
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        _advance_past_founding(gs)
+        idx = int(np.where(gs.colony.alive)[0][0])
+        gs.start_follow(gs.colony, idx)
+        screen = gs.screen
+        for _ in range(60):
+            gs.colony.update()
+            screen.fill((0, 0, 0))
+            hud.draw_ant_card(gs, screen)  # khong duoc nem exception
+
+    def test_follow_next_cycles_through_alive_ants_and_wraps_around(self):
+        """follow_next(+1/-1) phải chuyển sang con kiến CÒN SỐNG kế tiếp/
+        trước đó trong cùng đàn, và quay vòng (wrap around) khi tới cuối/
+        đầu danh sách, thay vì dừng lại hoặc lỗi chỉ số."""
+        from antworld import hud
+        import numpy as np
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        _advance_past_founding(gs)
+        # Ep co IT NHAT 2 con song (nanitic dau tien co the no RAI RAC
+        # tung con 1, khong phai cung luc) - can >=2 de test next/prev.
+        extra = 0
+        while int(gs.colony.alive.sum()) < 2 and extra < 20000:
+            gs.step_simulation()
+            extra += 1
+        alive_idx = np.where(gs.colony.alive)[0]
+        gs.start_follow(gs.colony, int(alive_idx[0]))
+
+        gs.follow_next(1)
+        self.assertEqual(gs.follow_idx, int(alive_idx[1]))
+
+        gs.follow_next(-1)
+        self.assertEqual(gs.follow_idx, int(alive_idx[0]))
+
+        # Lui 1 buoc tu con DAU TIEN -> phai quay VONG ve con CUOI CUNG
+        gs.follow_next(-1)
+        self.assertEqual(gs.follow_idx, int(alive_idx[-1]))
+
+    def test_follow_next_does_nothing_when_not_following(self):
+        gs = game_state.GameState()
+        gs.follow_next(1)  # khong duoc crash
+        self.assertFalse(gs.is_following())
 
 
 if __name__ == "__main__":

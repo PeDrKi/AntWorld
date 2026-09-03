@@ -273,7 +273,7 @@
 <header>
   <h1>ANTWORLD PIXEL STUDIO</h1>
   <span class="tag">Vẽ asset pixel art cho game đàn kiến — bảng màu khớp sẵn với game</span>
-  <span class="hint">B: bút · E: tẩy · G: đổ màu · I: hút màu · Ctrl+Z: hoàn tác</span>
+  <span class="hint">B bút · E tẩy · G đổ màu · I hút màu · L đường · R hcn · M chọn vùng · N gradient · U đổi màu · Ctrl+C/X/V copy/cut/paste · Ctrl+Z hoàn tác</span>
 </header>
 
 <div class="app">
@@ -286,7 +286,77 @@
         <button id="toolEraser" title="Tẩy (E)">🧹 Tẩy</button>
         <button id="toolFill" title="Đổ màu (G)">🪣 Đổ màu</button>
         <button id="toolEyedrop" title="Hút màu (I)">💧 Hút màu</button>
+        <button id="toolLine" title="Đường thẳng (L)">📏 Đường thẳng</button>
+        <button id="toolRect" title="Hình chữ nhật (R)">▭ Hình CN</button>
+        <button id="toolSelect" title="Chọn vùng (M)">▦ Chọn vùng</button>
+        <button id="toolGradient" title="Gradient (N)">🌈 Gradient</button>
+        <button id="toolReplace" title="Đổi màu toàn bộ (U)">🔁 Đổi màu</button>
       </div>
+      <div id="rectFilledRow" class="row" style="margin-top:8px; display:none;">
+        <button id="btnRectFilled" class="full">HCN: VIỀN</button>
+      </div>
+      <div id="brushSizeRow" style="margin-top:8px;">
+        <label class="small">Cỡ bút</label>
+        <div class="row" style="margin-top:4px;">
+          <button id="brush1" class="active" style="flex:1;">1</button>
+          <button id="brush2" style="flex:1;">2</button>
+          <button id="brush3" style="flex:1;">3</button>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <button id="brushSquare" class="active" style="flex:1;">◼ Vuông</button>
+          <button id="brushCircle" style="flex:1;">● Tròn</button>
+        </div>
+      </div>
+      <div id="gradientRow" style="margin-top:8px; display:none;">
+        <label class="small">Màu A = màu đang chọn bên phải</label>
+        <div class="row" style="margin-top:4px;">
+          <div id="color2Swatch" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border);flex-shrink:0;"></div>
+          <button id="btnSetColor2" style="flex:1;">Đặt màu B = màu đang chọn</button>
+        </div>
+      </div>
+      <div id="selectRow" style="margin-top:8px; display:none;">
+        <div class="row">
+          <button id="btnSelCopy" style="flex:1;">Copy</button>
+          <button id="btnSelCut" style="flex:1;">Cut</button>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <button id="btnSelPaste" style="flex:1;">Paste</button>
+          <button id="btnSelClear" style="flex:1;">Bỏ chọn</button>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <button id="btnSelFlipH" style="flex:1;">Lật ngang</button>
+          <button id="btnSelFlipV" style="flex:1;">Lật dọc</button>
+        </div>
+        <button id="btnSelRotate" class="full" style="margin-top:6px;">Xoay 90° (vùng vuông)</button>
+        <label class="small" style="display:block; margin-top:6px;">Di chuyển vùng chọn</label>
+        <div class="row" style="margin-top:4px;">
+          <button id="selMoveL" style="flex:1;">◄</button>
+          <button id="selMoveU" style="flex:1;">▲</button>
+          <button id="selMoveD" style="flex:1;">▼</button>
+          <button id="selMoveR" style="flex:1;">►</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Lớp (Layers)</h2>
+      <div id="layerList"></div>
+      <div class="row" style="margin-top:6px;">
+        <button id="btnLayerAdd" style="flex:1;">+ Lớp</button>
+        <button id="btnLayerDel" style="flex:1;">- Lớp</button>
+        <button id="btnLayerUp" style="flex:1;">▲</button>
+        <button id="btnLayerDown" style="flex:1;">▼</button>
+      </div>
+      <button id="btnLayerMerge" class="full" style="margin-top:6px;">Gộp xuống lớp dưới</button>
+      <div class="row" style="margin-top:8px;">
+        <input type="text" id="layerRenameInput" placeholder="Tên lớp" style="flex:1;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:6px;font-family:inherit;font-size:12.5px;">
+        <button id="btnLayerRenameApply">Đổi tên</button>
+      </div>
+      <div class="row between" style="margin-top:8px;">
+        <label class="small">Độ mờ (opacity)</label>
+        <span class="zoomval" id="layerOpacityVal">100%</span>
+      </div>
+      <input type="range" id="layerOpacityRange" min="0" max="100" value="100">
     </section>
 
     <section>
@@ -305,6 +375,7 @@
       </div>
       <input type="range" id="zoomRange" min="6" max="40" value="20">
       <button id="btnGrid" class="full" style="margin-top:8px;">▦ Lưới: BẬT</button>
+      <button id="btnRuler" class="full" style="margin-top:8px;">📐 Thước đo: TẮT</button>
     </section>
 
     <section>
@@ -354,6 +425,23 @@
         <div style="font-size:11px;color:var(--text-dim);">Chọn màu tùy ý,<br>hoặc bấm mẫu bên dưới</div>
       </div>
       <button id="btnTransparent" class="full">▢ Chọn "trong suốt" (để tẩy)</button>
+      <div style="margin-top:10px;">
+        <div class="row between"><label class="small">H</label><span class="zoomval" id="hVal">0</span></div>
+        <input type="range" id="hueRange" min="0" max="360" value="0">
+        <div class="row between"><label class="small">S</label><span class="zoomval" id="sVal">0</span></div>
+        <input type="range" id="satRange" min="0" max="100" value="0">
+        <div class="row between"><label class="small">V</label><span class="zoomval" id="vVal">0</span></div>
+        <input type="range" id="valRange" min="0" max="100" value="0">
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button id="btnPaletteSave" style="flex:1;">💾 Lưu bảng màu</button>
+        <button id="btnPaletteLoad" style="flex:1;">📂 Nạp bảng màu</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Màu vừa dùng</h2>
+      <div id="recentColors" class="palette-grid" style="grid-template-columns:repeat(8,1fr);"></div>
     </section>
 
     <section>
@@ -452,24 +540,79 @@ const PRESET_SPRITES = [
    STATE
    ============================================================ */
 const state = {
-  sprites: {},      // name -> { size, pixels: Array(size*size) of "#rrggbb" | null }
+  sprites: {},      // name -> { size, label, layers:[{name,visible,pixels}], activeLayer, pixels (alias qua getter/setter) }
   order: [],
   current: null,
   tool: "pencil",
   color: "#d77820",
+  color2: "#3a2a1a",
+  brushSize: 1,
+  brushShape: "square",
   zoom: 20,
   showGrid: true,
+  showRuler: false,
   symmetry: false,
   painting: false,
-  history: {},       // name -> { undo:[...snapshots], redo:[...] }
+  shapeStart: null,
+  shapePreviewEnd: null,
+  rectFilled: false,
+  selection: null,     // {x0,y0,x1,y1}
+  clipboard: null,     // {w,h,pixels}
+  recentColors: [],
+  history: {},       // name -> { undo:[...snapshots {layers,activeLayer}], redo:[...] }
 };
 
 function blankPixels(size){ return new Array(size*size).fill(null); }
 
+function cloneLayers(sp){
+  return sp.layers.map(l => ({ name: l.name, visible: l.visible, opacity: l.opacity, colorTag: l.colorTag,
+                                pixels: l.pixels.slice() }));
+}
+
+function makeSprite(size, label){
+  const sp = { size, label, layers: [{ name: "Lớp 1", visible: true, opacity: 1, colorTag: null, pixels: blankPixels(size) }], activeLayer: 0 };
+  // `sp.pixels` tro toi LOP DANG CHON - giu tuong thich nguoc voi moi cho
+  // trong code van doc/ghi thang `sp.pixels` (giong het pixel_editor.py).
+  Object.defineProperty(sp, "pixels", {
+    get(){ return sp.layers[sp.activeLayer].pixels; },
+    set(v){ sp.layers[sp.activeLayer].pixels = v; },
+    enumerable: true, configurable: true,
+  });
+  return sp;
+}
+
+function hexToRgbLerp(c1,c2,t){
+  const [r1,g1,b1] = hexToRgb(c1), [r2,g2,b2] = hexToRgb(c2);
+  return rgbToHex(r1+(r2-r1)*t, g1+(g2-g1)*t, b1+(b2-b1)*t);
+}
+
+function compositePixels(sp){
+  // Gop moi lop DANG HIEN theo opacity cua tung lop (kieu "over" alpha
+  // compositing chuan) - lop opacity=1 (mac dinh) de HOAN TOAN len lop
+  // duoi, giong het hanh vi cu khi chua co khai niem opacity.
+  const n = sp.size*sp.size;
+  const out = new Array(n).fill(null);
+  const outAlpha = new Array(n).fill(0);
+  sp.layers.forEach(layer=>{
+    if(!layer.visible || layer.opacity <= 0) return;
+    const a = layer.opacity;
+    layer.pixels.forEach((c,i)=>{
+      if(c === null) return;
+      if(outAlpha[i] <= 0){
+        out[i] = c; outAlpha[i] = a;
+      } else {
+        out[i] = hexToRgbLerp(out[i], c, a);
+        outAlpha[i] = a + outAlpha[i]*(1-a);
+      }
+    });
+  });
+  return out;
+}
+
 function newSprite(name, size, label){
   let n = name, i = 2;
   while(state.sprites[n]) { n = name + "_" + i; i++; }
-  state.sprites[n] = { size, pixels: blankPixels(size), label: label || n };
+  state.sprites[n] = makeSprite(size, label || n);
   state.history[n] = { undo: [], redo: [] };
   state.order.push(n);
   return n;
@@ -518,12 +661,56 @@ const zoomRange = document.getElementById("zoomRange");
 const zoomVal = document.getElementById("zoomVal");
 const sizeSelect = document.getElementById("sizeSelect");
 const toastEl = document.getElementById("toast");
+const hueRange = document.getElementById("hueRange");
+const satRange = document.getElementById("satRange");
+const valRange = document.getElementById("valRange");
+const hVal = document.getElementById("hVal"), sVal = document.getElementById("sVal"), vVal = document.getElementById("vVal");
+const recentColorsEl = document.getElementById("recentColors");
+const color2Swatch = document.getElementById("color2Swatch");
+const layerListEl = document.getElementById("layerList");
+const layerRenameInput = document.getElementById("layerRenameInput");
+const layerOpacityRange = document.getElementById("layerOpacityRange");
+const layerOpacityVal = document.getElementById("layerOpacityVal");
+const PALETTE_STORAGE_KEY = "antworld_pixel_studio_palette_v1";
 
 function toast(msg){
   toastEl.textContent = msg;
   toastEl.classList.add("show");
   clearTimeout(toast._t);
   toast._t = setTimeout(()=> toastEl.classList.remove("show"), 1600);
+}
+
+/* ============================================================
+   HELPERS: HEX <-> HSV
+   ============================================================ */
+function hexToRgb(hex){
+  const h = hex.replace("#","");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function rgbToHex(r,g,b){
+  const c = v => Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,"0");
+  return "#"+c(r)+c(g)+c(b);
+}
+function rgbToHsv(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b), d=max-min;
+  let h=0;
+  if(d!==0){
+    if(max===r) h=((g-b)/d)%6;
+    else if(max===g) h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60; if(h<0) h+=360;
+  }
+  const s = max===0 ? 0 : d/max;
+  return [h, s*100, max*100];
+}
+function hsvToRgb(h,s,v){
+  s/=100; v/=100;
+  const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;b=0;} else if(h<120){r=x;g=c;b=0;} else if(h<180){r=0;g=c;b=x;}
+  else if(h<240){r=0;g=x;b=c;} else if(h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
+  return [(r+m)*255, (g+m)*255, (b+m)*255];
 }
 
 /* ============================================================
@@ -554,10 +741,12 @@ function renderTabs(){
 
 function selectSprite(name){
   state.current = name;
+  state.selection = null;
   spriteNameInput.value = state.sprites[name].label;
   sizeSelect.value = String(state.sprites[name].size);
   document.getElementById("exportNameHint").textContent = `sẽ xuất ra: ${name}.png`;
   renderTabs();
+  renderLayers();
   layoutCanvas();
   drawAll();
 }
@@ -594,6 +783,40 @@ function setColor(hex){
   currentColorSwatch.style.background = hex;
   currentColorSwatch.removeAttribute("data-transparent");
   colorPicker.value = hex;
+  const [h,s,v] = rgbToHsv(...hexToRgb(hex));
+  hueRange.value = h; satRange.value = s; valRange.value = v;
+  hVal.textContent = Math.round(h); sVal.textContent = Math.round(s); vVal.textContent = Math.round(v);
+  rememberColor(hex);
+}
+
+function setColorFromHsv(){
+  const h = parseFloat(hueRange.value), s = parseFloat(satRange.value), v = parseFloat(valRange.value);
+  const [r,g,b] = hsvToRgb(h,s,v);
+  const hex = rgbToHex(r,g,b);
+  state.color = hex;
+  currentColorSwatch.style.background = hex;
+  currentColorSwatch.removeAttribute("data-transparent");
+  colorPicker.value = hex;
+  hVal.textContent = Math.round(h); sVal.textContent = Math.round(s); vVal.textContent = Math.round(v);
+}
+
+function rememberColor(hex){
+  state.recentColors = state.recentColors.filter(c=>c!==hex);
+  state.recentColors.unshift(hex);
+  if(state.recentColors.length > 16) state.recentColors.length = 16;
+  renderRecentColors();
+}
+
+function renderRecentColors(){
+  recentColorsEl.innerHTML = "";
+  state.recentColors.forEach(hex=>{
+    const sw = document.createElement("div");
+    sw.className = "swatch";
+    sw.style.background = hex;
+    sw.title = hex;
+    sw.onclick = ()=> setColor(hex);
+    recentColorsEl.appendChild(sw);
+  });
 }
 
 /* ============================================================
@@ -610,7 +833,8 @@ function layoutCanvas(){
 
 function drawAll(){
   const sp = state.sprites[state.current];
-  const { size, pixels } = sp;
+  const size = sp.size;
+  const pixels = compositePixels(sp);
   const z = state.zoom;
   ctx.clearRect(0,0,canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = false;
@@ -623,6 +847,50 @@ function drawAll(){
       }
     }
   }
+
+  // Xem truoc duong thang / hinh chu nhat / gradient dang keo (chua ve
+  // that len sprite) - commit that dien ra luc tha chuot.
+  if((state.tool === "line" || state.tool === "rect") && state.shapeStart && state.shapePreviewEnd){
+    const pts = state.tool === "line" ? linePoints(state.shapeStart, state.shapePreviewEnd)
+                                       : rectPoints(state.shapeStart, state.shapePreviewEnd);
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = state.color || "#ffffff";
+    pts.forEach(([px,py])=>{
+      mirrorPoints(px,py,size).forEach(([mx,my])=>{
+        if(mx>=0 && my>=0 && mx<size && my<size) ctx.fillRect(mx*z, my*z, z, z);
+      });
+    });
+    ctx.restore();
+  } else if(state.tool === "gradient" && state.shapeStart && state.shapePreviewEnd){
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    gradientColors(state.shapeStart, state.shapePreviewEnd).forEach(([px,py,hexcolor])=>{
+      ctx.fillStyle = hexcolor;
+      ctx.fillRect(px*z, py*z, z, z);
+    });
+    ctx.restore();
+  } else if(state.tool === "select" && state.shapeStart && state.shapePreviewEnd){
+    const xmin = Math.min(state.shapeStart.x, state.shapePreviewEnd.x);
+    const xmax = Math.max(state.shapeStart.x, state.shapePreviewEnd.x);
+    const ymin = Math.min(state.shapeStart.y, state.shapePreviewEnd.y);
+    const ymax = Math.max(state.shapeStart.y, state.shapePreviewEnd.y);
+    ctx.strokeStyle = "#e6c05a";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(xmin*z, ymin*z, (xmax-xmin+1)*z, (ymax-ymin+1)*z);
+  }
+
+  // Khung net dut cho vung chon DA CHOT
+  const sb = selectionBounds();
+  if(sb){
+    ctx.save();
+    ctx.strokeStyle = "#e6c05a";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5,4]);
+    ctx.strokeRect(sb.x0*z, sb.y0*z, (sb.x1-sb.x0+1)*z, (sb.y1-sb.y0+1)*z);
+    ctx.restore();
+  }
+
   if(state.showGrid && z >= 6){
     ctx.strokeStyle = "rgba(0,0,0,0.35)";
     ctx.lineWidth = 1;
@@ -631,12 +899,24 @@ function drawAll(){
       ctx.beginPath(); ctx.moveTo(0, i*z+0.5); ctx.lineTo(size*z, i*z+0.5); ctx.stroke();
     }
   }
+  if(state.showRuler){
+    ctx.save();
+    ctx.fillStyle = "#a9987e";
+    ctx.font = "10px monospace";
+    const step = Math.max(1, Math.round(32/z));
+    for(let i=0;i<size;i+=step){
+      ctx.fillText(String(i), i*z+2, 10);
+      ctx.fillText(String(i), 2, i*z+10);
+    }
+    ctx.restore();
+  }
   drawPreview();
 }
 
 function drawPreview(){
   const sp = state.sprites[state.current];
-  const { size, pixels } = sp;
+  const size = sp.size;
+  const pixels = compositePixels(sp);
   [ [previewGame, 4], [previewBig, 8] ].forEach(([cv, scale])=>{
     cv.width = size; cv.height = size;
     cv.style.width = (size*scale)+"px";
@@ -667,7 +947,7 @@ function cellFromEvent(e){
 function pushHistory(){
   const h = state.history[state.current];
   const sp = state.sprites[state.current];
-  h.undo.push(sp.pixels.slice());
+  h.undo.push({ layers: cloneLayers(sp), activeLayer: sp.activeLayer });
   if(h.undo.length > 60) h.undo.shift();
   h.redo.length = 0;
 }
@@ -679,6 +959,212 @@ function setPixel(x,y,color){
     const mx = sp.size-1-x;
     sp.pixels[y*sp.size+mx] = color;
   }
+}
+
+function paintStamp(x,y,color){
+  const sp = state.sprites[state.current];
+  const half = Math.floor(state.brushSize/2);
+  const even = state.brushSize % 2 === 0;
+  const radius = even ? state.brushSize/2 : half;
+  for(let oy = -half; oy < state.brushSize-half; oy++){
+    for(let ox = -half; ox < state.brushSize-half; ox++){
+      if(state.brushShape === "circle" && state.brushSize > 1){
+        const cx = even ? ox+0.5 : ox;
+        const cy = even ? oy+0.5 : oy;
+        if((cx*cx + cy*cy) > radius*radius) continue;
+      }
+      const px = x+ox, py = y+oy;
+      if(px>=0 && py>=0 && px<sp.size && py<sp.size) setPixel(px,py,color);
+    }
+  }
+}
+
+function mirrorPoints(x,y,size){
+  if(!state.symmetry) return [[x,y]];
+  return [[x,y],[size-1-x,y]];
+}
+
+function linePoints(a,b){
+  let {x:x0,y:y0} = a, {x:x1,y:y1} = b;
+  const pts = [];
+  const dx = Math.abs(x1-x0), dy = -Math.abs(y1-y0);
+  const sx = x0<x1?1:-1, sy = y0<y1?1:-1;
+  let err = dx+dy;
+  while(true){
+    pts.push([x0,y0]);
+    if(x0===x1 && y0===y1) break;
+    const e2 = 2*err;
+    if(e2 >= dy){ err += dy; x0 += sx; }
+    if(e2 <= dx){ err += dx; y0 += sy; }
+  }
+  return pts;
+}
+
+function rectPoints(a,b){
+  const xmin = Math.min(a.x,b.x), xmax = Math.max(a.x,b.x);
+  const ymin = Math.min(a.y,b.y), ymax = Math.max(a.y,b.y);
+  const pts = [];
+  if(state.rectFilled){
+    for(let y=ymin;y<=ymax;y++) for(let x=xmin;x<=xmax;x++) pts.push([x,y]);
+  } else {
+    for(let x=xmin;x<=xmax;x++){ pts.push([x,ymin]); pts.push([x,ymax]); }
+    for(let y=ymin;y<=ymax;y++){ pts.push([xmin,y]); pts.push([xmax,y]); }
+  }
+  return pts;
+}
+
+function gradientColors(a,b){
+  // Tinh mau Gradient tuyen tinh (theo duong cheo) giua state.color (goc)
+  // va state.color2 (cuoi) cho tung o - dung chung cho CA xem truoc
+  // (drawAll) LAN commit that (applyGradient), tranh viet trung logic.
+  const xmin = Math.min(a.x,b.x), xmax = Math.max(a.x,b.x);
+  const ymin = Math.min(a.y,b.y), ymax = Math.max(a.y,b.y);
+  const c1 = hexToRgb(state.color || "#000000");
+  const c2 = hexToRgb(state.color2 || "#000000");
+  const span = Math.max(1, (xmax-xmin)+(ymax-ymin));
+  const pts = [];
+  for(let y=ymin;y<=ymax;y++){
+    for(let x=xmin;x<=xmax;x++){
+      const t = ((x-xmin)+(y-ymin))/span;
+      const r = Math.round(c1[0]+(c2[0]-c1[0])*t);
+      const g = Math.round(c1[1]+(c2[1]-c1[1])*t);
+      const bch = Math.round(c1[2]+(c2[2]-c1[2])*t);
+      pts.push([x,y, rgbToHex(r,g,bch)]);
+    }
+  }
+  return pts;
+}
+
+function applyGradient(a,b){
+  gradientColors(a,b).forEach(([x,y,hexcolor]) => setPixel(x,y,hexcolor));
+}
+
+function replaceColor(target, newColor){
+  const sp = state.sprites[state.current];
+  if(target === newColor) return 0;
+  let n = 0;
+  const px = sp.pixels;
+  for(let i=0;i<px.length;i++){
+    if(px[i] === target){ px[i] = newColor; n++; }
+  }
+  return n;
+}
+
+/* ---------- vùng chọn (selection) ---------- */
+function selectionBounds(){
+  if(!state.selection) return null;
+  const { x0, y0, x1, y1 } = state.selection;
+  return { x0: Math.min(x0,x1), y0: Math.min(y0,y1), x1: Math.max(x0,x1), y1: Math.max(y0,y1) };
+}
+
+function copySelection(){
+  const b = selectionBounds();
+  if(!b){ toast("Chưa có vùng chọn nào để sao chép"); return; }
+  const sp = state.sprites[state.current];
+  const w = b.x1-b.x0+1, h = b.y1-b.y0+1;
+  const data = [];
+  for(let y=b.y0;y<=b.y1;y++) for(let x=b.x0;x<=b.x1;x++) data.push(sp.pixels[y*sp.size+x]);
+  state.clipboard = { w, h, pixels: data };
+  toast(`Đã sao chép ${w}x${h} pixel`);
+}
+
+function deleteSelectionContent(){
+  const b = selectionBounds();
+  if(!b) return;
+  const sp = state.sprites[state.current];
+  for(let y=b.y0;y<=b.y1;y++) for(let x=b.x0;x<=b.x1;x++) sp.pixels[y*sp.size+x] = null;
+}
+
+function cutSelection(){
+  if(!selectionBounds()){ toast("Chưa có vùng chọn nào để cắt"); return; }
+  copySelection();
+  pushHistory();
+  deleteSelectionContent();
+  toast("Đã cắt vùng chọn");
+  drawAll();
+}
+
+function pasteSelection(){
+  if(!state.clipboard){ toast("Chưa có gì trong bộ nhớ tạm (Copy/Cut trước)"); return; }
+  pushHistory();
+  const sp = state.sprites[state.current];
+  const { w, h, pixels } = state.clipboard;
+  const b = selectionBounds();
+  const x0 = b ? b.x0 : 0, y0 = b ? b.y0 : 0;
+  for(let j=0;j<h;j++) for(let i=0;i<w;i++){
+    const px = x0+i, py = y0+j;
+    if(px>=0 && py>=0 && px<sp.size && py<sp.size){
+      const c = pixels[j*w+i];
+      if(c !== null) sp.pixels[py*sp.size+px] = c;
+    }
+  }
+  state.selection = { x0, y0, x1: x0+w-1, y1: y0+h-1 };
+  toast("Đã dán vùng chọn");
+  drawAll();
+}
+
+function selectionBlock(b){
+  const sp = state.sprites[state.current];
+  const w = b.x1-b.x0+1, h = b.y1-b.y0+1;
+  const block = [];
+  for(let j=0;j<h;j++){
+    const row = [];
+    for(let i=0;i<w;i++) row.push(sp.pixels[(b.y0+j)*sp.size+(b.x0+i)]);
+    block.push(row);
+  }
+  return { w, h, block };
+}
+
+function writeSelectionBlock(x0,y0,w,h,block){
+  const sp = state.sprites[state.current];
+  for(let j=0;j<h;j++) for(let i=0;i<w;i++) sp.pixels[(y0+j)*sp.size+(x0+i)] = block[j][i];
+}
+
+function flipSelection(axis){
+  const b = selectionBounds();
+  if(!b){ toast("Chưa có vùng chọn nào để lật"); return; }
+  pushHistory();
+  let { w, h, block } = selectionBlock(b);
+  block = axis === "h" ? block.map(row => row.slice().reverse()) : block.slice().reverse();
+  writeSelectionBlock(b.x0, b.y0, w, h, block);
+  drawAll();
+}
+
+function rotateSelection90(){
+  const b = selectionBounds();
+  if(!b){ toast("Chưa có vùng chọn nào để xoay"); return; }
+  const { w, h, block } = selectionBlock(b);
+  if(w !== h){ toast("Chỉ xoay được vùng chọn VUÔNG (rộng = cao)"); return; }
+  pushHistory();
+  const rotated = [];
+  for(let j=0;j<w;j++){
+    const row = [];
+    for(let i=0;i<h;i++) row.push(block[h-1-i][j]);
+    rotated.push(row);
+  }
+  writeSelectionBlock(b.x0, b.y0, w, h, rotated);
+  drawAll();
+}
+
+function moveSelection(dx,dy){
+  const b = selectionBounds();
+  if(!b){ toast("Chưa có vùng chọn nào để di chuyển"); return; }
+  const sp = state.sprites[state.current];
+  const w = b.x1-b.x0+1, h = b.y1-b.y0+1;
+  pushHistory();
+  const block = [];
+  for(let j=0;j<h;j++) for(let i=0;i<w;i++) block.push(sp.pixels[(b.y0+j)*sp.size+(b.x0+i)]);
+  for(let j=0;j<h;j++) for(let i=0;i<w;i++) sp.pixels[(b.y0+j)*sp.size+(b.x0+i)] = null;
+  const nx0 = b.x0+dx, ny0 = b.y0+dy;
+  for(let j=0;j<h;j++) for(let i=0;i<w;i++){
+    const px = nx0+i, py = ny0+j;
+    if(px>=0 && py>=0 && px<sp.size && py<sp.size){
+      const c = block[j*w+i];
+      if(c !== null) sp.pixels[py*sp.size+px] = c;
+    }
+  }
+  state.selection = { x0: nx0, y0: ny0, x1: nx0+w-1, y1: ny0+h-1 };
+  drawAll();
 }
 
 function floodFill(x0,y0,color){
@@ -704,38 +1190,81 @@ function floodFill(x0,y0,color){
 function applyToolAt(x,y, isStart){
   const sp = state.sprites[state.current];
   if(state.tool === "pencil"){
-    setPixel(x,y, state.color);
+    paintStamp(x,y, state.color);
   } else if(state.tool === "eraser"){
-    setPixel(x,y, null);
+    paintStamp(x,y, null);
   } else if(state.tool === "fill"){
     if(isStart) floodFill(x,y, state.color);
   } else if(state.tool === "eyedropper"){
     if(isStart){
-      const c = sp.pixels[y*sp.size+x];
+      const c = compositePixels(sp)[y*sp.size+x];
       if(c) setColor(c);
       else toast("Ô này đang trống (trong suốt)");
     }
+  } else if(state.tool === "replace"){
+    if(isStart){
+      const target = sp.pixels[y*sp.size+x];
+      const n = replaceColor(target, state.color);
+      toast(`Đã đổi ${n} pixel: ${target || "trong suốt"} → ${state.color || "trong suốt"}`);
+    }
   }
+  // "line", "rect", "gradient" va "select" khong ve/chon ngay o day - xem
+  // canvas.addEventListener("mousedown"/"mousemove"/"mouseup") ben duoi.
 }
 
 canvas.addEventListener("mousedown", (e)=>{
   const cell = cellFromEvent(e);
   if(!cell) return;
-  pushHistory();
-  state.painting = true;
-  applyToolAt(cell.x, cell.y, true);
+  if(state.tool === "line" || state.tool === "rect" || state.tool === "gradient"){
+    pushHistory();
+    state.shapeStart = cell;
+    state.shapePreviewEnd = cell;
+    state.painting = true;
+  } else if(state.tool === "select"){
+    state.shapeStart = cell;
+    state.shapePreviewEnd = cell;
+    state.painting = true;
+  } else {
+    pushHistory();
+    state.painting = true;
+    applyToolAt(cell.x, cell.y, true);
+  }
   drawAll();
 });
 canvas.addEventListener("mousemove", (e)=>{
   if(!state.painting) return;
   const cell = cellFromEvent(e);
+  if(state.tool === "line" || state.tool === "rect" || state.tool === "gradient" || state.tool === "select"){
+    if(cell){ state.shapePreviewEnd = cell; drawAll(); }
+    return;
+  }
   if(!cell) return;
   if(state.tool === "pencil" || state.tool === "eraser"){
     applyToolAt(cell.x, cell.y, false);
     drawAll();
   }
 });
-window.addEventListener("mouseup", ()=>{ state.painting = false; });
+window.addEventListener("mouseup", ()=>{
+  if(state.tool === "line" || state.tool === "rect"){
+    if(state.shapeStart){
+      const pts = state.tool === "line" ? linePoints(state.shapeStart, state.shapePreviewEnd || state.shapeStart)
+                                         : rectPoints(state.shapeStart, state.shapePreviewEnd || state.shapeStart);
+      pts.forEach(([px,py])=> paintStamp(px,py, state.color));
+    }
+    state.shapeStart = null; state.shapePreviewEnd = null;
+  } else if(state.tool === "gradient"){
+    if(state.shapeStart) applyGradient(state.shapeStart, state.shapePreviewEnd || state.shapeStart);
+    state.shapeStart = null; state.shapePreviewEnd = null;
+  } else if(state.tool === "select"){
+    if(state.shapeStart){
+      const end = state.shapePreviewEnd || state.shapeStart;
+      state.selection = { x0: state.shapeStart.x, y0: state.shapeStart.y, x1: end.x, y1: end.y };
+    }
+    state.shapeStart = null; state.shapePreviewEnd = null;
+  }
+  state.painting = false;
+  drawAll();
+});
 canvas.addEventListener("mouseleave", ()=>{});
 canvas.addEventListener("contextmenu", (e)=> e.preventDefault());
 
@@ -747,15 +1276,206 @@ const toolButtons = {
   eraser: document.getElementById("toolEraser"),
   fill: document.getElementById("toolFill"),
   eyedropper: document.getElementById("toolEyedrop"),
+  line: document.getElementById("toolLine"),
+  rect: document.getElementById("toolRect"),
+  select: document.getElementById("toolSelect"),
+  gradient: document.getElementById("toolGradient"),
+  replace: document.getElementById("toolReplace"),
 };
+const rectFilledRow = document.getElementById("rectFilledRow");
+const gradientRow = document.getElementById("gradientRow");
+const selectRow = document.getElementById("selectRow");
 function setTool(name){
   state.tool = name;
   Object.entries(toolButtons).forEach(([k,btn])=> btn.classList.toggle("active", k===name));
+  rectFilledRow.style.display = name === "rect" ? "block" : "none";
+  gradientRow.style.display = name === "gradient" ? "block" : "none";
+  selectRow.style.display = name === "select" ? "block" : "none";
 }
 toolButtons.pencil.onclick = ()=> setTool("pencil");
 toolButtons.eraser.onclick = ()=> setTool("eraser");
 toolButtons.fill.onclick = ()=> setTool("fill");
 toolButtons.eyedropper.onclick = ()=> setTool("eyedropper");
+toolButtons.line.onclick = ()=> setTool("line");
+toolButtons.rect.onclick = ()=> setTool("rect");
+toolButtons.select.onclick = ()=> setTool("select");
+toolButtons.gradient.onclick = ()=> setTool("gradient");
+toolButtons.replace.onclick = ()=> setTool("replace");
+
+document.getElementById("btnRectFilled").onclick = (e)=>{
+  state.rectFilled = !state.rectFilled;
+  e.target.textContent = "HCN: " + (state.rectFilled ? "ĐẶC" : "VIỀN");
+  e.target.classList.toggle("active", state.rectFilled);
+};
+
+const brushButtons = { 1: document.getElementById("brush1"), 2: document.getElementById("brush2"), 3: document.getElementById("brush3") };
+Object.entries(brushButtons).forEach(([sz,btn])=>{
+  btn.onclick = ()=>{
+    state.brushSize = parseInt(sz,10);
+    Object.entries(brushButtons).forEach(([k,b])=> b.classList.toggle("active", k===sz));
+  };
+});
+const brushSquareBtn = document.getElementById("brushSquare"), brushCircleBtn = document.getElementById("brushCircle");
+brushSquareBtn.onclick = ()=>{ state.brushShape = "square"; brushSquareBtn.classList.add("active"); brushCircleBtn.classList.remove("active"); };
+brushCircleBtn.onclick = ()=>{ state.brushShape = "circle"; brushCircleBtn.classList.add("active"); brushSquareBtn.classList.remove("active"); };
+
+document.getElementById("btnSetColor2").onclick = ()=>{
+  state.color2 = state.color || "#000000";
+  color2Swatch.style.background = state.color2;
+  toast(`Đã đặt màu B (Gradient) = ${state.color2}`);
+};
+color2Swatch.style.background = state.color2;
+
+document.getElementById("btnSelCopy").onclick = copySelection;
+document.getElementById("btnSelCut").onclick = cutSelection;
+document.getElementById("btnSelPaste").onclick = pasteSelection;
+document.getElementById("btnSelClear").onclick = ()=>{ state.selection = null; drawAll(); };
+document.getElementById("btnSelFlipH").onclick = ()=> flipSelection("h");
+document.getElementById("btnSelFlipV").onclick = ()=> flipSelection("v");
+document.getElementById("btnSelRotate").onclick = rotateSelection90;
+document.getElementById("selMoveL").onclick = ()=> moveSelection(-1,0);
+document.getElementById("selMoveR").onclick = ()=> moveSelection(1,0);
+document.getElementById("selMoveU").onclick = ()=> moveSelection(0,-1);
+document.getElementById("selMoveD").onclick = ()=> moveSelection(0,1);
+
+/* ============================================================
+   LỚP (LAYERS)
+   ============================================================ */
+const LAYER_TAG_COLORS = ["#d77820", "#e6c05a", "#7fae5e", "#4682c8", "#c0574a", "#a883d6"];
+
+function renderLayers(){
+  const sp = state.sprites[state.current];
+  const active = sp.layers[sp.activeLayer];
+  layerListEl.innerHTML = "";
+  for(let i = sp.layers.length-1; i>=0; i--){
+    const layer = sp.layers[i];
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.cssText = "padding:5px 6px;border-radius:5px;margin-bottom:4px;cursor:pointer;" +
+      (i===sp.activeLayer ? "background:var(--accent-soft);border:1px solid var(--accent);" : "background:var(--panel-2);border:1px solid var(--border-soft);");
+    const eye = document.createElement("span");
+    eye.textContent = layer.visible ? "●" : "○";
+    eye.style.cssText = "width:18px;text-align:center;flex-shrink:0;";
+    eye.onclick = (e)=>{ e.stopPropagation(); pushHistory(); layer.visible = !layer.visible; renderLayers(); drawAll(); };
+    const tag = document.createElement("span");
+    tag.style.cssText = "width:12px;height:12px;border-radius:3px;border:1px solid var(--border);flex-shrink:0;" +
+      (layer.colorTag ? `background:${layer.colorTag};` : "background:transparent;");
+    tag.title = "Đổi màu nhãn của lớp";
+    tag.onclick = (e)=>{
+      e.stopPropagation();
+      const opts = [null, ...LAYER_TAG_COLORS];
+      const cur = opts.indexOf(layer.colorTag);
+      layer.colorTag = opts[(cur+1) % opts.length];
+      renderLayers();
+    };
+    const name = document.createElement("span");
+    const opacTxt = layer.opacity >= 0.999 ? "" : ` (${Math.round(layer.opacity*100)}%)`;
+    name.textContent = layer.name + opacTxt;
+    name.style.cssText = "font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;margin-left:6px;" + (layer.visible ? "" : "color:var(--text-dim);");
+    row.appendChild(eye); row.appendChild(tag); row.appendChild(name);
+    row.onclick = ()=>{ sp.activeLayer = i; renderLayers(); };
+    layerListEl.appendChild(row);
+  }
+  layerRenameInput.value = active.name;
+  layerOpacityRange.value = Math.round(active.opacity*100);
+  layerOpacityVal.textContent = Math.round(active.opacity*100) + "%";
+}
+
+layerRenameInput.addEventListener("keydown", (e)=>{
+  if(e.key !== "Enter") return;
+  applyLayerRename();
+});
+document.getElementById("btnLayerRenameApply").onclick = applyLayerRename;
+function applyLayerRename(){
+  const name = layerRenameInput.value.trim();
+  if(!name) return;
+  const sp = state.sprites[state.current];
+  pushHistory();
+  sp.layers[sp.activeLayer].name = name;
+  renderLayers();
+  toast(`Đã đổi tên lớp thành "${name}"`);
+}
+
+layerOpacityRange.oninput = ()=>{
+  const sp = state.sprites[state.current];
+  const v = parseInt(layerOpacityRange.value, 10);
+  sp.layers[sp.activeLayer].opacity = v/100;
+  layerOpacityVal.textContent = v + "%";
+  drawAll();
+};
+
+document.getElementById("btnLayerAdd").onclick = ()=>{
+  const sp = state.sprites[state.current];
+  pushHistory();
+  const n = sp.layers.length+1;
+  sp.layers.push({ name: `Lớp ${n}`, visible: true, opacity: 1, colorTag: null, pixels: blankPixels(sp.size) });
+  sp.activeLayer = sp.layers.length-1;
+  renderLayers(); drawAll();
+  toast(`Đã thêm lớp mới - tổng ${sp.layers.length} lớp`);
+};
+document.getElementById("btnLayerDel").onclick = ()=>{
+  const sp = state.sprites[state.current];
+  if(sp.layers.length <= 1){ toast("Phải còn ít nhất 1 lớp"); return; }
+  pushHistory();
+  sp.layers.splice(sp.activeLayer, 1);
+  sp.activeLayer = Math.min(sp.activeLayer, sp.layers.length-1);
+  renderLayers(); drawAll();
+  toast(`Đã xóa lớp - còn lại ${sp.layers.length} lớp`);
+};
+document.getElementById("btnLayerUp").onclick = ()=>{
+  const sp = state.sprites[state.current];
+  const i = sp.activeLayer, j = i+1;
+  if(j >= sp.layers.length) return;
+  pushHistory();
+  [sp.layers[i], sp.layers[j]] = [sp.layers[j], sp.layers[i]];
+  sp.activeLayer = j;
+  renderLayers(); drawAll();
+};
+document.getElementById("btnLayerDown").onclick = ()=>{
+  const sp = state.sprites[state.current];
+  const i = sp.activeLayer, j = i-1;
+  if(j < 0) return;
+  pushHistory();
+  [sp.layers[i], sp.layers[j]] = [sp.layers[j], sp.layers[i]];
+  sp.activeLayer = j;
+  renderLayers(); drawAll();
+};
+document.getElementById("btnLayerMerge").onclick = ()=>{
+  const sp = state.sprites[state.current];
+  if(sp.layers.length < 2){ toast("Cần ít nhất 2 lớp để gộp"); return; }
+  pushHistory();
+  const i = sp.activeLayer;
+  const top = sp.layers[i], bottom = sp.layers[i-1] || sp.layers[i+1];
+  const bottomIdx = sp.layers[i-1] ? i-1 : i+1;
+  top.pixels.forEach((c,k)=>{ if(c !== null) sp.layers[bottomIdx].pixels[k] = c; });
+  sp.layers.splice(i, 1);
+  sp.activeLayer = Math.min(bottomIdx, sp.layers.length-1);
+  renderLayers(); drawAll();
+  toast(`Đã gộp lớp - còn lại ${sp.layers.length} lớp`);
+};
+
+/* ============================================================
+   BẢNG MÀU TÙY CHỈNH (lưu/nạp qua localStorage)
+   ============================================================ */
+document.getElementById("btnPaletteSave").onclick = ()=>{
+  try{
+    localStorage.setItem(PALETTE_STORAGE_KEY, JSON.stringify({ colors: state.recentColors }));
+    toast(`Đã lưu bảng màu (${state.recentColors.length} màu) vào trình duyệt`);
+  }catch(err){ toast("Không lưu được bảng màu (trình duyệt chặn localStorage?)"); }
+};
+document.getElementById("btnPaletteLoad").onclick = ()=>{
+  try{
+    const raw = localStorage.getItem(PALETTE_STORAGE_KEY);
+    if(!raw){ toast("Chưa có bảng màu nào được lưu trước đó"); return; }
+    const data = JSON.parse(raw);
+    (data.colors || []).slice().reverse().forEach(c => rememberColor(c));
+    toast(`Đã nạp ${(data.colors||[]).length} màu từ bảng màu đã lưu`);
+  }catch(err){ toast("Không đọc được bảng màu đã lưu (sai định dạng?)"); }
+};
+
+hueRange.oninput = ()=>{ setColorFromHsv(); };
+satRange.oninput = ()=>{ setColorFromHsv(); };
+valRange.oninput = ()=>{ setColorFromHsv(); };
 
 document.getElementById("btnTransparent").onclick = ()=>{
   state.color = null;
@@ -780,11 +1500,19 @@ document.getElementById("btnGrid").onclick = (e)=>{
   drawAll();
 };
 
+document.getElementById("btnRuler").onclick = (e)=>{
+  state.showRuler = !state.showRuler;
+  e.target.textContent = "📐 Thước đo: " + (state.showRuler ? "BẬT" : "TẮT");
+  e.target.classList.toggle("active", state.showRuler);
+  drawAll();
+};
+
 document.getElementById("btnClear").onclick = ()=>{
-  if(!confirm("Xóa toàn bộ nét vẽ của sprite này?")) return;
+  if(!confirm("Xóa toàn bộ nét vẽ của sprite này (mọi lớp)?")) return;
   pushHistory();
   const sp = state.sprites[state.current];
-  sp.pixels = blankPixels(sp.size);
+  sp.layers.forEach(l => l.pixels = blankPixels(sp.size));
+  renderLayers();
   drawAll();
 };
 
@@ -792,16 +1520,20 @@ function doUndo(){
   const h = state.history[state.current];
   if(!h.undo.length) return;
   const sp = state.sprites[state.current];
-  h.redo.push(sp.pixels.slice());
-  sp.pixels = h.undo.pop();
+  h.redo.push({ layers: cloneLayers(sp), activeLayer: sp.activeLayer });
+  const snap = h.undo.pop();
+  sp.layers = snap.layers; sp.activeLayer = snap.activeLayer;
+  renderLayers();
   drawAll();
 }
 function doRedo(){
   const h = state.history[state.current];
   if(!h.redo.length) return;
   const sp = state.sprites[state.current];
-  h.undo.push(sp.pixels.slice());
-  sp.pixels = h.redo.pop();
+  h.undo.push({ layers: cloneLayers(sp), activeLayer: sp.activeLayer });
+  const snap = h.redo.pop();
+  sp.layers = snap.layers; sp.activeLayer = snap.activeLayer;
+  renderLayers();
   drawAll();
 }
 document.getElementById("btnUndo").onclick = doUndo;
@@ -818,14 +1550,17 @@ sizeSelect.onchange = ()=>{
   const newSize = parseInt(sizeSelect.value, 10);
   const sp = state.sprites[state.current];
   if(sp.size === newSize) return;
-  if(!confirm(`Đổi kích thước sang ${newSize}×${newSize}? Canvas của sprite "${state.current}" sẽ được làm trống lại.`)){
+  if(!confirm(`Đổi kích thước sang ${newSize}×${newSize}? Canvas của sprite "${state.current}" sẽ được làm trống lại (mọi lớp).`)){
     sizeSelect.value = String(sp.size);
     return;
   }
   sp.size = newSize;
-  sp.pixels = blankPixels(newSize);
+  sp.layers = [{ name: "Lớp 1", visible: true, opacity: 1, colorTag: null, pixels: blankPixels(newSize) }];
+  sp.activeLayer = 0;
+  state.selection = null;
   state.history[state.current] = { undo: [], redo: [] };
   renderTabs();
+  renderLayers();
   layoutCanvas();
   drawAll();
 };
@@ -841,7 +1576,8 @@ document.getElementById("btnRenameApply").onclick = ()=>{
 document.getElementById("btnDupSprite").onclick = ()=>{
   const sp = state.sprites[state.current];
   const name = newSprite(state.current + "_copy", sp.size, sp.label + " (2)");
-  state.sprites[name].pixels = sp.pixels.slice();
+  state.sprites[name].layers = cloneLayers(sp);
+  state.sprites[name].activeLayer = sp.activeLayer;
   selectSprite(name);
   toast("Đã nhân bản sprite");
 };
@@ -861,7 +1597,8 @@ document.getElementById("btnDelSprite").onclick = ()=>{
    ============================================================ */
 function exportCanvasFor(name){
   const sp = state.sprites[name];
-  const { size, pixels } = sp;
+  const size = sp.size;
+  const pixels = compositePixels(sp);
   const c = document.createElement("canvas");
   c.width = size; c.height = size;
   const cx = c.getContext("2d");
@@ -941,10 +1678,19 @@ window.addEventListener("keydown", (e)=>{
   if(tag === "input") return;
   if(e.ctrlKey && e.key.toLowerCase()==="z"){ e.preventDefault(); doUndo(); return; }
   if(e.ctrlKey && (e.key.toLowerCase()==="y")){ e.preventDefault(); doRedo(); return; }
+  if(e.ctrlKey && e.key.toLowerCase()==="c"){ e.preventDefault(); copySelection(); return; }
+  if(e.ctrlKey && e.key.toLowerCase()==="x"){ e.preventDefault(); cutSelection(); return; }
+  if(e.ctrlKey && e.key.toLowerCase()==="v"){ e.preventDefault(); pasteSelection(); return; }
+  if(e.key === "Delete" && selectionBounds()){ pushHistory(); deleteSelectionContent(); drawAll(); return; }
   if(e.key.toLowerCase()==="b") setTool("pencil");
   if(e.key.toLowerCase()==="e") setTool("eraser");
   if(e.key.toLowerCase()==="g") setTool("fill");
   if(e.key.toLowerCase()==="i") setTool("eyedropper");
+  if(e.key.toLowerCase()==="l") setTool("line");
+  if(e.key.toLowerCase()==="r") setTool("rect");
+  if(e.key.toLowerCase()==="m") setTool("select");
+  if(e.key.toLowerCase()==="n") setTool("gradient");
+  if(e.key.toLowerCase()==="u") setTool("replace");
 });
 
 /* ============================================================
@@ -953,6 +1699,7 @@ window.addEventListener("keydown", (e)=>{
 renderPalette();
 setColor(state.color);
 renderTabs();
+renderLayers();
 spriteNameInput.value = state.sprites[state.current].label;
 document.getElementById("exportNameHint").textContent = `sẽ xuất ra: ${state.current}.png`;
 layoutCanvas();

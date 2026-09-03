@@ -410,6 +410,65 @@ def draw_underground_grid_lines(state, surf):
         gy += step
 
 
+def draw_ant_social_fx(state, surf, colony_obj, depth_filter):
+    """Hiệu ứng THUẦN HIỂN THỊ (không đụng gì tới mô phỏng, không thêm
+    state mới vào AntColony - tính lại HOÀN TOÀN mỗi khung hình từ vị
+    trí/trạng thái hiện tại):
+    1) Dấu NGHỈ NGƠI - chấm tròn mờ nhấp nháy phía trên các con đang
+       STATE_DWELL (rảnh rỗi, lượn quanh phòng) - đúng thực tế đàn kiến
+       không phải lúc nào cũng hoạt động hết công suất. Chỉ khoảng 1/3 số
+       con rảnh được đánh dấu mỗi lúc (thay phiên theo frame_counter),
+       tạo cảm giác "thay nhau nghỉ" thay vì đứng y hệt nhau.
+    2) Lấp lánh CHẢI CHUỐT (grooming) - 2 con RẢNH RỖI đứng rất gần nhau
+       (cfg.GROOMING_DISTANCE) thỉnh thoảng có 1 tia sáng nhỏ giữa 2 con -
+       hành vi xã hội phổ biến ở loài kiến thật, khác với mớm mồi
+       (xem draw_trophallaxis - đó là TRAO ĐỔI THỨC ĂN, còn đây là LÀM
+       SẠCH lẫn nhau, không liên quan thức ăn)."""
+    mask = colony_obj.alive & (colony_obj.depth == depth_filter) & (colony_obj.state == cfg.STATE_DWELL)
+    idx = np.where(mask)[0]
+    if len(idx) == 0:
+        return
+    camera = state.camera
+    cell = camera.cell_px()
+    xs, ys = colony_obj.x[idx], colony_obj.y[idx]
+    phase = state.frame_counter // 20
+
+    for i, real_i in enumerate(idx):
+        if (int(real_i) + phase) % 3 != 0:
+            continue
+        sx = state.CENTER_X + (xs[i] - camera.cx) * cell
+        sy = state.CENTER_Y + (ys[i] - camera.cy) * cell
+        if sx < -10 or sx > state.SCREEN_W + 10 or sy < -10 or sy > state.CANVAS_H + 10:
+            continue
+        r = max(2, int(cell * 0.09))
+        pulse = 0.5 + 0.5 * math.sin((state.frame_counter + int(real_i) * 7) * 0.05)
+        shade = int(120 + 70 * pulse)
+        pygame.draw.circle(surf, (shade, shade, shade), (int(sx), int(sy - cell * 0.32)), r, 1)
+
+    if len(idx) >= 2:
+        pts = np.stack([xs, ys], axis=1)
+        diff = pts[:, None, :] - pts[None, :, :]
+        dist2 = np.sum(diff * diff, axis=2)
+        thresh2 = cfg.GROOMING_DISTANCE ** 2
+        n = len(idx)
+        for a in range(n):
+            for b in range(a + 1, n):
+                if dist2[a, b] > thresh2:
+                    continue
+                pair_key = int(idx[a]) * 7919 + int(idx[b])
+                if (pair_key + phase) % 5 != 0:
+                    continue
+                sx1 = state.CENTER_X + (xs[a] - camera.cx) * cell
+                sy1 = state.CENTER_Y + (ys[a] - camera.cy) * cell
+                sx2 = state.CENTER_X + (xs[b] - camera.cx) * cell
+                sy2 = state.CENTER_Y + (ys[b] - camera.cy) * cell
+                mx, my = (sx1 + sx2) / 2, (sy1 + sy2) / 2
+                if mx < -10 or mx > state.SCREEN_W + 10 or my < -10 or my > state.CANVAS_H + 10:
+                    continue
+                spark_r = max(2, int(cell * 0.07))
+                pygame.draw.circle(surf, (255, 245, 200), (int(mx), int(my)), spark_r)
+
+
 def draw_underground_layer(state, surf, depth):
     camera = state.camera
     pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
@@ -479,4 +538,5 @@ def draw_underground_layer(state, surf, depth):
     # nổi trên nền tối, không cần đổi màu thân nữa.
     draw_ants(state, surf, state.colony, (45, 40, 36), (215, 120, 30), depth_filter=depth, underground=True)
     draw_ants(state, surf, state.invasion, (80, 15, 15), (150, 40, 20), depth_filter=depth, underground=True)
+    draw_ant_social_fx(state, surf, state.colony, depth)
     draw_trophallaxis(state, surf, state.colony, depth)

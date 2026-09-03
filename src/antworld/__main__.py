@@ -75,6 +75,7 @@ def handle_events(state):
         elif event.type == pygame.VIDEORESIZE:
             state.handle_resize(event.w, event.h)
         elif event.type == pygame.KEYDOWN:
+            state.touch_activity()
             if event.key == pygame.K_ESCAPE:
                 return False
             elif event.key == pygame.K_UP and state.active_tab == "sim":
@@ -88,6 +89,7 @@ def handle_events(state):
             elif event.key == pygame.K_l and ctrl_held:
                 state.load_game()
         elif event.type == pygame.MOUSEWHEEL:
+            state.touch_activity()
             mx, my = pygame.mouse.get_pos()
             if any(p.contains((mx, my)) for p in state.visible_panels()):
                 pass  # con tro dang o tren 1 panel noi - khong tac dong len camera/tang
@@ -100,6 +102,7 @@ def handle_events(state):
                 factor = cfg.ZOOM_STEP if event.y > 0 else 1.0 / cfg.ZOOM_STEP
                 state.camera.zoom_at(factor, mx, my, state.CENTER_X, state.CENTER_Y)
         elif event.type == pygame.MOUSEBUTTONDOWN:
+            state.touch_activity()
             if event.button == 1:
                 handled = False
                 for panel in state.visible_panels():
@@ -131,6 +134,7 @@ def handle_events(state):
                 dy = event.pos[1] - state.last_mouse[1]
                 state.camera.pan(dx, dy)
                 state.last_mouse = event.pos
+                state.touch_activity()
 
     # --- kéo chuột trái liên tục để rải (thức ăn/đá/nước/xóa) - chỉ ở tab
     # Mo phong, tab Demo me cung không có công cụ đặt/rải ---
@@ -186,6 +190,10 @@ def render(state):
 
     hud.draw_graph(state, screen)
     hud.draw_hud(state, screen)
+    hud.draw_ant_card(state, screen)
+    hud.draw_founding_controls(state, screen)
+    hud.draw_event_log(state, screen)
+    hud.draw_cruise_indicator(state, screen)
     hud.draw_toolbar(state, screen)
     hud.draw_layer_map(state, screen)
     hud.draw_tab_panel(state, screen)
@@ -215,6 +223,8 @@ def main(max_frames=None):
             state.maze_demo.step()
 
         state.update_follow_camera()
+        state.update_queen_walk_camera()
+        state.update_camera_cruise()
         state.check_alerts()
         state.update_toasts()
         state.advance_layer_fade()

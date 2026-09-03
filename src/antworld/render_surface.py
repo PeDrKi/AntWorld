@@ -376,6 +376,89 @@ def draw_surface_layer(state, surf):
 
     draw_ants(state, surf, state.colony, (25, 25, 25), (215, 120, 30))
     draw_ants(state, surf, state.invasion, (80, 15, 15), (150, 40, 20))
+    draw_founding_queen(state, surf)
+
+
+def draw_founding_queen(state, surf):
+    """Vẽ CHÚA đang đi tìm chỗ/đào hang trên mặt đất (giai đoạn lập tổ -
+    xem GameState.update_queen_founding()) - to hẳn so với thợ thường,
+    CÓ CÁNH lúc mới "hạ cánh" (chuyến bay giao phối), RỤNG CÁNH ngay sau
+    điểm dừng đầu tiên (đúng thực tế), và có 1 ụ đất nhỏ dần lớn lên
+    quanh chân khi đang đào xuống. Không vẽ gì nếu không trong giai đoạn
+    này (queen_walk_active=False) - trả về ngay."""
+    if not state.queen_walk_active:
+        return
+    camera = state.camera
+    cell = camera.cell_px()
+    sx, sy = camera.world_to_screen(state.queen_walk_x, state.queen_walk_y, state.CENTER_X, state.CENTER_Y)
+    r = max(4, cell * 0.55 * cfg.QUEEN_BODY_SCALE * 0.5)
+    digging = state.queen_dig_timer > 0
+
+    if digging:
+        # Ụ đất quanh chân LỚN DẦN theo thời gian còn lại của việc đào -
+        # để người chơi thấy rõ tiến độ thay vì chỉ đứng yên im lìm.
+        progress = 1.0 - (state.queen_dig_timer / max(1, cfg.QUEEN_DIG_TICKS))
+        mound_r = r * (0.5 + 0.9 * progress)
+        mound_surf = pygame.Surface((int(mound_r * 2.6), int(mound_r * 1.6)), pygame.SRCALPHA)
+        pygame.draw.ellipse(mound_surf, (110, 80, 50, 200), mound_surf.get_rect())
+        surf.blit(mound_surf, mound_surf.get_rect(center=(int(sx), int(sy + r * 0.55))))
+        # Chúa CHÌM DẦN xuống ụ đất (chỉ còn thấy nửa trên) khi gần đào xong
+        sy += r * 0.9 * progress
+
+    if state.sprites.has("queen.png"):
+        size = max(8, int(cell * cfg.QUEEN_BODY_SCALE * cfg.ENTITY_SPRITE_SCALE))
+        sprite = state.sprites.get_static("queen.png", size)
+        surf.blit(sprite, sprite.get_rect(center=(int(sx), int(sy))))
+    else:
+        body_color = (150, 60, 110)
+        gaster_w, gaster_h = r * 1.7, r * 1.15
+        pygame.draw.ellipse(surf, body_color, (sx - gaster_w * 0.15, sy - gaster_h / 2, gaster_w, gaster_h))
+        thorax_r = max(3, int(r * 0.42))
+        pygame.draw.circle(surf, body_color, (int(sx - gaster_w * 0.35), int(sy)), thorax_r)
+        head_r = max(3, int(r * 0.3))
+        head_x, head_y = sx - gaster_w * 0.55, sy
+        pygame.draw.circle(surf, body_color, (int(head_x), int(head_y)), head_r)
+        if state.queen_has_wings:
+            # 2 đôi cánh trong mờ, xuôi về sau - CHỈ vẽ trong lúc CÒN CÁNH
+            # (queen_has_wings=True, ngay sau khi hạ cánh trước điểm dừng
+            # đầu tiên - xem update_queen_founding()).
+            wing_surf = pygame.Surface((int(gaster_w * 2.2), int(gaster_h * 2.2)), pygame.SRCALPHA)
+            wcx, wcy = wing_surf.get_width() / 2, wing_surf.get_height() / 2
+            for sign in (-1, 1):
+                pygame.draw.ellipse(
+                    wing_surf, (230, 225, 210, 100),
+                    (wcx - gaster_w * 0.1, wcy + sign * gaster_h * 0.05 - gaster_h * 0.55,
+                     gaster_w * 1.3, gaster_h * 1.1),
+                )
+            surf.blit(wing_surf, wing_surf.get_rect(center=(int(sx + gaster_w * 0.1), int(sy))))
+        pygame.draw.ellipse(surf, (0, 0, 0), (sx - gaster_w * 0.15, sy - gaster_h / 2, gaster_w, gaster_h), 2)
+
+    # Nhãn ngắn phía trên đầu để người chơi hiểu ngay đang xem cảnh gì,
+    # không cần đoán ("sao chỉ có đúng 1 con kiến to đùng đi lang thang?").
+    if digging:
+        pct = int(round((1.0 - state.queen_dig_timer / max(1, cfg.QUEEN_DIG_TICKS)) * 100))
+        label = f"Đang đào hang... {pct}%"
+    else:
+        hops = max(0, state.queen_walk_hops_left)
+        label = f"Chúa đang tìm chỗ lập tổ... (còn {hops} điểm dừng)"
+    img = _get_founding_label(state, label)
+    surf.blit(img, img.get_rect(midbottom=(int(sx), int(sy - r * 1.4))))
+
+
+_founding_label_cache = {}
+
+
+def _get_founding_label(state, text):
+    cached = _founding_label_cache.get(text)
+    if cached is not None:
+        return cached
+    base = state.font_small.render(text, True, (255, 235, 245))
+    shadow = state.font_small.render(text, True, (30, 15, 25))
+    img = pygame.Surface((base.get_width() + 2, base.get_height() + 2), pygame.SRCALPHA)
+    img.blit(shadow, (1, 1))
+    img.blit(base, (0, 0))
+    _founding_label_cache[text] = img
+    return img
 
 
 def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0, underground=False):

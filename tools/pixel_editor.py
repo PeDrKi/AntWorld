@@ -21,6 +21,8 @@ PHIM TAT:
 import os
 import sys
 import copy
+import json
+import colorsys
 import pygame
 
 # Cong cu nay nam trong tools/, tach rieng khoi package game (src/antworld/)
@@ -57,6 +59,8 @@ COL_ACCENT2 = (230, 192, 90)
 COL_DANGER = (192, 87, 74)
 COL_GOOD = (127, 174, 94)
 COL_CANVAS_BG = (32, 25, 15)
+
+LAYER_TAG_COLORS = ["#d77820", "#e6c05a", "#7fae5e", "#4682c8", "#c0574a", "#a883d6"]
 
 pygame.init()
 pygame.display.set_caption("AntWorld Pixel Studio (Python)")
@@ -95,47 +99,193 @@ def hex_to_rgba(h, alpha=255):
     return (r, g, b, alpha)
 
 
+def hex_to_hsv(h):
+    """Tra ve (H 0..360, S 0..100, V 0..100) - dung cho 3 thanh truot
+    HSV o bang mau ben phai (thay the them cho R/G/B, khong thay the)."""
+    r, g, b = (c / 255.0 for c in hex_to_rgb(h))
+    hh, ss, vv = colorsys.rgb_to_hsv(r, g, b)
+    return hh * 360.0, ss * 100.0, vv * 100.0
+
+
+def hsv_to_hex(hh, ss, vv):
+    r, g, b = colorsys.hsv_to_rgb((hh % 360) / 360.0, max(0, min(100, ss)) / 100.0,
+                                   max(0, min(100, vv)) / 100.0)
+    return f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}"
+
+
+PALETTES_DIR = os.path.join(BASE_DIR, "assets", "palettes")
+
+
 # ============================================================
 # STATE
 # ============================================================
+class Layer:
+    """1 LỚP (layer) pixel độc lập bên trong 1 khung hình. Nhiều Layer
+    chồng lên nhau (dưới -> trên) tạo thành nội dung hiển thị/xuất của 1
+    khung - xem Sprite.composite(). Vẽ/tô màu/đối xứng... LUÔN chỉ tác
+    động lên LỚP ĐANG CHỌN (active layer) của khung đang mở, giống hệt
+    các phần mềm vẽ pixel chuyên nghiệp (Aseprite, Piskel...).
+
+    `opacity` (0.0..1.0) điều khiển độ trong suốt khi GỘP lớp này lên
+    các lớp bên dưới (xem Sprite.composite) - không ảnh hưởng gì khi vẽ,
+    chỉ ảnh hưởng lúc hiển thị/xuất ảnh. `color_tag` là 1 mã màu NHÃN
+    nhỏ (không phải màu vẽ) hiển thị cạnh tên lớp trong bảng Lớp, giúp
+    phân biệt nhanh các lớp bằng mắt - có thể để None (không gắn nhãn)."""
+    __slots__ = ("name", "visible", "pixels", "opacity", "color_tag")
+
+    def __init__(self, size, name="Lớp 1", pixels=None, opacity=1.0, color_tag=None):
+        self.name = name
+        self.visible = True
+        self.pixels = pixels if pixels is not None else [None] * (size * size)
+        self.opacity = opacity
+        self.color_tag = color_tag
+
+    def clone(self):
+        c = Layer.__new__(Layer)
+        c.name, c.visible, c.pixels = self.name, self.visible, self.pixels[:]
+        c.opacity, c.color_tag = self.opacity, self.color_tag
+        return c
+
+
 class Sprite:
     """1 sprite = 1 hoặc NHIỀU khung hình (frame) cùng kích thước, dùng để
     dựng hoạt ảnh (đi bộ, vẫy càng...) - xem FRAME_* trong AppState và
-    App.build_frame_strip(). Trước đây mỗi sprite chỉ có ĐÚNG 1 tấm pixel
-    tĩnh duy nhất.
+    App.build_frame_strip(). Mỗi khung hình lại gồm 1 hoặc nhiều LỚP
+    (Layer) chồng lên nhau - xem lớp Layer ở trên.
 
-    `pixels` được giữ lại làm PROPERTY trỏ tới khung đang chọn
-    (frames[frame_idx]) - để toàn bộ phần code còn lại của tool (vẽ, tô
-    màu, đối xứng, undo/redo, xuất PNG...) vốn thao tác thẳng trên
-    `sp.pixels` không cần sửa gì cả: chúng tự động "chỉ áp dụng lên khung
-    đang mở", đúng như 1 công cụ animation cần hoạt động."""
+    `pixels` được giữ lại làm PROPERTY trỏ tới LỚP ĐANG CHỌN của khung
+    đang chọn (frames[frame_idx]["layers"][active]) - để toàn bộ phần
+    code còn lại của tool (vẽ, tô màu, đối xứng, undo/redo...) vốn thao
+    tác thẳng trên `sp.pixels` không cần sửa gì cả: với sprite chỉ có 1
+    lớp (mặc định khi tạo mới), hành vi giống HỆT như trước khi có khái
+    niệm layer. Dùng `sp.composite()` khi cần mảng pixel ĐÃ GỘP mọi lớp
+    hiển thị lại - để RENDER hoặc XUẤT ẢNH."""
     __slots__ = ("size", "frames", "frame_idx", "label")
 
     def __init__(self, size, label):
         self.size = size
-        self.frames = [[None] * (size * size)]
+        self.frames = [self._blank_frame()]
         self.frame_idx = 0
         self.label = label
 
+    def _blank_frame(self):
+        return {"layers": [Layer(self.size)], "active": 0}
+
+    def _clone_frame(self, frame):
+        """Nhân bản SÂU 1 khung (mọi Layer bên trong đều được copy, không
+        chia sẻ chung mảng pixel) - dùng cho add_frame/dup_sprite/undo."""
+        return {"layers": [ly.clone() for ly in frame["layers"]], "active": frame["active"]}
+
+    # ---------- lớp (layer) của khung ĐANG MỞ ----------
+    @property
+    def layers(self):
+        return self.frames[self.frame_idx]["layers"]
+
+    @property
+    def active_idx(self):
+        return self.frames[self.frame_idx]["active"]
+
+    @active_idx.setter
+    def active_idx(self, value):
+        self.frames[self.frame_idx]["active"] = max(0, min(value, len(self.layers) - 1))
+
+    @property
+    def active_layer(self):
+        return self.layers[self.active_idx]
+
     @property
     def pixels(self):
-        return self.frames[self.frame_idx]
+        return self.active_layer.pixels
 
     @pixels.setter
     def pixels(self, value):
-        self.frames[self.frame_idx] = value
+        self.active_layer.pixels = value
 
     @property
     def n_frames(self):
         return len(self.frames)
 
+    def composite(self, frame_idx=None):
+        """Gộp mọi LỚP ĐANG HIỆN (visible=True) của 1 khung (mặc định
+        khung đang mở) theo thứ tự dưới->trên thành 1 mảng pixel PHẲNG
+        duy nhất - dùng để VẼ LÊN MÀN HÌNH/XUẤT ẢNH. Không dùng để vẽ -
+        mọi thao tác vẽ luôn nhắm vào active_layer, không phải kết quả
+        gộp này. Mỗi lớp được TRỘN theo `opacity` của nó (kiểu "over"
+        alpha compositing chuẩn) - lớp opacity=1.0 (mặc định) đè hoàn
+        toàn lên lớp dưới y hệt hành vi cũ (không có khái niệm opacity)."""
+        idx = self.frame_idx if frame_idx is None else frame_idx
+        out = [None] * (self.size * self.size)
+        out_alpha = [0.0] * (self.size * self.size)
+        for layer in self.frames[idx]["layers"]:
+            if not layer.visible or layer.opacity <= 0:
+                continue
+            a = layer.opacity
+            for i, c in enumerate(layer.pixels):
+                if c is None:
+                    continue
+                if out_alpha[i] <= 0:
+                    out[i] = c
+                    out_alpha[i] = a
+                else:
+                    base = hex_to_rgb(out[i])
+                    top = hex_to_rgb(c)
+                    blended = tuple(round(top[k] * a + base[k] * (1 - a)) for k in range(3))
+                    out[i] = f"#{blended[0]:02x}{blended[1]:02x}{blended[2]:02x}"
+                    out_alpha[i] = a + out_alpha[i] * (1 - a)
+        return out
+
+    def add_layer(self, name=None):
+        n = len(self.layers) + 1
+        self.layers.append(Layer(self.size, name or f"Lớp {n}"))
+        self.active_idx = len(self.layers) - 1
+
+    def delete_layer(self):
+        """Xóa lớp đang chọn - LUÔN giữ lại ít nhất 1 lớp/khung."""
+        if len(self.layers) <= 1:
+            return False
+        del self.layers[self.active_idx]
+        self.active_idx = min(self.active_idx, len(self.layers) - 1)
+        return True
+
+    def move_layer(self, delta):
+        """Đổi thứ tự lớp đang chọn với lớp liền kề (delta=-1 xuống dưới/
+        delta=+1 lên trên trong danh sách hiển thị)."""
+        layers = self.layers
+        i = self.active_idx
+        j = i + delta
+        if 0 <= j < len(layers):
+            layers[i], layers[j] = layers[j], layers[i]
+            self.active_idx = j
+            return True
+        return False
+
+    def toggle_layer_visible(self, idx=None):
+        layer = self.layers[self.active_idx if idx is None else idx]
+        layer.visible = not layer.visible
+
+    def merge_layer_down(self):
+        """Gộp lớp đang chọn xuống lớp NGAY DƯỚI nó (pixel không trong
+        suốt của lớp trên đè lên lớp dưới), rồi xóa lớp trên."""
+        layers = self.layers
+        i = self.active_idx
+        if i <= 0 or len(layers) < 2:
+            return False
+        top, bottom = layers[i], layers[i - 1]
+        for k, c in enumerate(top.pixels):
+            if c is not None:
+                bottom.pixels[k] = c
+        del layers[i]
+        self.active_idx = i - 1
+        return True
+
     def add_frame(self, copy_current=True):
         """Chèn 1 khung MỚI ngay SAU khung đang chọn, rồi chuyển sang
-        khung mới đó. copy_current=True: nhân bản nội dung khung hiện tại
-        (thường tiện hơn khi vẽ hoạt ảnh - chỉnh sửa nhỏ từ khung trước,
-        thay vì vẽ lại từ đầu); False: khung trắng hoàn toàn."""
-        blank_or_copy = self.frames[self.frame_idx][:] if copy_current else [None] * (self.size * self.size)
-        self.frames.insert(self.frame_idx + 1, blank_or_copy)
+        khung mới đó. copy_current=True: nhân bản TOÀN BỘ lớp của khung
+        hiện tại (thường tiện hơn khi vẽ hoạt ảnh - chỉnh sửa nhỏ từ
+        khung trước, thay vì vẽ lại từ đầu); False: khung trắng hoàn
+        toàn (1 lớp trống)."""
+        new_frame = self._clone_frame(self.frames[self.frame_idx]) if copy_current else self._blank_frame()
+        self.frames.insert(self.frame_idx + 1, new_frame)
         self.frame_idx += 1
 
     def delete_frame(self):
@@ -169,6 +319,12 @@ class AppState:
         self.recent_colors = []  # hex, mới nhất ở đầu, tối đa 10, không trùng
         self.brush_size = 1      # 1..3, áp dụng cho bút/tẩy (không áp dụng
                                   # cho đổ màu/hút màu/đường thẳng/hcn)
+        self.brush_shape = "square"  # "square" hoặc "circle" - hình dạng
+                                      # con dấu khi brush_size > 1
+        self.color2 = "#3a2a1a"  # màu B dùng cho công cụ Gradient
+        self.selection = None       # (x0,y0,x1,y1) - vùng chọn hiện tại (toa do co the dao)
+        self.clipboard = None       # {"w","h","pixels"} - noi dung vua Copy/Cut
+        self.show_ruler = False
         self.zoom = 20
         self.show_grid = True
         self.symmetry_h = False
@@ -225,7 +381,7 @@ class AppState:
         giữa các khung khác nhau."""
         h = self.history[self.current]
         sp = self.sp()
-        h["undo"].append(([f[:] for f in sp.frames], sp.frame_idx))
+        h["undo"].append(([sp._clone_frame(f) for f in sp.frames], sp.frame_idx))
         if len(h["undo"]) > 60:
             h["undo"].pop(0)
         h["redo"].clear()
@@ -235,7 +391,7 @@ class AppState:
         if not h["undo"]:
             return
         sp = self.sp()
-        h["redo"].append(([f[:] for f in sp.frames], sp.frame_idx))
+        h["redo"].append(([sp._clone_frame(f) for f in sp.frames], sp.frame_idx))
         sp.frames, sp.frame_idx = h["undo"].pop()
 
     def redo(self):
@@ -243,7 +399,7 @@ class AppState:
         if not h["redo"]:
             return
         sp = self.sp()
-        h["undo"].append(([f[:] for f in sp.frames], sp.frame_idx))
+        h["undo"].append(([sp._clone_frame(f) for f in sp.frames], sp.frame_idx))
         sp.frames, sp.frame_idx = h["redo"].pop()
 
     def remember_color(self, hexcolor):
@@ -274,16 +430,186 @@ class AppState:
             sp.pixels[py * sp.size + px] = color
 
     def paint_stamp(self, x, y, color):
-        """Ve 1 'con dau' vuong kich thuoc brush_size x brush_size, tam
-        tai (x,y) - dung cho but/tay khi brush_size > 1. brush_size=1
-        thi hanh vi giong het set_pixel() truoc day."""
+        """Ve 1 'con dau' kich thuoc brush_size x brush_size, tam tai
+        (x,y) - dung cho but/tay khi brush_size > 1. brush_size=1 thi
+        hanh vi giong het set_pixel() truoc day. Neu brush_shape=="circle"
+        va brush_size>1, con dau duoc bo goc thanh hinh tron gan dung
+        (giu nguyen hanh vi vuong mac dinh, khong anh huong test cu)."""
         sp = self.sp()
         half = self.brush_size // 2
+        even = (self.brush_size % 2 == 0)
+        radius = (self.brush_size / 2.0) if even else half
         for oy in range(-half, self.brush_size - half):
             for ox in range(-half, self.brush_size - half):
+                if self.brush_shape == "circle" and self.brush_size > 1:
+                    cx = ox + 0.5 if even else ox
+                    cy = oy + 0.5 if even else oy
+                    if (cx * cx + cy * cy) > radius * radius:
+                        continue
                 px, py = x + ox, y + oy
                 if 0 <= px < sp.size and 0 <= py < sp.size:
                     self.set_pixel(px, py, color)
+
+    def gradient_colors(self, x0, y0, x1, y1):
+        """Tinh mau Gradient tuyen tinh (theo duong cheo) giua state.color
+        (goc) va state.color2 (cuoi) cho tung o trong hinh chu nhat gioi
+        han boi 2 diem - dung chung cho CA xem truoc (draw_canvas) LAN
+        commit that (apply_gradient), tranh viet trung logic 2 lan."""
+        xmin, xmax = min(x0, x1), max(x0, x1)
+        ymin, ymax = min(y0, y1), max(y0, y1)
+        c1 = hex_to_rgb(self.color) if self.color else (0, 0, 0)
+        c2 = hex_to_rgb(self.color2) if self.color2 else (0, 0, 0)
+        span = max(1, (xmax - xmin) + (ymax - ymin))
+        for y in range(ymin, ymax + 1):
+            for x in range(xmin, xmax + 1):
+                t = ((x - xmin) + (y - ymin)) / span
+                r = round(c1[0] + (c2[0] - c1[0]) * t)
+                g = round(c1[1] + (c2[1] - c1[1]) * t)
+                b = round(c1[2] + (c2[2] - c1[2]) * t)
+                yield x, y, f"#{r:02x}{g:02x}{b:02x}"
+
+    def apply_gradient(self, x0, y0, x1, y1):
+        """To Gradient tuyen tinh (theo duong cheo) giua state.color (goc)
+        va state.color2 (cuoi) trong hinh chu nhat gioi han boi 2 diem
+        keo - dung cho cong cu 'gradient'."""
+        for x, y, hexcolor in self.gradient_colors(x0, y0, x1, y1):
+            self.set_pixel(x, y, hexcolor)
+
+    def replace_color(self, target, new_color):
+        """Doi TOAN BO pixel co mau `target` (co the la None = trong
+        suot) trong LOP DANG CHON cua khung dang mo thanh `new_color` -
+        khac voi Do mau (fill) o cho KHONG can lien ke nhau."""
+        sp = self.sp()
+        if target == new_color:
+            return 0
+        n = 0
+        for i, c in enumerate(sp.pixels):
+            if c == target:
+                sp.pixels[i] = new_color
+                n += 1
+        return n
+
+    # ---------- vùng chọn (selection) ----------
+    def selection_bounds(self):
+        """Tra ve (x0,y0,x1,y1) da chuan hoa (x0<=x1, y0<=y1) cua vung
+        chon hien tai, hoac None neu chua chon gi."""
+        if not self.selection:
+            return None
+        x0, y0, x1, y1 = self.selection
+        return min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)
+
+    def clear_selection(self):
+        self.selection = None
+
+    def copy_selection(self):
+        b = self.selection_bounds()
+        if not b:
+            self.toast("Chưa có vùng chọn nào để sao chép")
+            return
+        x0, y0, x1, y1 = b
+        sp = self.sp()
+        w, h = x1 - x0 + 1, y1 - y0 + 1
+        data = [sp.pixels[y * sp.size + x] for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+        self.clipboard = {"w": w, "h": h, "pixels": data}
+        self.toast(f"Đã sao chép {w}x{h} pixel")
+
+    def delete_selection_content(self):
+        b = self.selection_bounds()
+        if not b:
+            return
+        x0, y0, x1, y1 = b
+        sp = self.sp()
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                sp.pixels[y * sp.size + x] = None
+
+    def cut_selection(self):
+        if not self.selection_bounds():
+            self.toast("Chưa có vùng chọn nào để cắt")
+            return
+        self.copy_selection()
+        self.push_history()
+        self.delete_selection_content()
+        self.toast("Đã cắt vùng chọn")
+
+    def paste_selection(self):
+        if not self.clipboard:
+            self.toast("Chưa có gì trong bộ nhớ tạm (Copy/Cut trước)")
+            return
+        self.push_history()
+        sp = self.sp()
+        w, h = self.clipboard["w"], self.clipboard["h"]
+        x0, y0 = (self.selection_bounds()[:2] if self.selection_bounds() else (0, 0))
+        for j in range(h):
+            for i in range(w):
+                px, py = x0 + i, y0 + j
+                if 0 <= px < sp.size and 0 <= py < sp.size:
+                    c = self.clipboard["pixels"][j * w + i]
+                    if c is not None:
+                        sp.pixels[py * sp.size + px] = c
+        self.selection = (x0, y0, x0 + w - 1, y0 + h - 1)
+        self.toast("Đã dán vùng chọn")
+
+    def _selection_block(self, b):
+        x0, y0, x1, y1 = b
+        sp = self.sp()
+        w, h = x1 - x0 + 1, y1 - y0 + 1
+        return w, h, [[sp.pixels[(y0 + j) * sp.size + (x0 + i)] for i in range(w)] for j in range(h)]
+
+    def _write_selection_block(self, x0, y0, w, h, block):
+        sp = self.sp()
+        for j in range(h):
+            for i in range(w):
+                sp.pixels[(y0 + j) * sp.size + (x0 + i)] = block[j][i]
+
+    def flip_selection(self, axis):
+        """axis: 'h' (lat ngang, trai<->phai) hoac 'v' (lat doc, tren<->duoi)."""
+        b = self.selection_bounds()
+        if not b:
+            self.toast("Chưa có vùng chọn nào để lật")
+            return
+        self.push_history()
+        x0, y0, x1, y1 = b
+        w, h, block = self._selection_block(b)
+        block = [row[::-1] for row in block] if axis == "h" else block[::-1]
+        self._write_selection_block(x0, y0, w, h, block)
+
+    def rotate_selection_90(self):
+        b = self.selection_bounds()
+        if not b:
+            self.toast("Chưa có vùng chọn nào để xoay")
+            return
+        x0, y0, x1, y1 = b
+        w, h, block = self._selection_block(b)
+        if w != h:
+            self.toast("Chỉ xoay được vùng chọn VUÔNG (rộng = cao)")
+            return
+        self.push_history()
+        rotated = [[block[h - 1 - i][j] for i in range(h)] for j in range(w)]
+        self._write_selection_block(x0, y0, w, h, rotated)
+
+    def move_selection(self, dx, dy):
+        b = self.selection_bounds()
+        if not b:
+            self.toast("Chưa có vùng chọn nào để di chuyển")
+            return
+        x0, y0, x1, y1 = b
+        sp = self.sp()
+        w, h = x1 - x0 + 1, y1 - y0 + 1
+        self.push_history()
+        block = [sp.pixels[(y0 + j) * sp.size + (x0 + i)] for j in range(h) for i in range(w)]
+        for j in range(h):
+            for i in range(w):
+                sp.pixels[(y0 + j) * sp.size + (x0 + i)] = None
+        nx0, ny0 = x0 + dx, y0 + dy
+        for j in range(h):
+            for i in range(w):
+                px, py = nx0 + i, ny0 + j
+                if 0 <= px < sp.size and 0 <= py < sp.size:
+                    c = block[j * w + i]
+                    if c is not None:
+                        sp.pixels[py * sp.size + px] = c
+        self.selection = (nx0, ny0, nx0 + w - 1, ny0 + h - 1)
 
     def line_points(self, x0, y0, x1, y1):
         """Thuat toan Bresenham - tra ve danh sach (x,y) tao thanh 1
@@ -354,7 +680,10 @@ class AppState:
                 self.flood_fill(x, y, self.color)
         elif self.tool == "eyedropper":
             if is_start:
-                c = sp.pixels[y * sp.size + x]
+                # Hut tu ANH DA GOP (composite) - de hut dung mau NHIN
+                # THAY tren canvas, ke ca khi mau do dang thuoc 1 lop
+                # khac (o duoi) chu khong phai lop dang chon.
+                c = sp.composite()[y * sp.size + x]
                 if c:
                     self.color = c
                     self.color_rgb = list(hex_to_rgb(c))
@@ -362,9 +691,15 @@ class AppState:
                     self.toast(f"Da hut mau: {c}")
                 else:
                     self.toast("Ô này đang trống (trong suốt)")
-        # "line" va "rect" khong ve ngay o day - chung duoc xu ly rieng
-        # bang shape_start/shape_preview_end (xem handle_mouse_down/up
-        # trong App) vi can XEM TRUOC khi dang keo, chi commit luc tha chuot.
+        elif self.tool == "replace":
+            if is_start:
+                target = sp.pixels[y * sp.size + x]
+                n = self.replace_color(target, self.color)
+                self.toast(f"Đã đổi {n} pixel: {target or 'trong suốt'} → {self.color or 'trong suốt'}")
+        # "line", "rect", "gradient" va "select" khong ve/chon ngay o day
+        # - chung duoc xu ly rieng bang shape_start/shape_preview_end
+        # (xem handle_mouse_down/up trong App) vi can XEM TRUOC khi dang
+        # keo, chi commit luc tha chuot.
 
 
 class _FramePreviewShim:
@@ -378,6 +713,12 @@ class _FramePreviewShim:
     def __init__(self, size, pixels):
         self.size = size
         self.pixels = pixels
+
+    def composite(self, frame_idx=None):
+        """Da la mang pixel PHANG san (duoc truyen vao tu Sprite.composite
+        cua khung goc) - tra ve nguyen, de App.draw_canvas co the dung
+        chung 1 duong goi anim_sp.composite() cho ca Sprite that lan shim."""
+        return self.pixels
 
 
 state = AppState()
@@ -506,6 +847,7 @@ class App:
     def __init__(self):
         self.rename_box = TextBox((0, 0, 10, 10), state.sp().label)
         self.hexinput_box = TextBox((0, 0, 10, 10), state.color)
+        self.layer_rename_box = TextBox((0, 0, 10, 10), state.sp().active_layer.name)
         self.right_scroll = 0.0        # vi tri cuon HIEN TAI (mượt, chạy dần tới target)
         self.right_scroll_target = 0.0  # vi tri cuon MUC TIEU (nhay ngay khi lan chuot)
         self.buttons = []
@@ -543,6 +885,117 @@ class App:
         state.color = hexcolor
         self.hexinput_box.text = hexcolor
 
+    def _set_color_hsv(self, channel, value):
+        hh, ss, vv = hex_to_hsv(state.color or "#000000")
+        if channel == "h":
+            hh = value
+        elif channel == "s":
+            ss = value
+        else:
+            vv = value
+        hexcolor = hsv_to_hex(hh, ss, vv)
+        state.color = hexcolor
+        state.color_rgb = list(hex_to_rgb(hexcolor))
+        self.hexinput_box.text = hexcolor
+
+    def set_color2_from_current(self):
+        state.color2 = state.color or "#000000"
+        state.toast(f"Đã đặt màu B (Gradient) = {state.color2}")
+
+    def ensure_palettes_dir(self):
+        os.makedirs(PALETTES_DIR, exist_ok=True)
+
+    def save_palette(self):
+        """Lưu bảng màu 'vừa dùng' hiện tại ra file JSON dùng chung cho
+        mọi sprite (assets/palettes/custom_palette.json) - dùng nút Nạp
+        bảng màu để đọc lại sau, kể cả ở phiên làm việc khác."""
+        self.ensure_palettes_dir()
+        path = os.path.join(PALETTES_DIR, "custom_palette.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"colors": state.recent_colors}, f, ensure_ascii=False, indent=2)
+        state.toast(f"Đã lưu bảng màu ({len(state.recent_colors)} màu): assets/palettes/custom_palette.json")
+
+    def load_palette(self):
+        path = os.path.join(PALETTES_DIR, "custom_palette.json")
+        if not os.path.exists(path):
+            state.toast("Chưa có bảng màu nào được lưu trước đó")
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            colors = data.get("colors", [])
+            for c in reversed(colors):
+                state.remember_color(c)
+            state.toast(f"Đã nạp {len(colors)} màu từ bảng màu đã lưu")
+        except Exception:
+            state.toast("Không đọc được file bảng màu (sai định dạng?)")
+
+    # ---------- lớp (layer) ----------
+    def add_layer(self):
+        state.push_history()
+        state.sp().add_layer()
+        state.toast(f"Đã thêm lớp mới - tổng {len(state.sp().layers)} lớp")
+
+    def delete_layer(self):
+        sp = state.sp()
+        if len(sp.layers) <= 1:
+            state.toast("Phải còn ít nhất 1 lớp")
+            return
+        state.push_history()
+        sp.delete_layer()
+        state.toast(f"Đã xóa lớp - còn lại {len(sp.layers)} lớp")
+
+    def select_layer(self, idx):
+        sp = state.sp()
+        if 0 <= idx < len(sp.layers):
+            sp.active_idx = idx
+
+    def move_layer_up(self):
+        state.push_history()
+        if not state.sp().move_layer(1):
+            state.history[state.current]["undo"].pop()
+
+    def move_layer_down(self):
+        state.push_history()
+        if not state.sp().move_layer(-1):
+            state.history[state.current]["undo"].pop()
+
+    def toggle_layer_visible(self, idx):
+        state.push_history()
+        state.sp().toggle_layer_visible(idx)
+
+    def merge_layer_down(self):
+        sp = state.sp()
+        if len(sp.layers) < 2:
+            state.toast("Cần ít nhất 2 lớp để gộp")
+            return
+        state.push_history()
+        if sp.merge_layer_down():
+            state.toast(f"Đã gộp lớp - còn lại {len(sp.layers)} lớp")
+
+    def apply_layer_rename(self):
+        name = self.layer_rename_box.text.strip()
+        if not name:
+            return
+        state.push_history()
+        state.sp().active_layer.name = name
+        state.toast(f"Đã đổi tên lớp thành “{name}”")
+
+    def set_layer_opacity(self, value):
+        state.sp().active_layer.opacity = max(0.0, min(1.0, value / 100.0))
+
+    def cycle_layer_color_tag(self, idx):
+        """Đổi mã màu NHÃN của 1 lớp sang màu kế tiếp trong LAYER_TAG_COLORS
+        (bấm nhiều lần để xoay vòng, kể cả về lại 'không gắn nhãn')."""
+        sp = state.sp()
+        layer = sp.layers[idx]
+        options = [None] + LAYER_TAG_COLORS
+        try:
+            cur = options.index(layer.color_tag)
+        except ValueError:
+            cur = 0
+        layer.color_tag = options[(cur + 1) % len(options)]
+
     def set_transparent(self):
         state.color = None
         state.toast('Đang vẽ = xóa (trong suốt) - như tẩy')
@@ -556,8 +1009,12 @@ class App:
     def clear_canvas(self):
         state.push_history()
         sp = state.sp()
-        sp.pixels = [None] * (sp.size * sp.size)
-        state.toast("Đã xóa toàn bộ canvas")
+        # Xoa CA MOI LOP cua khung dang mo (khong chi lop dang chon) - dung
+        # voi ky vong "xoa toan bo canvas" cua nguoi dung, kha voi Xoa lop
+        # (o bang Lop) chi xoa 1 minh lop dang chon.
+        for layer in sp.layers:
+            layer.pixels = [None] * (sp.size * sp.size)
+        state.toast("Đã xóa toàn bộ canvas (mọi lớp của khung này)")
 
     def dup_sprite(self):
         sp = state.sp()
@@ -565,7 +1022,7 @@ class App:
         # Nhân bản TOÀN BỘ danh sách khung (không chỉ khung đang mở) - nếu
         # không, nhân bản 1 sprite đang có sẵn hoạt ảnh nhiều khung sẽ vô
         # tình làm MẤT hết các khung khác, chỉ còn lại khung đang xem.
-        state.sprites[name].frames = [f[:] for f in sp.frames]
+        state.sprites[name].frames = [sp._clone_frame(f) for f in sp.frames]
         state.sprites[name].frame_idx = sp.frame_idx
         self.select_sprite(name)
         state.toast(f"Đã nhân bản sprite ({sp.n_frames} khung)")
@@ -662,6 +1119,12 @@ class App:
     def set_brush_size(self, size):
         state.brush_size = size
 
+    def _set_brush_shape(self, shape):
+        state.brush_shape = shape
+
+    def toggle_ruler(self):
+        state.show_ruler = not state.show_ruler
+
     def toggle_rect_filled(self):
         state.rect_filled = not state.rect_filled
 
@@ -679,7 +1142,7 @@ class App:
         # nguyên SỐ LƯỢNG khung hiện có (đổi kích thước không có lý do gì
         # xóa mất tiến độ dựng hoạt ảnh, chỉ cần vẽ lại nội dung từng khung
         # ở kích thước mới).
-        sp.frames = [[None] * (new_size * new_size) for _ in sp.frames]
+        sp.frames = [sp._blank_frame() for _ in sp.frames]
         state.history[state.current] = {"undo": [], "redo": []}
         state.toast(f"Đã đổi kích thước canvas sang {new_size}x{new_size} (mọi khung đều được làm trống)")
 
@@ -732,7 +1195,7 @@ class App:
         """Ve 1 KHUNG DUY NHAT cua sprite ra Surface - mac dinh la khung
         DANG CHON (sp.frame_idx), truyen frame_idx de lay khung khac (dung
         khi ghep spritesheet - xem sprite_to_spritesheet_surface)."""
-        frame = sp.frames[sp.frame_idx if frame_idx is None else frame_idx]
+        frame = sp.composite(frame_idx)
         surf = pygame.Surface((sp.size, sp.size), pygame.SRCALPHA)
         surf.fill((0, 0, 0, 0))
         for y in range(sp.size):
@@ -868,13 +1331,16 @@ class App:
         tool_w = (w - 6) // 2
         tools = [("pencil", "Bút (B)"), ("eraser", "Tẩy (E)"),
                  ("fill", "Đổ màu (G)"), ("eyedropper", "Hút màu (I)"),
-                 ("line", "Đường thẳng (L)"), ("rect", "Hình CN (R)")]
+                 ("line", "Đường thẳng (L)"), ("rect", "Hình CN (R)"),
+                 ("select", "Chọn vùng (M)"), ("gradient", "Gradient (N)"),
+                 ("replace", "Đổi màu (U)")]
+        n_rows = (len(tools) + 1) // 2
         for i, (key, label) in enumerate(tools):
             col, row = i % 2, i // 2
             rect = (x0 + col * (tool_w + 6), y + row * 34, tool_w, 30)
             self.buttons.append(Button(rect, label, (lambda k=key: self.set_tool(k)),
                                         active=(state.tool == key), font=font_small))
-        y += 34 * 3 + 10
+        y += 34 * n_rows + 10
 
         if state.tool == "rect":
             self.buttons.append(Button((x0, y, w, 28),
@@ -891,7 +1357,106 @@ class App:
                 self.buttons.append(Button(rect, f"{sz}", (lambda s=sz: self.set_brush_size(s)),
                                             active=(state.brush_size == sz), font=font_small))
             y += 32
+            sh_w = (w - 6) // 2
+            self.buttons.append(Button((x0, y, sh_w, 26), "◼ Vuông", lambda: self._set_brush_shape("square"),
+                                        active=(state.brush_shape == "square"), font=font_small))
+            self.buttons.append(Button((x0 + sh_w + 6, y, sh_w, 26), "● Tròn", lambda: self._set_brush_shape("circle"),
+                                        active=(state.brush_shape == "circle"), font=font_small))
+            y += 32
+        elif state.tool == "gradient":
+            draw_text(screen, "Màu A = màu đang chọn (bên phải)", (x0, y), font_small, COL_TEXT_DIM)
+            y += 16
+            sw = pygame.Rect(x0, y, 26, 26)
+            pygame.draw.rect(screen, hex_to_rgb(state.color2), sw, border_radius=4)
+            pygame.draw.rect(screen, COL_BORDER, sw, width=1, border_radius=4)
+            self.buttons.append(Button((x0 + 32, y, w - 32, 26), f"Màu B: {state.color2}",
+                                        self.set_color2_from_current, font=font_small,
+                                        tip="Đặt màu B = màu đang chọn hiện tại"))
+            y += 34
+        elif state.tool == "select":
+            has_sel = state.selection_bounds() is not None
+            bw2 = (w - 6) // 2
+            self.buttons.append(Button((x0, y, bw2, 26), "Copy (Ctrl+C)", state.copy_selection, font=font_small))
+            self.buttons.append(Button((x0 + bw2 + 6, y, bw2, 26), "Cut (Ctrl+X)", state.cut_selection, font=font_small))
+            y += 30
+            self.buttons.append(Button((x0, y, bw2, 26), "Paste (Ctrl+V)", state.paste_selection, font=font_small))
+            self.buttons.append(Button((x0 + bw2 + 6, y, bw2, 26), "Bỏ chọn", state.clear_selection,
+                                        font=font_small))
+            y += 30
+            self.buttons.append(Button((x0, y, bw2, 26), "Lật ngang", lambda: state.flip_selection("h"),
+                                        font=font_small))
+            self.buttons.append(Button((x0 + bw2 + 6, y, bw2, 26), "Lật dọc", lambda: state.flip_selection("v"),
+                                        font=font_small))
+            y += 30
+            self.buttons.append(Button((x0, y, w, 26), "Xoay 90° (chỉ vùng vuông)",
+                                        state.rotate_selection_90, font=font_small))
+            y += 30
+            draw_text(screen, "Di chuyển vùng chọn:", (x0, y), font_small, COL_TEXT_DIM)
+            y += 18
+            arrow_w = (w - 3 * 4) // 4
+            for i, (lbl, dx, dy) in enumerate((("◄", -1, 0), ("▲", 0, -1), ("▼", 0, 1), ("►", 1, 0))):
+                rect = (x0 + i * (arrow_w + 4), y, arrow_w, 26)
+                self.buttons.append(Button(rect, lbl, (lambda ddx=dx, ddy=dy: state.move_selection(ddx, ddy)),
+                                            font=font_small))
+            y += 32
+            if not has_sel:
+                self._wrap_text("Kéo chuột trên canvas để tạo vùng chọn.", (x0, y), w, font_small, COL_TEXT_DIM)
+                y += 16
         y += 10
+
+        # ---------- LỚP (LAYERS) ----------
+        sp_ = state.sp()
+        draw_text(screen, f"LỚP (LAYERS) - {len(sp_.layers)} lớp", (x0, y), font_small, COL_TEXT_DIM)
+        y += 20
+        self.layer_row_rects = []
+        row_h = 26
+        for i in range(len(sp_.layers) - 1, -1, -1):  # ve LOP TREN CUNG len tren, giong Aseprite
+            layer = sp_.layers[i]
+            active = (i == sp_.active_idx)
+            row_rect = pygame.Rect(x0, y, w, row_h)
+            pygame.draw.rect(screen, COL_PANEL2 if active else COL_PANEL, row_rect, border_radius=4)
+            pygame.draw.rect(screen, COL_ACCENT2 if active else COL_BORDER, row_rect,
+                              width=2 if active else 1, border_radius=4)
+            eye_rect = pygame.Rect(x0 + 4, y + 3, 20, 20)
+            self.buttons.append(Button(eye_rect, "●" if layer.visible else "○",
+                                        (lambda ii=i: self.toggle_layer_visible(ii)), font=font_small,
+                                        tip="Ẩn/hiện lớp"))
+            tag_rect = pygame.Rect(x0 + 27, y + 6, 14, 14)
+            if layer.color_tag:
+                pygame.draw.rect(screen, hex_to_rgb(layer.color_tag), tag_rect, border_radius=3)
+            pygame.draw.rect(screen, COL_BORDER, tag_rect, width=1, border_radius=3)
+            self.buttons.append(Button(tag_rect, "", (lambda ii=i: self.cycle_layer_color_tag(ii)),
+                                        font=font_small, tip="Đổi màu nhãn của lớp"))
+            self.layer_row_rects.append((pygame.Rect(x0 + 46, y, w - 46, row_h), i))
+            name_col = COL_TEXT if layer.visible else COL_TEXT_DIM
+            opac_txt = "" if layer.opacity >= 0.999 else f" ({round(layer.opacity * 100)}%)"
+            draw_text(screen, (layer.name[:14] + opac_txt), (x0 + 48, y + 6), font_small, name_col)
+            y += row_h + 3
+        y += 4
+        lbw = (w - 3 * 6) // 4
+        self.buttons.append(Button((x0, y, lbw, 26), "+ Lớp", self.add_layer, font=font_small))
+        self.buttons.append(Button((x0 + lbw + 6, y, lbw, 26), "- Lớp", self.delete_layer, font=font_small))
+        self.buttons.append(Button((x0 + 2 * (lbw + 6), y, lbw, 26), "▲", self.move_layer_up, font=font_small,
+                                    tip="Đưa lớp lên trên"))
+        self.buttons.append(Button((x0 + 3 * (lbw + 6), y, lbw, 26), "▼", self.move_layer_down, font=font_small,
+                                    tip="Đưa lớp xuống dưới"))
+        y += 30
+        self.buttons.append(Button((x0, y, w, 26), "Gộp xuống lớp dưới", self.merge_layer_down, font=font_small))
+        y += 34
+
+        active_layer = sp_.active_layer
+        if not self.layer_rename_box.active:
+            self.layer_rename_box.text = active_layer.name
+        draw_text(screen, f"Tên lớp đang chọn: {active_layer.name}", (x0, y), font_small, COL_TEXT_DIM)
+        y += 18
+        self.layer_rename_box.rect = pygame.Rect(x0, y, w - 70, 26)
+        self.layer_rename_box.draw(screen)
+        self.buttons.append(Button((x0 + w - 66, y, 66, 26), "Đổi tên", self.apply_layer_rename, font=font_small))
+        y += 32
+        draw_text(screen, f"Độ mờ (opacity): {round(active_layer.opacity * 100)}%", (x0, y), font_small, COL_TEXT)
+        self.register_slider("layer_opacity", (x0, y + 16, w, 14), active_layer.opacity * 100, 0, 100,
+                              self.set_layer_opacity)
+        y += 40
 
         draw_text(screen, "CHỈNH SỬA", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
@@ -922,6 +1487,9 @@ class App:
         y += 30
         self.buttons.append(Button((x0, y, w, 30), f"Lưới: {'BẬT' if state.show_grid else 'TẮT'}",
                                     self.toggle_grid, active=state.show_grid, font=font_small))
+        y += 34
+        self.buttons.append(Button((x0, y, w, 30), f"Thước đo: {'BẬT' if state.show_ruler else 'TẮT'}",
+                                    self.toggle_ruler, active=state.show_ruler, font=font_small))
         y += 44
 
         draw_text(screen, "KÍCH THƯỚC CANVAS", (x0, y), font_small, COL_TEXT_DIM)
@@ -989,6 +1557,17 @@ class App:
             self.register_slider(f"color_{key}", (rx, y + 16, w, 14), val, 0, 255,
                                   (lambda v, k=key: self._set_color_channel(k, v)))
             y += 34
+        y += 4
+
+        # Thanh trượt H/S/V - cách pha màu THEO TÔNG MÀU (đổi Hue mà giữ
+        # nguyên độ đậm/sáng) tiện hơn R/G/B khi cần biến thể cùng 1 màu.
+        hh, ss, vv = hex_to_hsv(state.color or "#000000")
+        hsv_labels = [("hsv_h", "H", hh, 360), ("hsv_s", "S", ss, 100), ("hsv_v", "V", vv, 100)]
+        for key, label, val, maxv in hsv_labels:
+            draw_text(screen, f"{label} {val:.0f}", (rx, y), font_small, COL_TEXT)
+            self.register_slider(key, (rx, y + 16, w, 14), val, 0, maxv,
+                                  (lambda v, k=label.lower(): self._set_color_hsv(k, v)))
+            y += 34
         y += 6
 
         self.buttons.append(Button((rx, y, w, 26), "Áp dụng mã màu (Enter)", self.apply_hex_color, font=font_small))
@@ -996,6 +1575,15 @@ class App:
         self.buttons.append(Button((rx, y, w, 28), 'Chọn "trong suốt" (tẩy)', self.set_transparent,
                                     active=(state.color is None), font=font_small))
         y += 38
+
+        draw_text(screen, "BẢNG MÀU TÙY CHỈNH", (rx, y), font_small, COL_TEXT_DIM)
+        y += 20
+        pw = (w - 6) // 2
+        self.buttons.append(Button((rx, y, pw, 26), "Lưu bảng màu", self.save_palette, font=font_small,
+                                    tip="Lưu 'màu vừa dùng' hiện tại ra file"))
+        self.buttons.append(Button((rx + pw + 6, y, pw, 26), "Nạp bảng màu", self.load_palette, font=font_small,
+                                    tip="Nạp lại bảng màu đã lưu trước đó"))
+        y += 34
 
         if state.recent_colors:
             draw_text(screen, "MÀU VỪA DÙNG", (rx, y), font_small, COL_TEXT_DIM)
@@ -1113,7 +1701,8 @@ class App:
         thumb_slot = 40   # khoảng cách tâm-tới-tâm giữa 2 ô thumbnail liên tiếp
         thumb_box = 34    # kích thước khung viền hiển thị (px)
         self.frame_thumb_rects = []
-        for i, frame_px in enumerate(sp.frames):
+        for i in range(sp.n_frames):
+            frame_px = sp.composite(i)
             fx = x0 + i * thumb_slot
             rect = pygame.Rect(fx, y, thumb_box, thumb_box)
             selected = (i == sp.frame_idx)
@@ -1196,7 +1785,7 @@ class App:
         # và KHÔNG phải đang xem khung đầu tiên (không có khung nào trước
         # nó để hiện).
         if state.onion_skin and sp.n_frames > 1 and sp.frame_idx > 0:
-            prev_frame = sp.frames[sp.frame_idx - 1]
+            prev_frame = sp.composite(sp.frame_idx - 1)
             onion = pygame.Surface(self.canvas_rect.size, pygame.SRCALPHA)
             for y in range(sp.size):
                 for x in range(sp.size):
@@ -1205,17 +1794,18 @@ class App:
                         pygame.draw.rect(onion, (*hex_to_rgb(c), 100), (x * z, y * z, z, z))
             screen.blit(onion, self.canvas_rect.topleft)
 
+        comp = sp.composite()
         for y in range(sp.size):
             for x in range(sp.size):
-                c = sp.pixels[y * sp.size + x]
+                c = comp[y * sp.size + x]
                 if c:
                     r = (self.canvas_rect.x + x * z, self.canvas_rect.y + y * z, z, z)
                     pygame.draw.rect(screen, hex_to_rgb(c), r)
 
-        # Xem truoc duong thang / hinh chu nhat dang keo (chua ve that len
-        # sprite - chi ve tam thoi de nguoi dung thay hinh se ra sao truoc
-        # khi tha chuot). Ve theo dung phep doi xung dang bat, giong het
-        # luc commit that o handle_mouse_up.
+        # Xem truoc duong thang / hinh chu nhat / gradient dang keo (chua
+        # ve that len sprite - chi ve tam thoi de nguoi dung thay hinh se
+        # ra sao truoc khi tha chuot). Ve theo dung phep doi xung dang bat
+        # (voi line/rect), giong het luc commit that o handle_mouse_up.
         if state.tool in ("line", "rect") and state.shape_start and state.shape_preview_end:
             x0s, y0s = state.shape_start
             x1s, y1s = state.shape_preview_end
@@ -1232,6 +1822,43 @@ class App:
                     pygame.draw.rect(preview_layer, (*preview_rgb, 150),
                                       (mx * z, my * z, z, z))
             screen.blit(preview_layer, self.canvas_rect.topleft)
+        elif state.tool == "gradient" and state.shape_start and state.shape_preview_end:
+            x0s, y0s = state.shape_start
+            x1s, y1s = state.shape_preview_end
+            preview_layer = pygame.Surface(self.canvas_rect.size, pygame.SRCALPHA)
+            for px_, py_, hexcolor in state.gradient_colors(x0s, y0s, x1s, y1s):
+                if 0 <= px_ < sp.size and 0 <= py_ < sp.size:
+                    pygame.draw.rect(preview_layer, (*hex_to_rgb(hexcolor), 200),
+                                      (px_ * z, py_ * z, z, z))
+            screen.blit(preview_layer, self.canvas_rect.topleft)
+        elif state.tool == "select" and state.shape_start and state.shape_preview_end:
+            x0s, y0s = state.shape_start
+            x1s, y1s = state.shape_preview_end
+            xmin, xmax = min(x0s, x1s), max(x0s, x1s)
+            ymin, ymax = min(y0s, y1s), max(y0s, y1s)
+            rect_px = (self.canvas_rect.x + xmin * z, self.canvas_rect.y + ymin * z,
+                       (xmax - xmin + 1) * z, (ymax - ymin + 1) * z)
+            pygame.draw.rect(screen, COL_ACCENT2, rect_px, width=2)
+
+        # Khung viet net dut quanh vung chon DA CHOT (state.selection) -
+        # hien thi thuong xuyen, khong chi luc dang keo, de biet dang co
+        # vung chon nao dang hoat dong.
+        b = state.selection_bounds()
+        if b:
+            x0s, y0s, x1s, y1s = b
+            rect_px = pygame.Rect(self.canvas_rect.x + x0s * z, self.canvas_rect.y + y0s * z,
+                                   (x1s - x0s + 1) * z, (y1s - y0s + 1) * z)
+            dash = 5
+            for i in range(0, rect_px.w, dash * 2):
+                pygame.draw.line(screen, COL_ACCENT2, (rect_px.x + i, rect_px.y),
+                                  (min(rect_px.x + i + dash, rect_px.right), rect_px.y), 2)
+                pygame.draw.line(screen, COL_ACCENT2, (rect_px.x + i, rect_px.bottom),
+                                  (min(rect_px.x + i + dash, rect_px.right), rect_px.bottom), 2)
+            for i in range(0, rect_px.h, dash * 2):
+                pygame.draw.line(screen, COL_ACCENT2, (rect_px.x, rect_px.y + i),
+                                  (rect_px.x, min(rect_px.y + i + dash, rect_px.bottom)), 2)
+                pygame.draw.line(screen, COL_ACCENT2, (rect_px.right, rect_px.y + i),
+                                  (rect_px.right, min(rect_px.y + i + dash, rect_px.bottom)), 2)
 
         if state.show_grid and z >= 6:
             grid_col = (0, 0, 0, 90)
@@ -1242,14 +1869,25 @@ class App:
             screen.blit(gs, self.canvas_rect.topleft)
         pygame.draw.rect(screen, COL_BORDER, self.canvas_rect, width=2)
 
+        # Thuoc do (ruler) toa do pixel doc theo canh tren/trai canvas -
+        # bat/tat qua nut "Thước đo" o muc HIEN THI.
+        if state.show_ruler:
+            step = max(1, 32 // max(1, z))
+            for i in range(0, sp.size, step):
+                draw_text(screen, str(i), (self.canvas_rect.x + i * z + 1, self.canvas_rect.y - 14),
+                          font_small, COL_TEXT_DIM)
+                draw_text(screen, str(i), (self.canvas_rect.x - 22, self.canvas_rect.y + i * z),
+                          font_small, COL_TEXT_DIM)
+
         # preview boxes - dung sprite dang "chieu" (co the la sprite khac
         # neu dang bat Xem hoat anh), khong phai luon la sprite dang sua
         anim_sp = self._anim_current_sprite()
+        anim_comp = anim_sp.composite()
         for rect, scale in ((self.preview_game_rect, 4), (self.preview_big_rect, 8)):
             pygame.draw.rect(screen, COL_CANVAS_BG, rect.inflate(4, 4))
             for y in range(anim_sp.size):
                 for x in range(anim_sp.size):
-                    c = anim_sp.pixels[y * anim_sp.size + x]
+                    c = anim_comp[y * anim_sp.size + x]
                     if c:
                         pygame.draw.rect(screen, hex_to_rgb(c),
                                           (rect.x + x * scale, rect.y + y * scale, scale, scale))
@@ -1267,7 +1905,8 @@ class App:
         pygame.draw.line(screen, COL_BORDER, (0, self.header_h), (self.W, self.header_h), 2)
         draw_text(screen, "ANTWORLD PIXEL STUDIO", (18, 16), font_title, COL_ACCENT2)
         draw_text(screen, "Vẽ asset pixel art cho game đàn kiến", (330, 20), font_small, COL_TEXT_DIM)
-        hint = "B bút · E tẩy · G đổ màu · I hút màu · L đường · R hcn · [ ] cỡ bút · , . đổi khung · Ctrl+Z hoàn tác"
+        hint = ("B bút · E tẩy · G đổ màu · I hút màu · L đường · R hcn · M chọn vùng · N gradient · "
+                "U đổi màu · Ctrl+C/X/V copy/cut/paste · [ ] cỡ bút · , . đổi khung · Ctrl+Z hoàn tác")
         hint_w = font_small.size(hint)[0]
         draw_text(screen, hint, (self.W - hint_w - 18, 20), font_small, COL_TEXT_DIM)
 
@@ -1396,7 +2035,7 @@ class App:
         sp = state.sp()
         if state.frame_anim_playing and sp.n_frames > 1:
             idx = state.frame_anim_idx % sp.n_frames
-            return _FramePreviewShim(sp.size, sp.frames[idx])
+            return _FramePreviewShim(sp.size, sp.composite(idx))
         if not state.anim_playing:
             return sp
         names = self._anim_frame_names()
@@ -1433,24 +2072,43 @@ class App:
             if self.hexinput_box.rect.collidepoint(pos):
                 self.hexinput_box.active = True
                 self.rename_box.active = False
+                self.layer_rename_box.active = False
                 return
             if self.rename_box.rect.collidepoint(pos):
                 self.rename_box.active = True
                 self.hexinput_box.active = False
+                self.layer_rename_box.active = False
+                return
+            if self.layer_rename_box.rect.collidepoint(pos):
+                self.layer_rename_box.active = True
+                self.hexinput_box.active = False
+                self.rename_box.active = False
                 return
             if self.handle_frame_thumb_click(pos):
                 return
+            for rect, idx in getattr(self, "layer_row_rects", []):
+                if rect.collidepoint(pos):
+                    self.select_layer(idx)
+                    return
             self.hexinput_box.active = False
             self.rename_box.active = False
+            self.layer_rename_box.active = False
             cell = self.cell_from_pos(pos)
             if cell is None:
                 return
-            if state.tool in ("line", "rect"):
+            if state.tool in ("line", "rect", "gradient"):
                 # Chi GHI NHO diem bat dau + xem truoc - chua ve that len
                 # canvas. Ve that (va push_history) dien ra 1 LAN DUY NHAT
                 # luc tha chuot (handle_mouse_up), de undo hoan tac ca
-                # duong/hinh vua ve trong 1 buoc thay vi tung o le.
+                # duong/hinh/gradient vua ve trong 1 buoc thay vi tung o le.
                 state.push_history()
+                state.shape_start = cell
+                state.shape_preview_end = cell
+                state.painting = True
+            elif state.tool == "select":
+                # Chon vung KHONG dong nghia voi sua pixel - khong can
+                # push_history o day (undo se khong "lang phi" 1 buoc rong
+                # chi vi rê chuột chọn vùng).
                 state.shape_start = cell
                 state.shape_preview_end = cell
                 state.painting = True
@@ -1495,6 +2153,18 @@ class App:
                     state.paint_stamp(px, py, state.color)
                 state.shape_start = None
                 state.shape_preview_end = None
+            elif state.tool == "gradient" and state.shape_start:
+                x0, y0 = state.shape_start
+                x1, y1 = state.shape_preview_end or state.shape_start
+                state.apply_gradient(x0, y0, x1, y1)
+                state.shape_start = None
+                state.shape_preview_end = None
+            elif state.tool == "select" and state.shape_start:
+                x0, y0 = state.shape_start
+                x1, y1 = state.shape_preview_end or state.shape_start
+                state.selection = (x0, y0, x1, y1)
+                state.shape_start = None
+                state.shape_preview_end = None
             state.painting = False
 
     def handle_mouse_motion(self, event):
@@ -1505,7 +2175,7 @@ class App:
             return
         if not state.painting:
             return
-        if state.tool in ("line", "rect"):
+        if state.tool in ("line", "rect", "gradient", "select"):
             cell = self.cell_from_pos_clamped(event.pos)
             if cell:
                 state.shape_preview_end = cell
@@ -1517,6 +2187,11 @@ class App:
     def handle_key(self, event):
         if self.rename_box.active:
             self.rename_box.handle_key(event)
+            return
+        if self.layer_rename_box.active:
+            self.layer_rename_box.handle_key(event)
+            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.apply_layer_rename()
             return
         if self.hexinput_box.active:
             self.hexinput_box.handle_key(event)
@@ -1541,6 +2216,21 @@ class App:
             self.set_tool("line")
         elif event.key == pygame.K_r:
             self.set_tool("rect")
+        elif event.key == pygame.K_m:
+            self.set_tool("select")
+        elif event.key == pygame.K_n:
+            self.set_tool("gradient")
+        elif event.key == pygame.K_u:
+            self.set_tool("replace")
+        elif ctrl and event.key == pygame.K_c:
+            state.copy_selection()
+        elif ctrl and event.key == pygame.K_x:
+            state.cut_selection()
+        elif ctrl and event.key == pygame.K_v:
+            state.paste_selection()
+        elif event.key == pygame.K_DELETE and state.selection_bounds():
+            state.push_history()
+            state.delete_selection_content()
         elif event.key in (pygame.K_LEFTBRACKET, pygame.K_MINUS):
             self.set_brush_size(max(1, state.brush_size - 1))
         elif event.key in (pygame.K_RIGHTBRACKET, pygame.K_EQUALS):

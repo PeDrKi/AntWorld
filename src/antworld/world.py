@@ -333,7 +333,17 @@ class UndergroundWorld:
     bằng 1 đoạn hành lang phẳng trong CÙNG tầng (không có đường chéo cắt
     xuyên qua nhiều tầng như bản 3D cũ)."""
 
-    def __init__(self, nest_pos=None, label_prefix=""):
+    def __init__(self, nest_pos=None, label_prefix="", progressive=False):
+        """`progressive=True`: tổ bắt đầu CHỈ CÓ Phòng chúa (+ Phòng gác
+        cửa, xem giải thích ở unlocked_rooms bên dưới) - các phòng khác
+        "gộp chung" tạm thời vào ĐÚNG vị trí + tầng của Phòng chúa (mọi
+        thứ dồn vào 1 hốc duy nhất, như tổ kiến MỚI LẬP ngoài đời thật),
+        rồi TỰ TÁCH RA thành phòng riêng dần theo quy mô đàn - xem
+        unlock_room() và GameState._check_room_unlocks(). `progressive=
+        False` (mặc định): đủ 8 phòng ở đúng vị trí thiết kế NGAY TỪ ĐẦU -
+        chỉ dùng khi KHÔNG mô phỏng quá trình lập tổ (cfg.
+        FOUNDING_MODE_ENABLED=False) hoặc trong test cần 1 tổ đã ổn định
+        sẵn để kiểm tra hành vi khác (không phải bản thân cơ chế lập tổ)."""
         nest_pos = nest_pos if nest_pos else cfg.NEST_POS
         nest_x, nest_y = nest_pos
         self.nest_pos = nest_pos
@@ -342,32 +352,56 @@ class UndergroundWorld:
         def offset(off_xy):
             return np.array([nest_x + off_xy[0], nest_y + off_xy[1]], dtype=np.float32)
 
-        self.storage = offset(cfg.STORAGE_OFFSET_XY)
-        self.nursery = offset(cfg.NURSERY_OFFSET_XY)
         self.queen_room = offset(cfg.QUEEN_OFFSET_XY)
-        self.water_room = offset(cfg.WATER_OFFSET_XY)
-        self.egg_room = offset(cfg.EGG_OFFSET_XY)
-        self.guard_room = offset(cfg.GUARD_OFFSET_XY)
-        self.graveyard = offset(cfg.GRAVEYARD_OFFSET_XY)
-        self.pupa_room = offset(cfg.PUPA_OFFSET_XY)
-
-        self.storage_depth = cfg.DEPTH_STORAGE
-        self.nursery_depth = cfg.DEPTH_NURSERY
         self.queen_depth = cfg.DEPTH_QUEEN
-        self.water_depth = cfg.DEPTH_WATER
-        self.egg_depth = cfg.DEPTH_EGG
-        self.guard_depth = cfg.DEPTH_GUARD
-        self.graveyard_depth = cfg.DEPTH_GRAVEYARD
-        self.pupa_depth = cfg.DEPTH_PUPA
+
+        # unlocked_rooms: tập room_id đã THỰC SỰ được đào thành phòng
+        # RIÊNG - Phòng gác cửa (5) LUÔN mở sẵn kể cả progressive=True vì
+        # đây chỉ là vị trí lính đứng canh gần lối vào, không phải 1 hốc
+        # chứa đồ như 6 phòng còn lại (đơn giản hoá có chủ đích, tránh
+        # phải sửa nhiều nơi trong ants.py chỉ để xử lý riêng 1 trường hợp
+        # không thật sự cần thiết). progressive=False: mở sẵn TẤT CẢ.
+        self.unlocked_rooms = set(range(8)) if not progressive else {2, 5}
+
+        real_offsets = {
+            0: (cfg.STORAGE_OFFSET_XY, cfg.DEPTH_STORAGE),
+            1: (cfg.NURSERY_OFFSET_XY, cfg.DEPTH_NURSERY),
+            3: (cfg.WATER_OFFSET_XY, cfg.DEPTH_WATER),
+            4: (cfg.EGG_OFFSET_XY, cfg.DEPTH_EGG),
+            5: (cfg.GUARD_OFFSET_XY, cfg.DEPTH_GUARD),
+            6: (cfg.GRAVEYARD_OFFSET_XY, cfg.DEPTH_GRAVEYARD),
+            7: (cfg.PUPA_OFFSET_XY, cfg.DEPTH_PUPA),
+        }
+        self._real_offsets = real_offsets  # unlock_room() cần lại sau này
+
+        def room_pos_depth(room_id):
+            off_xy, real_depth = real_offsets[room_id]
+            if room_id in self.unlocked_rooms:
+                return offset(off_xy), real_depth
+            # CHƯA mở - "gộp" tạm vào đúng vị trí + tầng Phòng chúa, để
+            # nội dung của nó (đồ ăn/trứng/ấu trùng...) hiển thị NGAY
+            # TRONG vòng tròn Phòng chúa thay vì biến mất/không có chỗ
+            # chứa - xem render_underground._draw_merged_room_contents().
+            return np.array(self.queen_room, dtype=np.float32, copy=True), self.queen_depth
+
+        self.storage, self.storage_depth = room_pos_depth(0)
+        self.nursery, self.nursery_depth = room_pos_depth(1)
+        self.water_room, self.water_depth = room_pos_depth(3)
+        self.egg_room, self.egg_depth = room_pos_depth(4)
+        self.guard_room, self.guard_depth = room_pos_depth(5)
+        self.graveyard, self.graveyard_depth = room_pos_depth(6)
+        self.pupa_room, self.pupa_depth = room_pos_depth(7)
 
         # Danh sách phòng để vẽ (id, tên, tâm(x,y), bán kính, màu gợi ý,
         # tầng) - LUÔN ĐÚNG 8 phòng GỐC/CHỨC NĂNG, không đổi SỐ LƯỢNG
-        # trong suốt ván (không có chức năng tự đào thêm phòng mới) -
-        # nhưng BÁN KÍNH của 4 phòng gắn liền quy mô đàn (xem
-        # ROOM_GROWABLE_IDS trong config.py) SẼ tự lớn dần theo dân số,
-        # xem update_room_sizes() bên dưới - vì vậy mỗi phần tử là 1 LIST
-        # (có thể sửa lại phần tử [3]=bán kính), KHÔNG PHẢI tuple bất biến
-        # như trước, dù cấu trúc/thứ tự các trường vẫn giữ y hệt.
+        # trong suốt ván (không có chức năng tự đào thêm phòng mới VƯỢT
+        # QUÁ 8 phòng gốc - chỉ TÁCH DẦN 8 phòng gốc ra khỏi trạng thái
+        # "gộp chung" ban đầu nếu progressive=True) - nhưng BÁN KÍNH của
+        # 4 phòng gắn liền quy mô đàn (xem ROOM_GROWABLE_IDS trong
+        # config.py) SẼ tự lớn dần theo dân số, xem update_room_sizes()
+        # bên dưới - vì vậy mỗi phần tử là 1 LIST (có thể sửa lại phần tử
+        # [3]=bán kính, [5]=tầng lúc unlock_room()), KHÔNG PHẢI tuple bất
+        # biến như trước, dù cấu trúc/thứ tự các trường vẫn giữ y hệt.
         self._base_radius = {
             0: cfg.ROOM_RADIUS_STORAGE,
             1: cfg.ROOM_RADIUS_NURSERY,
@@ -388,6 +422,10 @@ class UndergroundWorld:
             [6, f"{label_prefix}Nghĩa địa", self.graveyard, self._base_radius[6], (90, 80, 75), self.graveyard_depth],
             [7, f"{label_prefix}Phòng nhộng", self.pupa_room, self._base_radius[7], (150, 130, 95), self.pupa_depth],
         ]
+        self._room_pos_attr = {0: "storage", 1: "nursery", 3: "water_room", 4: "egg_room",
+                                5: "guard_room", 6: "graveyard", 7: "pupa_room"}
+        self._room_depth_attr = {0: "storage_depth", 1: "nursery_depth", 3: "water_depth", 4: "egg_depth",
+                                  5: "guard_depth", 6: "graveyard_depth", 7: "pupa_depth"}
 
         # Thống kê tổ
         self.food_in_storage = 0
@@ -407,6 +445,31 @@ class UndergroundWorld:
         # trên CHỈ tăng khi xác THỰC SỰ được khiêng tới graveyard, không
         # phải ngay lúc chết.
         self.pending_corpses = []
+
+    def unlock_room(self, room_id):
+        """Tách phòng `room_id` ra khỏi trạng thái "gộp chung" (đang dùng
+        tạm vị trí + tầng của Phòng chúa) sang ĐÚNG vị trí + tầng thiết kế
+        riêng của nó - gọi từ GameState._check_room_unlocks() theo mốc
+        dân số. Trả về True nếu VỪA MỚI tách (để bên gọi biết mà báo toast/
+        ghi Nhật ký sự kiện), False nếu phòng này đã mở từ trước (gọi lại
+        nhiều lần AN TOÀN, không làm gì thêm lần thứ 2 trở đi).
+
+        Mutate vị trí NGAY TRÊN mảng numpy hiện có (self.storage[:] = ...)
+        thay vì gán mảng mới, để MỌI chỗ trong ants.py đang giữ tham chiếu
+        tới mảng này (self.underground.storage) tự động thấy vị trí MỚI
+        ngay lập tức, không cần code nào khác phải "làm mới" lại tham
+        chiếu của nó."""
+        if room_id in self.unlocked_rooms or room_id not in self._real_offsets:
+            return False
+        self.unlocked_rooms.add(room_id)
+        off_xy, real_depth = self._real_offsets[room_id]
+        nest_x, nest_y = self.nest_pos
+        pos_attr = self._room_pos_attr[room_id]
+        depth_attr = self._room_depth_attr[room_id]
+        getattr(self, pos_attr)[:] = (nest_x + off_xy[0], nest_y + off_xy[1])
+        setattr(self, depth_attr, real_depth)
+        self.rooms[room_id][5] = real_depth  # center (index 2) đã tự cập nhật do cùng mảng numpy ở trên
+        return True
 
     def update_room_sizes(self, population):
         """Cập nhật bán kính CÁC PHÒNG GẮN LIỀN QUY MÔ ĐÀN (xem
@@ -451,6 +514,16 @@ class UndergroundWorld:
         qua tham số này."""
         for room in self.rooms:
             if room[0] == room_id:
+                if room_id != 2 and room_id not in self.unlocked_rooms:
+                    # CHƯA được đào riêng - đang "gộp chung" vào Phòng
+                    # chúa (cùng VỊ TRÍ với nó) - phải dùng ĐÚNG bán kính
+                    # HIỆN TẠI của Phòng chúa (không phải bán kính GỐC của
+                    # chính room_id này - sẽ sai vì nó không ở vị trí
+                    # riêng của mình), nếu không kiến lượn trong phòng sẽ
+                    # tràn ra ngoài vòng tròn đang vẽ.
+                    queen_room = next(r for r in self.rooms if r[0] == 2)
+                    radius = cfg.ROOM_RADIUS_FOUNDING_CHAMBER if founding_phase else queen_room[3]
+                    return room[2], radius
                 radius = room[3]
                 if room_id == 2 and founding_phase:
                     radius = cfg.ROOM_RADIUS_FOUNDING_CHAMBER

@@ -786,11 +786,14 @@ EGG_INCUBATE_PER_TICK = 0.006  # tốc độ ủ trứng mỗi tick (KHÔNG ph�
 FOUNDING_MODE_ENABLED = True  # BẬT MẶC ĐỊNH - đúng thực tế: mọi ván LUÔN
                              # bắt đầu từ 1 kiến chúa tự đi tìm chỗ rồi
                              # đào hang lập tổ (xem QUEEN_WALK_* ngay dưới
-                             # đây), không có tổ nào "đã có sẵn thợ" ngay
-                             # từ đầu như trước - CHỈ áp dụng cho tổ CHÍNH
-                             # (người chơi), tổ đối thủ luôn bắt đầu đã ổn
-                             # định như cũ để tránh cả 2 tổ cùng yếu ớt lúc
-                             # mở màn.
+                             # đây) - KHÔNG có tổ nào "đã có sẵn thợ/đã có
+                             # sẵn phòng ốc chức năng" ngay từ đầu như
+                             # trước. Game chỉ có ĐÚNG 1 tổ (của người
+                             # chơi) - "quân xâm nhập" (xem invasion.py)
+                             # là toán cướp phá KHÔNG có tổ/nhà riêng, nên
+                             # quy tắc "đào tới đâu, có chức năng tới đó"
+                             # này áp dụng cho TOÀN BỘ tổ đang tồn tại
+                             # trong game, không có ngoại lệ nào.
 QUEEN_WALK_SPEED = 0.045       # ô/tick MẶC ĐỊNH - CHẬM hơn hẳn ANT_SPEED
                              # (0.14) vì chúa đang "dò dẫm" tìm chỗ tốt để
                              # đào hang, không vội vã như thợ kiếm ăn.

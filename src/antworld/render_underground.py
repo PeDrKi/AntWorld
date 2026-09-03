@@ -469,6 +469,33 @@ def draw_ant_social_fx(state, surf, colony_obj, depth_filter):
                 pygame.draw.circle(surf, (255, 245, 200), (int(mx), int(my)), spark_r)
 
 
+def _draw_merged_room_contents(state, surf, uworld, colony_obj, cx, cy, r_px, depth):
+    """Các phòng CHƯA được đào thành phòng riêng (room_id không nằm trong
+    uworld.unlocked_rooms - xem UndergroundWorld.unlock_room()) vẫn cần
+    HIỂN THỊ đúng nội dung thực tế của chúng (thức ăn/trứng/ấu trùng/nước/
+    xác/nhộng - dữ liệu vẫn tồn tại và tăng giảm bình thường, chỉ là CHƯA
+    CÓ PHÒNG RIÊNG để chứa) - vẽ GỘP hết vào bên trong vòng tròn Phòng
+    chúa đang mở (cx, cy, r_px), mỗi loại dùng 1 seed_key riêng để vị trí
+    rải rác không trùng hệt nhau."""
+    for room in uworld.rooms:
+        room_id, _name, _center, _radius, _color, room_depth = room
+        if room_id == 2 or room_id in uworld.unlocked_rooms or room_depth != depth:
+            continue
+        seed_key = room_id * 10 + 3  # lệch seed so với lúc phòng đó tự vẽ riêng (room_id*10)
+        if room_id == 0:
+            draw_storage_pile(state, surf, cx, cy, r_px, uworld.food_in_storage, seed_key)
+        elif room_id == 1:
+            draw_larvae(state, surf, cx, cy, r_px, colony_obj, seed_key)
+        elif room_id == 3:
+            draw_water_drops(state, surf, cx, cy, r_px, uworld.water_in_storage, seed_key)
+        elif room_id == 4:
+            draw_eggs(state, surf, cx, cy, r_px, colony_obj, seed_key)
+        elif room_id == 6:
+            draw_graveyard(state, surf, cx, cy, r_px, uworld.corpse_count, seed_key)
+        elif room_id == 7:
+            draw_pupae(state, surf, cx, cy, r_px, colony_obj, seed_key)
+
+
 def draw_underground_layer(state, surf, depth):
     camera = state.camera
     pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
@@ -477,8 +504,10 @@ def draw_underground_layer(state, surf, depth):
         draw_underground_grid_lines(state, surf)
 
     uworld, colony_obj = state.underground_world, state.colony
-    # giếng (thang máy) - chỉ hiện nếu có phòng ở tầng này
-    has_room_here = any(r[5] == depth for r in uworld.rooms)
+    # giếng (thang máy) - chỉ hiện nếu có phòng ĐÃ MỞ (unlocked_rooms) ở
+    # tầng này - phòng còn "gộp chung" vào Phòng chúa (chưa unlock) không
+    # tính, kẻo hiện giếng dẫn xuống 1 tầng trống trơn chưa hề tồn tại.
+    has_room_here = any(r[5] == depth for r in uworld.rooms if r[0] in uworld.unlocked_rooms)
     if has_room_here:
         sx, sy = camera.world_to_screen(float(uworld.shaft_xy[0]), float(uworld.shaft_xy[1]), state.CENTER_X, state.CENTER_Y)
         r = max(3, int(cell * 0.8))
@@ -487,6 +516,15 @@ def draw_underground_layer(state, surf, depth):
 
     for room in uworld.rooms:
         room_id, name, center, radius, room_rgb, room_depth = room
+        if room_id not in uworld.unlocked_rooms:
+            # CHƯA được đào thành phòng RIÊNG - "gộp chung" tạm vào Phòng
+            # chúa (xem UndergroundWorld.unlock_room()) - KHÔNG vẽ như 1
+            # phòng độc lập ở đây (sẽ chồng lấn lên đúng vị trí Phòng
+            # chúa) - nội dung của nó (đồ ăn/trứng/ấu trùng...) được vẽ
+            # GỘP vào bên trong vòng tròn Phòng chúa, xem
+            # _draw_merged_room_contents() gọi bên dưới, ngay sau khi vẽ
+            # xong Phòng chúa.
+            continue
         if room_depth != depth:
             continue
         if room_id == 2 and colony_obj.founding_phase:
@@ -515,6 +553,7 @@ def draw_underground_layer(state, surf, depth):
             draw_larvae(state, surf, int(cx), int(cy), r_px, colony_obj, seed_key)
         elif room_id == 2:  # Phòng chúa: vẽ 1 con kiến chúa thật
             draw_queen(state, surf, int(cx), int(cy), r_px, room_rgb, state.frame_counter)
+            _draw_merged_room_contents(state, surf, uworld, colony_obj, int(cx), int(cy), r_px, depth)
         elif room_id == 3:  # Bể trữ nước: vẽ các giọt nước tồn trữ thật
             draw_water_drops(state, surf, int(cx), int(cy), r_px, uworld.water_in_storage, seed_key)
         elif room_id == 4:  # Phòng trứng: vẽ các trứng đang ủ thật

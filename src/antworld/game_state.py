@@ -84,11 +84,17 @@ class GameState:
         # --- Thế giới mô phỏng (logic không đổi so với bản 3D, chỉ khác ở
         # chỗ độ sâu giờ là số tầng rời rạc thay vì z liên tục) ---
         self.surface_world = SurfaceWorld(protected_nests=[cfg.NEST_POS])
-        self.underground_world = UndergroundWorld(cfg.NEST_POS, "")
         # Giai đoạn lập tổ (xem khối config FOUNDING_* trong config.py) -
         # n_start PHẢI = 0 khi bật (chưa có thợ nào, đúng thực tế 1 tổ luôn
         # bắt đầu từ đúng 1 chúa).
         founding = cfg.FOUNDING_MODE_ENABLED
+        # progressive=True (khi có lập tổ thật): tổ CHỈ CÓ Phòng chúa lúc
+        # mới đào xong - các phòng khác tự "tách ra" dần theo dân số, xem
+        # UndergroundWorld.unlock_room()/GameState._check_room_unlocks().
+        # Game chỉ có ĐÚNG 1 tổ (của người chơi - không có tổ đối thủ nào
+        # khác cần xét riêng, xem invasion.py), nên cứ founding=True là
+        # progressive=True, không có ngoại lệ.
+        self.underground_world = UndergroundWorld(cfg.NEST_POS, "", progressive=founding)
         main_n_start = 0 if founding else cfg.NUM_ANTS
         self.colony = AntColony(
             main_n_start, cfg.MAX_ANTS_PER_COLONY, self.surface_world, self.underground_world,
@@ -831,6 +837,38 @@ class GameState:
             self.add_toast(f"Cột mốc: tổ đã đạt {m} cá thể!", color=(150, 220, 150))
             self._next_milestone_idx += 1
 
+    # (room_id, dân số cần đạt để phòng đó được "tách" ra khỏi Phòng chúa
+    # thành 1 phòng riêng - xem UndergroundWorld.unlock_room()). Chỉ áp
+    # dụng cho tổ CHÍNH lúc bật lập tổ thật (progressive=True) - xem
+    # UndergroundWorld.__init__. Thứ tự phản ánh mức độ CẤP THIẾT thực tế
+    # của 1 tổ kiến non trẻ: trứng/ấu trùng cần chỗ riêng gần như ngay lập
+    # tức (chúa vẫn đang đẻ liên tục), kho/nước chỉ cần khi có DƯ để trữ,
+    # nhộng/nghĩa địa là nhu cầu của tổ đã khá đông.
+    ROOM_UNLOCK_SCHEDULE = [
+        (4, cfg.FOUNDING_NANITIC_TARGET),  # Phòng trứng - ngay khi lập tổ xong
+        (1, 8),                             # Phòng ấu trùng
+        (0, 12),                            # Kho thức ăn
+        (3, 18),                            # Bể trữ nước
+        (7, 28),                            # Phòng nhộng
+        (6, 40),                            # Nghĩa địa
+    ]
+
+    def _check_room_unlocks(self, population):
+        """Tách dần từng phòng ra khỏi Phòng chúa theo ROOM_UNLOCK_SCHEDULE
+        - gọi mỗi khung hình (an toàn gọi lặp lại, unlock_room() tự bỏ qua
+        nếu phòng đó đã mở từ trước)."""
+        for room_id, threshold in self.ROOM_UNLOCK_SCHEDULE:
+            if population < threshold:
+                continue
+            if not self.underground_world.unlock_room(room_id):
+                continue
+            room = self.underground_world.rooms[room_id]
+            name = room[1].strip()
+            pos, layer = tuple(room[2]), room[5]
+            msg = f"Tổ đã đào thêm {name} riêng!"
+            self.add_toast(msg, color=(150, 200, 220))
+            self.log_event(msg, pos=pos, layer=layer, color=(150, 200, 220))
+
     def check_alerts(self):
         """So sánh các tình trạng quan trọng (đói/khát/kẻ thù/đàn ngoại lai/
         tuyệt chủng) với khung hình TRƯỚC - chỉ bắn ra 1 toast đúng lúc
@@ -876,6 +914,7 @@ class GameState:
 
         if not c["founding_phase"]:
             self._check_population_milestones(c["population"])
+            self._check_room_unlocks(c["population"])
 
         if self._prev_alert_flags.get("_was_founding", False) and not c["founding_phase"]:
             qx, qy = self.underground_world.queen_room

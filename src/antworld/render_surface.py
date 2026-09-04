@@ -19,6 +19,33 @@ from . import config as cfg
 # nháy liên tục), nhưng tránh cấp phát bộ nhớ + vẽ lại lặp đi lặp lại.
 _ring_cache = {}
 
+# --- Cache "quầng sáng" (glow) mờ dần ra mép dùng cho vệt pheromone - xem
+# draw_pheromone_trails(): giống ý tưởng _ring_cache ở trên (lượng tử hóa
+# độ đậm thành n_buckets bậc rời rạc rồi cache lại thay vì vẽ/set_alpha
+# MỚI mỗi ô mỗi khung hình), nhưng dùng gradient tròn NHIỀU vòng thay vì
+# 1 vòng viền đơn, để tạo cảm giác "mờ ảo, tan dần ra mép" thay vì rìa
+# cứng như 1 khối tròn phẳng.
+_pheromone_glow_cache = {}
+
+
+def _get_pheromone_glow(color, radius, bucket, n_buckets):
+    key = (color, radius, bucket, n_buckets)
+    cached = _pheromone_glow_cache.get(key)
+    if cached is not None:
+        return cached
+    if len(_pheromone_glow_cache) > 300:  # an toàn tránh phình vô hạn khi
+        _pheromone_glow_cache.clear()      # người chơi zoom liên tục (radius đổi theo cell_px())
+    peak_alpha = 255 * (bucket + 1) / n_buckets
+    size = radius * 2
+    sprite = pygame.Surface((size, size), pygame.SRCALPHA)
+    for rr in range(radius, 0, -1):
+        t = rr / radius
+        a = int(peak_alpha * (1 - t) ** 1.6)  # mũ >1: mờ NHANH gần mép, đặc hơn ở giữa - trông "mềm" hơn tuyến tính
+        if a > 0:
+            pygame.draw.circle(sprite, (*color, min(255, a)), (radius, radius), rr)
+    _pheromone_glow_cache[key] = sprite
+    return sprite
+
 
 def _get_ring_surface(ring_r, ring_color, ring_alpha, width):
     """Trả về 1 surface vòng tròn viền (bán kính/alpha đã lượng tử hóa) từ
@@ -168,31 +195,41 @@ def _get_terrain_cache(state, cell, step, r):
 
 def draw_pheromone_trails(state, surf):
     """Vẽ RÕ đường mùi (pheromone) mà kiến để lại khi tha đồ về tổ - lớp
-    phủ trong suốt, đậm/nhạt theo đúng nồng độ mùi thật tại từng ô. Mùi tìm
-    đường (màu xanh lam) và mùi báo động/nguy hiểm (màu đỏ, để lại quanh
-    kẻ thù) được vẽ tách biệt để dễ phân biệt."""
+    phủ trong suốt, ĐẬM/NHẠT theo đúng nồng độ mùi thật tại từng ô. Mỗi ô
+    được vẽ bằng 1 "quầng sáng" MỜ DẦN ra mép (không phải khối tròn phẳng
+    cứng như trước) và HÒA CỘNG (BLEND_RGBA_ADD) với các ô liền kề - 2 ô
+    cạnh nhau có mùi đều tự nhiên "chảy" thành 1 VỆT LIỀN MẠCH, mờ ảo,
+    đúng cảm giác 1 đường mòn pheromone thật ngoài đời, thay vì 1 chuỗi
+    chấm tròn rời rạc. Mùi tìm đường (màu xanh lam) và mùi báo động/nguy
+    hiểm (màu đỏ, để lại quanh kẻ thù) được vẽ tách biệt để dễ phân biệt.
+    """
     surface_world = state.surface_world
     camera = state.camera
     cell = camera.cell_px()
 
     overlay = pygame.Surface((state.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
-    r = max(2, int(cell * 0.42))
+    r = max(3, int(cell * 0.5))
+    n_buckets = 8
 
     xi, yi = np.where(surface_world.pheromone > 0.05)
     if len(xi) > 0:
         vals = surface_world.pheromone[xi, yi]
         sxs, sys_ = camera.world_to_screen(xi.astype(np.float32), yi.astype(np.float32), state.CENTER_X, state.CENTER_Y)
-        alphas = np.clip(vals / cfg.PHEROMONE_MAX, 0, 1) * 150
-        for sx, sy, a in zip(sxs, sys_, alphas):
-            pygame.draw.circle(overlay, (60, 170, 255, int(a)), (int(sx), int(sy)), r)
+        t = np.clip(vals / cfg.PHEROMONE_MAX, 0, 1)
+        buckets = np.clip((t * n_buckets).astype(int), 0, n_buckets - 1)
+        for sx, sy, b in zip(sxs, sys_, buckets):
+            glow = _get_pheromone_glow((60, 170, 255), r, int(b), n_buckets)
+            overlay.blit(glow, (int(sx) - r, int(sy) - r), special_flags=pygame.BLEND_RGBA_ADD)
 
     dxi, dyi = np.where(surface_world.danger_pheromone > 0.1)
     if len(dxi) > 0:
         dvals = surface_world.danger_pheromone[dxi, dyi]
         dsxs, dsys = camera.world_to_screen(dxi.astype(np.float32), dyi.astype(np.float32), state.CENTER_X, state.CENTER_Y)
-        dalphas = np.clip(dvals / cfg.DANGER_PHEROMONE_MAX, 0, 1) * 140
-        for sx, sy, a in zip(dsxs, dsys, dalphas):
-            pygame.draw.circle(overlay, (230, 50, 40, int(a)), (int(sx), int(sy)), r)
+        dt = np.clip(dvals / cfg.DANGER_PHEROMONE_MAX, 0, 1)
+        dbuckets = np.clip((dt * n_buckets).astype(int), 0, n_buckets - 1)
+        for sx, sy, b in zip(dsxs, dsys, dbuckets):
+            glow = _get_pheromone_glow((230, 50, 40), r, int(b), n_buckets)
+            overlay.blit(glow, (int(sx) - r, int(sy) - r), special_flags=pygame.BLEND_RGBA_ADD)
 
     surf.blit(overlay, (0, 0))
 

@@ -206,29 +206,52 @@ def draw_pupae(state, surf, cx, cy, r_px, colony_obj, seed_key):
 
 
 def draw_larvae(state, surf, cx, cy, r_px, colony_obj, seed_key):
-    """Phòng ấu trùng THẬT SỰ có ấu trùng bên trong - mỗi ấu trùng lớn
-    dần theo growth (0..1): bé + trắng nhợt lúc mới đẻ, to + ngả vàng
-    khi sắp nở thành kiến mới. Dùng sprite larva.png tùy chỉnh nếu có."""
+    """Phòng ấu trùng THẬT SỰ có ấu trùng bên trong - mỗi con LỚN DẦN RÕ
+    RỆT theo growth (0..1), qua 3 "tuổi lột xác" (instar) hình dáng khác
+    hẳn nhau, đúng thực tế ấu trùng kiến là 1 con sâu nhỏ cong hình chữ C,
+    càng lớn càng CONG NHIỀU HƠN và LỘ RÕ ĐỐT THÂN (segment) hơn - không
+    chỉ đơn thuần phóng to 1 hình bầu dục như trước:
+    - Tuổi 1 (growth thấp): bé tí, gần như thẳng, chỉ 2 đốt mờ - trông như
+      1 hạt gạo nhỏ trắng nhợt.
+    - Tuổi 2 (growth giữa): to hơn rõ, cong nhẹ, 3-4 đốt thấy được.
+    - Tuổi 3 (growth cao, sắp hóa nhộng): to nhất, cong hẳn thành hình chữ
+      C rõ nét với 5 đốt, ngả vàng đậm - đúng ấu trùng SẮP KÉN.
+    Dùng sprite larva.png tùy chỉnh nếu có (chỉ scale kích thước theo
+    growth, không vẽ đốt/độ cong - vì đó là ảnh tĩnh do người chơi cung
+    cấp)."""
     active_idx = np.where(colony_obj.larva_active)[0]
     if len(active_idx) == 0:
         return
     rng_local = np.random.RandomState(seed_key * 331 + 7)
     ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)
     rad = np.sqrt(rng_local.uniform(0, 1, cfg.LARVA_MAX_COUNT)) * r_px * 0.68
+    body_ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)  # hướng "nằm" của từng con - cố định, không đổi mỗi khung hình
     has_sprite = state.sprites.has("larva.png")
     for i in active_idx:
         growth = float(colony_obj.larva_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
-        size = max(3, int(r_px * (0.07 + 0.11 * growth) * cfg.ENTITY_SPRITE_SCALE))
+        px, py = cx + dx, cy + dy
+        size = max(3, int(r_px * (0.055 + 0.15 * growth) * cfg.ENTITY_SPRITE_SCALE))
         if has_sprite:
             sprite = state.sprites.get_static("larva.png", size * 2)
-            surf.blit(sprite, sprite.get_rect(center=(cx + dx, cy + dy)))
+            surf.blit(sprite, sprite.get_rect(center=(px, py)))
             continue
-        shade = int(248 - growth * 60)
-        color = (shade, shade, max(140, shade - 55))
-        pygame.draw.ellipse(surf, (60, 55, 25), (cx + dx - size - 1, cy + dy - size * 0.7 - 1, size * 2 + 2, size * 1.4 + 2))
-        pygame.draw.ellipse(surf, color, (cx + dx - size, cy + dy - size * 0.7, size * 2, size * 1.4))
+        shade = int(250 - growth * 75)
+        color = (shade, shade, max(120, shade - 70))
+        outline = (60, 55, 25)
+        n_segments = 2 + round(growth * 3)  # 2 đốt (mới nở) -> 5 đốt (sắp hóa nhộng)
+        curl = growth * 1.7  # radian - gần như thẳng lúc bé, cong hẳn chữ C lúc lớn
+        seg_r0 = max(1.5, size * 0.32)
+        for s in range(n_segments):
+            t = s / max(1, n_segments - 1)  # 0 (đầu) -> 1 (đuôi)
+            a = body_ang[i] + curl * t
+            dist = size * 0.9 * t
+            sx = px + math.cos(a) * dist
+            sy = py + math.sin(a) * dist
+            seg_r = max(1.5, seg_r0 * (1.0 - 0.28 * t))  # đốt đuôi nhỏ hơn đốt đầu
+            pygame.draw.circle(surf, outline, (int(sx), int(sy)), int(seg_r) + 1)
+            pygame.draw.circle(surf, color, (int(sx), int(sy)), int(seg_r))
 
 
 def draw_queen(state, surf, cx, cy, r_px, room_rgb, frame_counter):
@@ -288,9 +311,13 @@ def draw_water_drops(state, surf, cx, cy, r_px, amount, seed_key):
 
 
 def draw_eggs(state, surf, cx, cy, r_px, colony_obj, seed_key):
-    """Phòng trứng THẬT SỰ có trứng bên trong - trứng nhỏ, trắng ngà,
-    hơi to dần khi sắp nở (chuyển sang phòng ấu trùng). Dùng sprite
-    egg.png tùy chỉnh nếu người chơi đã cung cấp."""
+    """Phòng trứng THẬT SỰ có trứng bên trong - trứng LỚN DẦN RÕ RỆT và
+    ĐỔI DÁNG theo growth (0..1), đúng thực tế: trứng vừa đẻ gần như tròn
+    tăm tăm trắng đục, càng gần nở càng NẢY DÀI RA thành hình bầu dục thon
+    (thay vì chỉ phóng to đều 1 tỉ lệ cố định như trước) và ngả trong hơn/
+    sáng hơn 1 chút (sắp nở). Dùng sprite egg.png tùy chỉnh nếu người chơi
+    đã cung cấp (chỉ scale kích thước theo growth, không đổi tỉ lệ dáng -
+    vì đó là ảnh tĩnh do người chơi cung cấp)."""
     active_idx = np.where(colony_obj.egg_active)[0]
     if len(active_idx) == 0:
         return
@@ -302,14 +329,19 @@ def draw_eggs(state, surf, cx, cy, r_px, colony_obj, seed_key):
         growth = float(colony_obj.egg_growth[i])
         dx = int(math.cos(ang[i]) * rad[i])
         dy = int(math.sin(ang[i]) * rad[i])
-        size = max(2, int(r_px * (0.045 + 0.035 * growth) * cfg.ENTITY_SPRITE_SCALE))
+        size = max(2, int(r_px * (0.032 + 0.06 * growth) * cfg.ENTITY_SPRITE_SCALE))
         if has_sprite:
             sprite = state.sprites.get_static("egg.png", size * 2)
             surf.blit(sprite, sprite.get_rect(center=(cx + dx, cy + dy)))
             continue
-        color = (250, 248, 235)
-        pygame.draw.ellipse(surf, (150, 145, 120), (cx + dx - size - 1, cy + dy - size * 1.2 - 1, size * 2 + 2, size * 2.4 + 2))
-        pygame.draw.ellipse(surf, color, (cx + dx - size, cy + dy - size * 1.2, size * 2, size * 2.4))
+        # aspect: gần tròn (1.0) lúc mới đẻ -> bầu dục thon (1.7) lúc sắp nở
+        aspect = 1.0 + 0.7 * growth
+        w = size
+        h = size * aspect
+        shade = int(232 + 20 * growth)  # sáng dần lên 1 chút khi sắp nở
+        color = (shade, shade, min(250, shade + 8))
+        pygame.draw.ellipse(surf, (150, 145, 120), (cx + dx - w - 1, cy + dy - h - 1, w * 2 + 2, h * 2 + 2))
+        pygame.draw.ellipse(surf, color, (cx + dx - w, cy + dy - h, w * 2, h * 2))
 
 
 def draw_graveyard(state, surf, cx, cy, r_px, corpse_count, seed_key):

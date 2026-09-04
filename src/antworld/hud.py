@@ -501,7 +501,7 @@ def draw_hud(state, surf):
     # đang lập tổ (founding_phase) chỉ tốn 2 dòng gọn hơn (xem colony_block)
     # thay vì 4 dòng đầy số "0" vô nghĩa lúc chưa có kho/ấu trùng.
     main_lines = 2 if c["founding_phase"] else 5
-    n_lines = main_lines + 2 + len(warnings) + 1
+    n_lines = main_lines + 3 + len(warnings) + 1
     panel = state.stats_panel
     panel.h = max(90, LINE_H * n_lines + 20)
     panel.draw_frame(surf, state.font)
@@ -612,6 +612,14 @@ def draw_hud(state, surf):
                 ("Dan ngoai lai ", COL_LABEL),
                 (f"dot tiep theo sau ~{secs_left:.0f}s ({inv['next_wave_size']} quan)", COL_VALUE),
             ])
+        y[0] += LINE_H
+
+        _blit_row(surf, state.font_hud, cx + LX, y[0], [
+            ("Chien tich: ", COL_LABEL),
+            (f"{enemy.total_defeated} ke thu ha guc", (200, 220, 150)),
+            ("    Xac da khieng ve ", COL_LABEL), (f"{enemy.total_carcasses_hauled}", (200, 220, 150)),
+            ("    Linh hy sinh khi bi cuop ", COL_LABEL), (f"{invasion.total_guards_killed_by_invasion}", (230, 150, 130)),
+        ])
         y[0] += LINE_H
 
         warn_bg = get_flat_alpha_surface((panel.w - 2 * LX, LINE_H - 2), COL_WARN_BG)

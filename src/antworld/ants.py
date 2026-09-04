@@ -157,7 +157,7 @@ class AntColony:
         guard_start = np.where(self.is_guard[:n_start])[0]
         if len(guard_start) > 0:
             self.layer[guard_start] = cfg.LAYER_UNDERGROUND
-            self.depth[guard_start] = cfg.DEPTH_GUARD
+            self.depth[guard_start] = underground.guard_depth
             self.x[guard_start] = nest_x
             self.y[guard_start] = nest_y
             self.state[guard_start] = cfg.STATE_GUARD_DUTY
@@ -1095,7 +1095,9 @@ class AntColony:
                 self.state[rush_idx] = cfg.STATE_GUARD_RUSH
             else:
                 idx = np.where(duty_mask)[0]
-                center, radius = self.underground.room_center_and_radius(cfg.DEPTH_GUARD)
+                center, radius = self.underground.room_center_and_radius_by_id(
+                    5, founding_phase=self.founding_phase
+                )
                 if center is not None:
                     self.theta[idx] += np.random.uniform(-cfg.TURN_NOISE, cfg.TURN_NOISE, len(idx)).astype(np.float32)
                     self.x[idx] += np.cos(self.theta[idx]) * cfg.DWELL_SPEED
@@ -1144,7 +1146,7 @@ class AntColony:
                 arrived = active[dist < cfg.ARRIVE_THRESHOLD]
                 if len(arrived) > 0:
                     self.layer[arrived] = cfg.LAYER_UNDERGROUND
-                    self.depth[arrived] = cfg.DEPTH_GUARD
+                    self.depth[arrived] = self.underground.guard_depth
                     self.x[arrived] = self.underground.shaft_xy[0]
                     self.y[arrived] = self.underground.shaft_xy[1]
                     self.state[arrived] = cfg.STATE_GUARD_DUTY
@@ -1401,7 +1403,7 @@ class AntColony:
 
         if len(guard_idx) > 0:
             self.layer[guard_idx] = cfg.LAYER_UNDERGROUND
-            self.depth[guard_idx] = cfg.DEPTH_GUARD
+            self.depth[guard_idx] = self.underground.guard_depth
             self.x[guard_idx] = self.underground.shaft_xy[0]
             self.y[guard_idx] = self.underground.shaft_xy[1]
             self.state[guard_idx] = cfg.STATE_GUARD_DUTY

@@ -353,12 +353,12 @@ class UndergroundWorld:
         self.queen_depth = cfg.DEPTH_QUEEN
 
         # unlocked_rooms: tập room_id đã THỰC SỰ được đào thành phòng
-        # RIÊNG - Phòng gác cửa (5) LUÔN mở sẵn kể cả progressive=True vì
-        # đây chỉ là vị trí lính đứng canh gần lối vào, không phải 1 hốc
-        # chứa đồ như 6 phòng còn lại (đơn giản hoá có chủ đích, tránh
-        # phải sửa nhiều nơi trong ants.py chỉ để xử lý riêng 1 trường hợp
-        # không thật sự cần thiết). progressive=False: mở sẵn TẤT CẢ.
-        self.unlocked_rooms = set(range(8)) if not progressive else {2, 5}
+        # RIÊNG - progressive=True: CHỈ Phòng chúa (2) - kể cả Phòng gác
+        # cửa cũng CHƯA tồn tại cho tới khi có ít nhất 1 lính đầu tiên (xem
+        # GameState.ROOM_UNLOCK_SCHEDULE), đúng tinh thần "đào tới đâu có
+        # chức năng tới đó, không có phòng nào sẵn trước khi cần tới nó".
+        # progressive=False: mở sẵn TẤT CẢ.
+        self.unlocked_rooms = set(range(8)) if not progressive else {2}
 
         real_offsets = {
             0: (cfg.STORAGE_OFFSET_XY, cfg.DEPTH_STORAGE),
@@ -560,8 +560,12 @@ class UndergroundWorld:
         self.corpse_count = max(0.0, self.corpse_count - cfg.GRAVEYARD_DECAY_PER_TICK)
 
     def max_depth(self):
-        """Tầng sâu nhất hiện có (để giới hạn phạm vi cuộn Ctrl+Scroll)."""
-        return max((r[5] for r in self.rooms), default=cfg.DEPTH_GRAVEYARD)
+        """Tầng sâu nhất hiện có THẬT SỰ (chỉ tính phòng ĐÃ ĐƯỢC ĐÀO
+        RIÊNG - xem unlocked_rooms) - để giới hạn phạm vi cuộn Ctrl+Scroll
+        đúng với thực tế ván đang chơi, không cho cuộn xuống những tầng
+        chưa hề tồn tại."""
+        depths = [r[5] for r in self.rooms if r[0] in self.unlocked_rooms]
+        return max(depths, default=0)
 
     def deposit_to_storage(self, amount):
         self.food_in_storage += float(amount)

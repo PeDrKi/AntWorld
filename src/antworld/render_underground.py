@@ -11,24 +11,20 @@ from .render_surface import draw_ants
 from .fonts import render_cached
 
 
-def layer_name(depth):
+def layer_name(state, depth):
+    """Tên tầng THEO ĐÚNG TRẠNG THÁI THẬT của ván đang chơi - KHÔNG dùng
+    bảng tên cố định theo hằng số DEPTH_* nữa (trước đây làm vậy, dẫn tới
+    lỗi hiện SẴN tên "Kho thức ăn"/"Phòng trứng"... cho những tầng CHƯA
+    HỀ ĐƯỢC ĐÀO). Với hệ thống "đào tới đâu có chức năng tới đó" (xem
+    UndergroundWorld.unlock_room()), 1 tầng CÓ THỂ chưa có phòng nào thật
+    sự tồn tại ở đó (còn đang gộp chung vào Phòng chúa) - trường hợp đó
+    trả về "(chưa đào)" thay vì đoán bừa tên phòng."""
     if depth == 0:
-        return "Mat dat"
-    if depth == cfg.DEPTH_GUARD:
-        return "Phong gac cua"
-    if depth == cfg.DEPTH_STORAGE:
-        return "Kho thuc an"
-    if depth == cfg.DEPTH_WATER:
-        return "Be tru nuoc"
-    if depth == cfg.DEPTH_EGG:
-        return "Phong trung"
-    if depth == cfg.DEPTH_NURSERY:
-        return "Au trung"
-    if depth == cfg.DEPTH_QUEEN:
-        return "Phong chua"
-    if depth == cfg.DEPTH_GRAVEYARD:
-        return "Nghia dia"
-    return f"Phong dao (tang {depth})"
+        return "Mặt đất"
+    uworld = state.underground_world
+    names = [name.strip() for (room_id, name, _pos, _r, _color, d) in uworld.rooms
+             if d == depth and room_id in uworld.unlocked_rooms]
+    return "/".join(names) if names else "(chưa đào)"
 
 
 def _blob_points(cx, cy, base_r, seed_key, n_points=28, irregularity=0.22):

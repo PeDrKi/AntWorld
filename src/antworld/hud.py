@@ -54,8 +54,16 @@ def build_toolbar(state):
     # dưới) - dời sang phải đúng bằng bề rộng mini-map + khoảng hở, để 2
     # panel này KHÔNG đè lên nhau ở vị trí mặc định (vẫn kéo đi đâu tùy ý
     # được như mọi panel khác nếu người chơi muốn sắp xếp lại).
-    stats_panel = Panel(8 + LAYER_MAP_W + 10, 8, 740, 150, "Thong tin dan kien (2 to)")
+    stats_panel = Panel(8 + LAYER_MAP_W + 10, 8, 740, 150, "Thong tin dan kien")
     graph_panel = Panel(8, state.SCREEN_H - 214 - 10, 310, 178, "Dan so theo thoi gian")
+    if "graph_panel" not in old_positions:
+        # Lần XÂY ĐẦU TIÊN (chưa từng có graph_panel cũ để giữ lại lựa chọn
+        # của người chơi) - thu gọn SẴN, vì biểu đồ dân số chưa có gì để vẽ
+        # lúc ván vừa mở (chỉ 1 điểm dữ liệu duy nhất) - đỡ 1 cửa sổ chiếm
+        # chỗ vô ích trong lúc người chơi đang ngồi ngắm cảnh chúa lập tổ.
+        # Các lần build_toolbar() SAU (resize/mở khóa phòng mới) vẫn tôn
+        # trọng lựa chọn thu gọn/mở của người chơi như bình thường.
+        graph_panel.collapsed = True
 
     # --- Xây SIDEBAR bằng 1 "con trỏ dọc" (cursor_y) - mỗi phần tử thêm
     # vào tự cộng dồn xuống dưới, không cần tính tay từng tọa độ pixel ---
@@ -150,8 +158,16 @@ def build_toolbar(state):
     # - xem draw_layer_map() bên dưới.
     LAYER_BOX_H = 42
     LAYER_BOX_GAP = 5
-    max_depth = state.max_layer_overall()
-    n_layers = max_depth + 1
+    # CHỈ liệt kê những tầng THỰC SỰ có ít nhất 1 phòng đã được đào riêng
+    # (unlocked_rooms) - + luôn có mặt đất (tầng 0, luôn tồn tại/điều
+    # hướng được). KHÔNG dùng range(0, max_depth+1) như trước (giả định
+    # MỌI tầng từ 0 tới tầng sâu nhất đều có nội dung) - với hệ thống
+    # "đào tới đâu có chức năng tới đó", có thể có những tầng Ở GIỮA
+    # chưa hề tồn tại (vd vừa đào xong Phòng chúa ở tầng 4 nhưng tầng
+    # 1-3 chưa có phòng nào cả).
+    unlocked_depths = sorted({0} | {r[5] for r in state.underground_world.rooms
+                                     if r[0] in state.underground_world.unlocked_rooms})
+    n_layers = len(unlocked_depths)
     # Vị trí mặc định: góc TRÊN-TRÁI (cột riêng, KHÔNG dùng chung cột với
     # bảng thống kê/biểu đồ - 2 panel đó đã tự nhường chỗ, xem stats_panel
     # ở trên) - dọc hết chiều cao cần thiết theo số tầng thực tế của ván
@@ -159,7 +175,7 @@ def build_toolbar(state):
     layer_map_panel = Panel(8, 8, LAYER_MAP_W,
                              n_layers * (LAYER_BOX_H + LAYER_BOX_GAP) + 4, "Ban do tang")
     state.layer_map_buttons = []
-    for i, depth in enumerate(range(0, n_layers)):
+    for i, depth in enumerate(unlocked_depths):
         rel_y = 6 + i * (LAYER_BOX_H + LAYER_BOX_GAP)
         btn = Button((0, 0, LAYER_MAP_W - 20, LAYER_BOX_H), "", on_click=lambda d=depth: state.set_layer(d), style="nav")
         btn.depth = depth
@@ -306,11 +322,15 @@ def _layer_swatches(state, depth):
     trong world.rooms nên xử lý riêng; các tầng ngầm CHUNG NHAU (vd Kho
     thức ăn + Bể trữ nước cùng ở tầng 2) trả về NHIỀU màu - hiện dải màu
     riêng cho từng phòng để biết ngay tầng này gồm những gì mà không cần
-    đọc hết chữ (chữ dài dễ bị cắt trong ô nhỏ)."""
+    đọc hết chữ (chữ dài dễ bị cắt trong ô nhỏ). CHỈ tính phòng ĐÃ ĐƯỢC
+    ĐÀO RIÊNG (room_id in unlocked_rooms) - phòng còn "gộp chung" vào
+    Phòng chúa (chưa đào) KHÔNG được tính vào tầng gốc của nó (nếu không,
+    sẽ hiện sai tên/xen lẫn cả ở tầng mà nó THỰC SỰ chưa hề tồn tại)."""
     if depth == 0:
         return [(cfg.COLOR_GROUND_FILL, "Mat dat")]
-    out = [(color, name) for (_id, name, _pos, _r, color, d) in state.underground_world.rooms if d == depth]
-    return out or [((90, 90, 90), layer_name(depth))]
+    out = [(color, name) for (room_id, name, _pos, _r, color, d) in state.underground_world.rooms
+           if d == depth and room_id in state.underground_world.unlocked_rooms]
+    return out or [((90, 90, 90), layer_name(state, depth))]
 
 
 # ---------------------------------------------------------------------
@@ -318,6 +338,8 @@ def _layer_swatches(state, depth):
 # level" của Dwarf Fortress, thay vì chỉ đọc số tầng ở góc màn hình.
 # ---------------------------------------------------------------------
 def draw_layer_map(state, surf):
+    if state.queen_walk_active:
+        return  # chưa có tầng ngầm nào tồn tại - xem visible_panels()
     panel = state.layer_map_panel
     # Cập nhật "đang xem tầng nào" mỗi khung hình TRƯỚC khi vẽ - current_layer
     # có thể đổi bất cứ lúc nào (phím tắt, lăn chuột, camera tự bám kiến),
@@ -635,7 +657,7 @@ def draw_hud(state, surf):
 
     # --- nhãn tầng hiện tại: nhỏ, LUÔN CỐ ĐỊNH góc trên-phải (không phải
     # panel kéo được - đủ nhỏ để không thực sự che khung nhìn) ---
-    name = layer_name(state.current_layer)
+    name = layer_name(state, state.current_layer)
     label = render_cached(state.font_big, f"Tang {state.current_layer}: {name}", (255, 255, 80))
     lr = label.get_rect(topright=(state.SCREEN_W - 12, 8))
     bg = get_flat_alpha_surface((lr.w + 16, lr.h + 10), (0, 0, 0, 150))
@@ -720,7 +742,7 @@ def draw_ant_card(state, surf):
     age_text = f"{age_secs / 60:.1f} phút" if age_secs >= 60 else f"{age_secs:.0f} giây"
     _blit_row(surf, state.font_hud, cx + LX, y, [
         ("Tuổi ", COL_LABEL), (f"{age_text}    ", COL_VALUE),
-        ("Tầng ", COL_LABEL), (f"{int(colony.depth[idx])}: {layer_name(int(colony.depth[idx]))}", COL_VALUE),
+        ("Tầng ", COL_LABEL), (f"{int(colony.depth[idx])}: {layer_name(state, int(colony.depth[idx]))}", COL_VALUE),
     ])
     y += LINE_H
 

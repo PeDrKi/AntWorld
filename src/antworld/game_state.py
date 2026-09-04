@@ -708,9 +708,16 @@ class GameState:
         if self.active_tab == "maze":
             panels = [p for p in (self.tab_panel, self.maze_panel) if p is not None]
         else:
-            panels = [p for p in (self.tab_panel, self.toolbar_panel, self.stats_panel,
-                                   self.graph_panel, getattr(self, "layer_map_panel", None),
-                                   getattr(self, "event_log_panel", None)) if p is not None]
+            # Bản đồ tầng (layer_map_panel) chỉ có Ý NGHĨA khi có ít nhất 1
+            # tầng ngầm THỰC SỰ tồn tại - lúc chúa còn đang lập tổ trên mặt
+            # đất (queen_walk_active), CHƯA hề có gì được đào cả (kể cả
+            # Phòng chúa) nên ẩn hẳn panel này đi, đỡ 1 cửa sổ vô nghĩa lúc
+            # người chơi chỉ đang ngồi ngắm cảnh chúa tìm chỗ lập tổ.
+            base = [self.tab_panel, self.toolbar_panel, self.stats_panel, self.graph_panel]
+            if not self.queen_walk_active:
+                base.append(getattr(self, "layer_map_panel", None))
+            base.append(getattr(self, "event_log_panel", None))
+            panels = [p for p in base if p is not None]
             if self.is_following() and getattr(self, "ant_panel", None) is not None:
                 panels = [self.ant_panel] + panels
             if self.queen_walk_active and getattr(self, "founding_panel", None) is not None:
@@ -832,6 +839,7 @@ class GameState:
     # nhộng/nghĩa địa là nhu cầu của tổ đã khá đông.
     ROOM_UNLOCK_SCHEDULE = [
         (4, cfg.FOUNDING_NANITIC_TARGET),  # Phòng trứng - ngay khi lập tổ xong
+        (5, cfg.FOUNDING_NANITIC_TARGET),  # Phòng gác cửa - cùng lúc (có lính đầu tiên để canh)
         (1, 8),                             # Phòng ấu trùng
         (0, 12),                            # Kho thức ăn
         (3, 18),                            # Bể trữ nước
@@ -843,17 +851,26 @@ class GameState:
         """Tách dần từng phòng ra khỏi Phòng chúa theo ROOM_UNLOCK_SCHEDULE
         - gọi mỗi khung hình (an toàn gọi lặp lại, unlock_room() tự bỏ qua
         nếu phòng đó đã mở từ trước)."""
+        unlocked_any = False
         for room_id, threshold in self.ROOM_UNLOCK_SCHEDULE:
             if population < threshold:
                 continue
             if not self.underground_world.unlock_room(room_id):
                 continue
+            unlocked_any = True
             room = self.underground_world.rooms[room_id]
             name = room[1].strip()
             pos, layer = tuple(room[2]), room[5]
             msg = f"Tổ đã đào thêm {name} riêng!"
             self.add_toast(msg, color=(150, 200, 220))
             self.log_event(msg, pos=pos, layer=layer, color=(150, 200, 220))
+        if unlocked_any:
+            # Bản đồ tầng (layer_map_buttons) được XÂY 1 LẦN LÚC build_toolbar
+            # và "đóng băng" từ đó - phải dựng lại để tầng VỪA MỞ xuất hiện
+            # trên bản đồ (build_toolbar() tự giữ nguyên vị trí/thu gọn các
+            # panel người chơi đã tự sắp xếp, xem old_positions trong đó).
+            from . import hud
+            hud.build_toolbar(self)
 
     def check_alerts(self):
         """So sánh các tình trạng quan trọng (đói/khát/kẻ thù/đàn ngoại lai/

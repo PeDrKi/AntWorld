@@ -36,24 +36,26 @@ class TestUndergroundWorldProgressive(unittest.TestCase):
         for room in uw.rooms:
             self.assertNotEqual(tuple(room[2]), tuple(uw.queen_room)) if room[0] != 2 else None
 
-    def test_progressive_construction_only_queen_and_guard_unlocked(self):
+    def test_progressive_construction_only_queen_unlocked(self):
         uw = UndergroundWorld(cfg.NEST_POS, "", progressive=True)
-        self.assertEqual(uw.unlocked_rooms, {2, 5})
+        self.assertEqual(uw.unlocked_rooms, {2})
 
     def test_progressive_locked_rooms_collapse_onto_queen_position_and_depth(self):
         uw = UndergroundWorld(cfg.NEST_POS, "", progressive=True)
-        for room_id in (0, 1, 3, 4, 6, 7):
+        for room_id in (0, 1, 3, 4, 5, 6, 7):
             pos_attr = uw._room_pos_attr[room_id]
             depth_attr = uw._room_depth_attr[room_id]
             self.assertEqual(tuple(getattr(uw, pos_attr)), tuple(uw.queen_room))
             self.assertEqual(getattr(uw, depth_attr), uw.queen_depth)
 
-    def test_guard_room_always_at_its_own_real_position(self):
-        """Phòng gác cửa LUÔN mở sẵn (đơn giản hoá có chủ đích) - không
-        gộp vào Phòng chúa dù progressive=True."""
+    def test_guard_room_locked_at_start_like_every_other_non_queen_room(self):
+        """Phòng gác cửa KHÔNG còn là ngoại lệ - cũng "gộp chung" vào
+        Phòng chúa như mọi phòng khác cho tới khi có lính đầu tiên (xem
+        GameState.ROOM_UNLOCK_SCHEDULE) - đúng tinh thần "phòng nào cũng
+        chỉ tồn tại khi thực sự cần tới chức năng của nó"."""
         uw = UndergroundWorld(cfg.NEST_POS, "", progressive=True)
-        self.assertNotEqual(tuple(uw.guard_room), tuple(uw.queen_room))
-        self.assertEqual(uw.guard_depth, cfg.DEPTH_GUARD)
+        self.assertEqual(tuple(uw.guard_room), tuple(uw.queen_room))
+        self.assertEqual(uw.guard_depth, uw.queen_depth)
 
     def test_unlock_room_moves_to_real_designed_position(self):
         uw = UndergroundWorld(cfg.NEST_POS, "", progressive=True)
@@ -103,9 +105,9 @@ class TestGameStateRoomUnlockSchedule(unittest.TestCase):
     def setUpClass(cls):
         pygame.init()
 
-    def test_new_game_starts_with_only_queen_and_guard_room(self):
+    def test_new_game_starts_with_only_queen_room(self):
         gs = game_state.GameState()
-        self.assertEqual(gs.underground_world.unlocked_rooms, {2, 5})
+        self.assertEqual(gs.underground_world.unlocked_rooms, {2})
 
     def test_egg_room_unlocks_immediately_after_founding_completes(self):
         gs = game_state.GameState()
@@ -188,6 +190,166 @@ class TestGameStateRoomUnlockSchedule(unittest.TestCase):
         finally:
             if os.path.exists(game_state.SAVE_PATH):
                 os.remove(game_state.SAVE_PATH)
+
+
+
+class TestLayerMapReflectsRealState(unittest.TestCase):
+    """Bug đã sửa: 'Bản đồ tầng' / layer_name() từng hiện SẴN tên phòng
+    (Kho thức ăn, Phòng trứng...) cho những tầng CHƯA HỀ ĐƯỢC ĐÀO, vì
+    dùng bảng tên tĩnh theo hằng số DEPTH_* thay vì tra đúng trạng thái
+    unlocked_rooms thật của ván đang chơi."""
+
+    @classmethod
+    def setUpClass(cls):
+        pygame.init()
+
+    def test_layer_name_returns_placeholder_for_undug_depth(self):
+        from antworld.render_underground import layer_name
+
+        gs = game_state.GameState()
+        self.assertEqual(gs.underground_world.unlocked_rooms, {2})
+        self.assertEqual(layer_name(gs, cfg.DEPTH_STORAGE), "(chưa đào)")
+        self.assertEqual(layer_name(gs, cfg.DEPTH_GUARD), "(chưa đào)")
+
+    def test_layer_name_returns_real_name_for_dug_room(self):
+        from antworld.render_underground import layer_name
+
+        gs = game_state.GameState()
+        self.assertEqual(layer_name(gs, cfg.DEPTH_QUEEN), "Phòng chúa")
+
+    def test_layer_name_updates_immediately_after_unlock(self):
+        from antworld.render_underground import layer_name
+
+        gs = game_state.GameState()
+        _advance_past_founding(gs)
+        self.assertEqual(layer_name(gs, cfg.DEPTH_GUARD), "(chưa đào)")
+        gs._check_room_unlocks(cfg.FOUNDING_NANITIC_TARGET)
+        self.assertEqual(layer_name(gs, cfg.DEPTH_GUARD), "Phòng gác cửa")
+
+    def test_layer_name_never_shows_locked_room_name_at_queen_depth(self):
+        """Trước khi sửa: nhiều phòng KHÓA cùng "gộp" vào tầng Phòng chúa
+        khiến layer_name(tầng chúa) có thể trả về tên phòng khóa (vd "Kho
+        thức ăn") thay vì "Phòng chúa" - do thứ tự room_id tình cờ đứng
+        trước trong danh sách."""
+        from antworld.render_underground import layer_name
+
+        gs = game_state.GameState()
+        for room_id in (0, 1, 3, 4, 5, 6, 7):
+            self.assertNotIn(room_id, gs.underground_world.unlocked_rooms)
+        self.assertEqual(layer_name(gs, cfg.DEPTH_QUEEN), "Phòng chúa")
+
+    def test_layer_map_panel_hidden_while_queen_still_walking(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        self.assertTrue(gs.queen_walk_active)
+        self.assertNotIn(gs.layer_map_panel, gs.visible_panels())
+
+    def test_layer_map_panel_visible_once_digging_completes(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        ticks = 0
+        while gs.queen_walk_active and ticks < 20000:
+            gs.step_simulation()
+            ticks += 1
+        self.assertIn(gs.layer_map_panel, gs.visible_panels())
+
+    def test_layer_map_buttons_only_include_dug_depths(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        _advance_past_founding(gs)
+        hud.build_toolbar(gs)
+        depths = sorted(b.depth for b in gs.layer_map_buttons)
+        self.assertEqual(depths, [0, cfg.DEPTH_QUEEN])
+
+    def test_layer_map_buttons_grow_as_rooms_unlock(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        _advance_past_founding(gs)
+        gs._check_room_unlocks(cfg.FOUNDING_NANITIC_TARGET)  # tự rebuild toolbar bên trong
+        depths = sorted(b.depth for b in gs.layer_map_buttons)
+        self.assertIn(cfg.DEPTH_EGG, depths)
+        self.assertIn(cfg.DEPTH_GUARD, depths)
+
+    def test_layer_swatches_do_not_leak_locked_rooms_into_queen_depth(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        swatches = hud._layer_swatches(gs, cfg.DEPTH_QUEEN)
+        names = [name for _color, name in swatches]
+        self.assertEqual(names, ["Phòng chúa"])
+
+    def test_max_depth_ignores_locked_rooms(self):
+        gs = game_state.GameState()
+        self.assertEqual(gs.underground_world.max_depth(), cfg.DEPTH_QUEEN)
+
+    def test_stats_panel_title_has_no_stale_rival_colony_reference(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        self.assertNotIn("2 to", gs.stats_panel.title)
+        self.assertNotIn("2 tổ", gs.stats_panel.title)
+
+    def test_graph_panel_collapsed_by_default_on_fresh_game(self):
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        self.assertTrue(gs.graph_panel.collapsed)
+
+    def test_graph_panel_expansion_choice_preserved_across_rebuild(self):
+        """Nếu người chơi TỰ mở lại biểu đồ, rebuild toolbar (vd lúc mở
+        khóa 1 phòng mới) KHÔNG được tự ý thu gọn lại."""
+        from antworld import hud
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        gs.graph_panel.collapsed = False
+        hud.build_toolbar(gs)
+        self.assertFalse(gs.graph_panel.collapsed)
+
+
+class TestGuardRoomUsesDynamicDepth(unittest.TestCase):
+    """ants.py không còn dùng cfg.DEPTH_GUARD tĩnh ở những chỗ liên quan
+    tới định vị lính gác - phải dùng self.underground.guard_depth (tôn
+    trọng trạng thái khóa/mở thật) để lính không "biến mất" vào 1 tầng
+    trống trơn lúc phòng gác cửa chưa được đào."""
+
+    @classmethod
+    def setUpClass(cls):
+        pygame.init()
+
+    def test_guard_dwell_uses_collapsed_depth_and_radius_while_locked(self):
+        gs = game_state.GameState()
+        _advance_past_founding(gs)
+        uw = gs.underground_world
+        self.assertNotIn(5, uw.unlocked_rooms)
+        center, radius = uw.room_center_and_radius_by_id(5, founding_phase=gs.colony.founding_phase)
+        self.assertEqual(tuple(center), tuple(uw.queen_room))
+
+    def test_guard_room_render_no_crash_while_locked_and_unlocked(self):
+        from antworld import hud
+        from antworld.render_underground import draw_underground_layer
+
+        gs = game_state.GameState()
+        hud.build_toolbar(gs)
+        _advance_past_founding(gs)
+        screen = gs.screen
+        for depth in range(6):
+            screen.fill((0, 0, 0))
+            draw_underground_layer(gs, screen, depth)
+        gs._check_room_unlocks(cfg.FOUNDING_NANITIC_TARGET)
+        for depth in range(6):
+            screen.fill((0, 0, 0))
+            draw_underground_layer(gs, screen, depth)
 
 
 if __name__ == "__main__":

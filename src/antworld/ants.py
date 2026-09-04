@@ -590,7 +590,6 @@ class AntColony:
         self.x[blocked_idx] = prev_x[blocked]
         self.y[blocked_idx] = prev_y[blocked]
 
-        n_blocked = len(blocked_idx)
         fresh = self.avoid_cooldown[blocked_idx] <= 0
         # Lần đầu chạm vật cản (chưa trong pha né) -> tung đồng xu chọn 1
         # bên rồi KHÓA lại; đã đang né rồi thì giữ nguyên bên cũ (không đổi

@@ -83,37 +83,12 @@ def _get_spoiled_food_sprite(base_sprite, spoil_frac, food_size):
     return tinted
 
 
-def draw_grid_lines(state, surf):
-    camera = state.camera
-    cell = camera.cell_px()
-    x0, y0 = camera.world_to_screen(0, 0, state.CENTER_X, state.CENTER_Y)
-    map_right = x0 + cfg.GRID_SIZE * cell
-    map_bottom = y0 + cfg.GRID_SIZE * cell
-    step = cell
-    gx = x0
-    while gx <= map_right + 0.5:
-        if gx >= -step:
-            pygame.draw.line(
-                surf, (0, 0, 0, 40), (gx, max(0, y0)),
-                (gx, min(state.CANVAS_H, map_bottom)), 1
-            )
-        gx += step
-    gy = y0
-    while gy <= map_bottom + 0.5:
-        if gy >= -step:
-            pygame.draw.line(
-                surf, (0, 0, 0, 40), (max(0, x0), gy),
-                (min(state.SCREEN_W, map_right), gy), 1
-            )
-        gy += step
-
-
 def _draw_grid_lines_local(cache, cell):
-    """Giống draw_grid_lines() nhưng vẽ vào surface CỤC BỘ của bản đồ (gốc
-    tọa độ (0,0) LUÔN là góc trên-trái bản đồ, không phụ thuộc camera đang
-    pan tới đâu) - dùng khi dựng _build_terrain_cache() (xem giải thích ở
-    đó vì sao tách riêng thành 1 surface cache thay vì vẽ lại mỗi khung
-    hình theo tọa độ màn hình như draw_grid_lines() ở trên)."""
+    """Vẽ lưới ô vuông vào surface CỤC BỘ của bản đồ (gốc tọa độ (0,0)
+    LUÔN là góc trên-trái bản đồ, không phụ thuộc camera đang pan tới
+    đâu) - dùng khi dựng _build_terrain_cache() (xem giải thích ở đó vì
+    sao tách riêng thành 1 surface cache thay vì vẽ lại mỗi khung hình
+    theo tọa độ màn hình)."""
     size = cache.get_width()
     g = 0.0
     while g <= size + 0.5:

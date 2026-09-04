@@ -663,20 +663,6 @@ class GameState:
             self.camera.cx += (target_x - self.camera.cx) * smooth
             self.camera.cy += (target_y - self.camera.cy) * smooth
 
-    def follow_status_text(self):
-        """Chuỗi mô tả ngắn con kiến đang theo dõi, để HUD hiển thị."""
-        if not self.is_following():
-            return None
-        colony, idx = self.follow_colony, self.follow_idx
-        role = "Linh gac" if bool(colony.is_guard[idx]) else (
-            "Y ta" if bool(colony.carrying[idx]) and int(colony.carry_type[idx]) == 0 else "Tho"
-        )
-        mang = ""
-        if bool(colony.carrying[idx]):
-            ct = int(colony.carry_type[idx])
-            mang = " | dang mang: " + ("thuc an" if ct == 1 else "nuoc" if ct == 2 else "au trung/khac")
-        return f"Theo doi: {role}, tang {int(colony.depth[idx])}, tuoi {int(colony.age[idx])} tick{mang}"
-
     def follow_next(self, direction):
         """Chuyển sang theo dõi con kiến CÒN SỐNG kế tiếp (direction=+1) hoặc
         trước đó (direction=-1) trong CÙNG đàn đang theo dõi, theo thứ tự

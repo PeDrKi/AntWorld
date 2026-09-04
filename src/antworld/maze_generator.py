@@ -155,27 +155,3 @@ def farthest_point(blocked, start):
     tới được - dùng đặt đích/thức ăn, đảm bảo LUÔN có đường đi thật sự."""
     dist = bfs_distances(blocked, start)
     return max(dist, key=dist.get)
-
-
-def scatter_points(dist, count, rng):
-    """Chọn `count` ô CÀNG TRẢI ĐỀU khắp mê cung càng tốt (farthest-point
-    sampling): điểm đầu tiên là ô xa tổ nhất; mỗi điểm tiếp theo là ô có
-    khoảng cách TỐI THIỂU tới các điểm đã chọn LỚN NHẤT - đảm bảo các
-    điểm nằm rải rác khắp các ngóc ngách mê cung, không dồn cụm 1 chỗ."""
-    candidates = [c for c, d in dist.items() if d > 0]
-    if not candidates:
-        return []
-    rng.shuffle(candidates)
-    picked = [max(candidates, key=lambda c: dist[c])]
-    for _ in range(min(count, len(candidates)) - 1):
-        best_cell, best_score = None, -1.0
-        for c in candidates:
-            if c in picked:
-                continue
-            score = min((c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2 for p in picked)
-            if score > best_score:
-                best_score, best_cell = score, c
-        if best_cell is None:
-            break
-        picked.append(best_cell)
-    return picked

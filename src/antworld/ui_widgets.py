@@ -7,9 +7,6 @@ import pygame
 
 from .fonts import render_cached
 
-COLOR_BTN = (40, 40, 45)
-COLOR_BTN_ACTIVE = (70, 130, 180)
-
 # Mỗi "style" là (mau_khong_active, mau_active, mau_vien) - dùng để NHÓM
 # các nút theo MÀU SẮC để mắt nhận ra ngay từng nhóm chức năng, thay vì
 # tất cả cùng 1 màu xám như trước (khó phân biệt "đặt vật thể" với "bật/

@@ -224,9 +224,6 @@ class SurfaceWorld:
         np.add.at(self.pheromone, (xi, yi), amount)
         np.clip(self.pheromone, 0, cfg.PHEROMONE_MAX, out=self.pheromone)
 
-    def sample_pheromone(self, xi, yi):
-        return self.pheromone[xi, yi]
-
     def decay_visit(self):
         self.visit_heat *= cfg.VISIT_HEAT_DECAY
 

@@ -142,9 +142,6 @@ EXPLORE_DANGER_WEIGHT = 4.0  # trọng số né mùi báo động nguy hiểm kh
 # 2 gia tri mac dinh duoi day da do dac de giu build duoi ~2 giay. -----
 MAZE_PASSAGE_WIDTH = 1         # do rong hanh lang (so o)
 MAZE_WALL_WIDTH = 1            # do day tuong giua 2 hanh lang (so o)
-MAZE_FOOD_PILES = 6            # so cum thuc an rai rac trong me cung
-MAZE_FOOD_AMOUNT_PER_PILE = 10.0  # luong thuc an moi cum (nho, buoc phai
-                                # di het nhieu ngoc ngach moi gom du)
 
 # ----- Né vật cản (đá/nước): "bám tường" thay vì dội ngẫu nhiên -----
 # Dùng cho lính gác đuổi kẻ thù trên mặt đất (_update_guards/STATE_GUARD_RUSH,
@@ -310,10 +307,9 @@ TERRAIN_SAFE_RADIUS_FROM_NEST = 6  # không đặt địa hình quá gần lỗ 
 # về tổ - y hệt việc nhặt thức ăn, chỉ khác là không tiêu hao tài nguyên
 # trên bản đồ (nước không "cạn" khi kiến uống). Đây là NGUỒN THU NƯỚC
 # CHỦ ĐỘNG thật sự (xem WATER_PICKUP_PROB/WATER_CARRY_AMOUNT và
-# near_water() trong world.py, dùng trong _update_surface_ants ants.py).
-WATER_COLLECT_RADIUS = 2.0     # khoảng cách tới mép nước để có thể "uống"
-                               # (near_water() coi ô sát cạnh 1 ô nước là
-                               # đủ gần - xem world.py)
+# near_water() trong world.py, dùng trong _update_surface_ants ants.py -
+# near_water() coi Ô ĐANG ĐỨNG hoặc 1 trong 4 ô liền kề là nước thì tính
+# là "sát mép", không có bán kính tùy chỉnh riêng).
 WATER_PICKUP_PROB = 0.05       # xác suất "uống" thành công MỖI TICK khi
                                # đang ở sát mép nước (không phải lúc nào
                                # cũng dừng lại ngay tick đầu tiên chạm mép -
@@ -357,7 +353,6 @@ DEHYDRATION_DEATH_RATE = 0.0003        # xác suất chết PHỤ THÊM mỗi ti
 
 # ----- Tổ kiến (chính - của người chơi) -----
 NEST_POS = (GRID_SIZE // 2, GRID_SIZE // 2)   # vị trí lỗ tổ trên mặt đất & giếng hầm
-NEST_RADIUS = 1.2
 
 # Hệ số phóng to TOÀN BỘ bố cục hầm (bán kính từng phòng LẪN khoảng cách
 # giữa chúng) - tăng ở ĐÚNG 1 chỗ này để phòng to lên rõ rệt mà không cần
@@ -936,7 +931,6 @@ LAYER_FADE_TICKS = 14        # tổng số khung hình mờ dần (~0.23s ở 60
 # nhìn lướt qua HUD hay không
 COLOR_BG_SURFACE = (74, 58, 40)
 COLOR_BG_UNDERGROUND = (32, 27, 24)
-COLOR_GRID_LINE = (0, 0, 0, 40)
 COLOR_GROUND_FILL = (205, 178, 132)
 COLOR_SHAFT = (25, 18, 12)
 

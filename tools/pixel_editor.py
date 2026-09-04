@@ -20,7 +20,6 @@ PHIM TAT:
 """
 import os
 import sys
-import copy
 import json
 import colorsys
 import pygame
@@ -51,7 +50,6 @@ COL_BG = (23, 19, 15)
 COL_PANEL = (34, 27, 20)
 COL_PANEL2 = (43, 34, 25)
 COL_BORDER = (74, 58, 40)
-COL_BORDER_SOFT = (58, 47, 34)
 COL_TEXT = (236, 223, 200)
 COL_TEXT_DIM = (169, 152, 126)
 COL_ACCENT = (215, 120, 32)
@@ -853,7 +851,6 @@ class App:
         self.buttons = []
         self.swatches = []
         self.tab_buttons = []
-        self.size_buttons = []
         self.canvas_rect = pygame.Rect(0, 0, 0, 0)
         self.preview_game_rect = pygame.Rect(0, 0, 0, 0)
         self.preview_big_rect = pygame.Rect(0, 0, 0, 0)
@@ -1314,16 +1311,11 @@ class App:
         self.footer_h = 46
         self.left_w = 230
         self.right_w = 270
-        self.tabbar_h = 78
-        self.toolbar_h = 40
 
     def build_left_panel(self):
         self.buttons = []
         x0, y0 = 12, self.header_h + 12
         w = self.left_w - 24
-
-        def sec(title, y):
-            return y
 
         y = y0
         draw_text(screen, "CÔNG CỤ", (x0, y), font_small, COL_TEXT_DIM)
@@ -1496,7 +1488,6 @@ class App:
         y += 20
         sizes = [8, 12, 16, 24, 32, 48]
         sz_w = (w - 2 * 6) // 3
-        self.size_buttons = []
         for i, s in enumerate(sizes):
             col, row = i % 3, i // 3
             rect = (x0 + col * (sz_w + 6), y + row * 32, sz_w, 28)
@@ -1692,7 +1683,6 @@ class App:
         sp = state.sp()
         x0 = self.canvas_rect.x
         y = self.canvas_rect.bottom + 14
-        w_avail = max(320, self.canvas_rect.w)
 
         draw_text(screen, f"KHUNG HÌNH (ANIMATION) - {sp.n_frames} khung", (x0, y), font_small, COL_TEXT_DIM)
         y += 20
@@ -1754,7 +1744,6 @@ class App:
 
         self.buttons.append(Button((bx, y, 150, bh), f"Xem mờ khung trước: {'BẬT' if state.onion_skin else 'TẮT'}",
                                     self.toggle_onion_skin, active=state.onion_skin, font=font_small))
-        self.frame_strip_bottom = y + bh + 8
 
     def handle_frame_thumb_click(self, pos):
         """Trả về True nếu click trúng 1 thumbnail khung (đã xử lý), để

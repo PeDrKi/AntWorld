@@ -7,11 +7,8 @@ Thanh công cụ trình bày dạng SIDEBAR (bảng cạnh) - các nút xếp D�
 cột duy nhất, chia theo từng NHÓM có nhãn tiêu đề riêng, thay vì xếp thành
 2 hàng ngang như bản trước - dễ đọc/dễ quét mắt hơn khi số lượng nút nhiều.
 
-Bảng thống kê hiển thị ĐẦY ĐỦ số liệu cho CẢ 2 TỔ (chính lẫn đối thủ) với
-cấu trúc HOÀN TOÀN GIỐNG NHAU (dân số/quân số, tài nguyên, tổn thất) để so
-sánh trực tiếp 2 tổ, thay vì trước đây chỉ tổ chính có đủ số liệu tài
-nguyên/tổn thất còn tổ đối thủ chỉ có mỗi dòng dân số."""
-import numpy as np
+Bảng thống kê hiển thị ĐẦY ĐỦ số liệu cho tổ (dân số/quân số, tài nguyên,
+tổn thất, phân bố chức năng)."""
 import pygame
 
 from . import config as cfg
@@ -128,7 +125,7 @@ def build_toolbar(state):
 
     cursor["y"] += 4
     add_section("DI CHUYEN TANG")
-    layer_up_btn, layer_down_btn = add_half_buttons(
+    add_half_buttons(
         "Tang ^", lambda: (state.stop_follow(), state.change_layer(-1)), "nav",
         "Tang v", lambda: (state.stop_follow(), state.change_layer(1)), "nav")
 

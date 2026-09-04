@@ -367,12 +367,12 @@ def draw_trophallaxis(state, surf, colony_obj, depth):
 
 
 def draw_underground_grid_lines(state, surf):
-    """Lưới ô vuông NỀN cho tầng ngầm - KHÔNG dùng chung render_surface.
-    draw_grid_lines() (hàm đó cố định theo đúng kích thước bản đồ MẶT ĐẤT
-    cfg.GRID_SIZE, vốn không liên quan gì tới vị trí/kích thước các phòng
-    dưới hầm). Hầm không phải lưới ô vuông thật (phòng là các "khối u" tự
-    do, không neo theo ô lưới rời rạc như mặt đất) - lưới này CHỈ mang
-    tính tham chiếu thị giác (cảm nhận khoảng cách/tỉ lệ), nên phải tự tính
+    """Lưới ô vuông NỀN cho tầng ngầm - KHÔNG dùng chung với lưới mặt đất
+    (mặt đất cố định theo đúng kích thước bản đồ cfg.GRID_SIZE, vốn không
+    liên quan gì tới vị trí/kích thước các phòng dưới hầm). Hầm không phải
+    lưới ô vuông thật (phòng là các "khối u" tự do, không neo theo ô lưới
+    rời rạc như mặt đất) - lưới này CHỈ mang tính tham chiếu thị giác (cảm
+    nhận khoảng cách/tỉ lệ), nên phải tự tính
     vùng bao BAO TRỌN mọi phòng (kể cả bán kính phòng, không chỉ tâm) rồi
     mới vẽ - nếu không, khi ROOM_LAYOUT_SCALE lớn, phòng sẽ tràn ra ngoài
     hẳn vùng lưới (đã từng xảy ra khi lưới bị "đóng cứng" theo kích thước

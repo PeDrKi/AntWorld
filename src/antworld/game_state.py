@@ -169,6 +169,8 @@ class GameState:
         self.frame_counter = 0
         self.history_tick = 0
         self.pop_history_main = []
+        self.ui_hidden = False  # phím Tab - ẩn/hiện TOÀN BỘ panel cùng lúc,
+                                 # xem toggle_ui_hidden()/visible_panels()
 
         # --- Camera "TỰ LÁI" (chế độ ngắm cảnh - xem cfg.CRUISE_* và
         # update_camera_cruise()/touch_activity() bên dưới) ---
@@ -701,11 +703,18 @@ class GameState:
         hiện tại - tab_panel (nút chuyển tab) luôn hiện; các panel còn lại
         tùy thuộc active_tab, xem hud.build_toolbar().
 
+        self.ui_hidden=True (xem toggle_ui_hidden(), phím Tab): ẩn HOÀN
+        TOÀN mọi panel để xem cảnh mô phỏng "sạch", không vướng bất kỳ cửa
+        sổ nào - CHỈ NGOẠI LỆ panel Game Over (người chơi vẫn cần biết tổ
+        đã tuyệt chủng và bấm được nút "Chơi lại" dù đang ẩn giao diện).
+
         Khi game_over=True, panel Game Over được CHÈN LÊN ĐẦU danh sách -
         đứng trước mọi panel khác nên click vào nút "Chơi lại" của nó
         LUÔN được xử lý trước (xem __main__.py: vòng lặp dừng lại ở panel
         ĐẦU TIÊN xử lý được sự kiện chuột)."""
-        if self.active_tab == "maze":
+        if self.ui_hidden:
+            panels = []
+        elif self.active_tab == "maze":
             panels = [p for p in (self.tab_panel, self.maze_panel) if p is not None]
         else:
             # Bản đồ tầng (layer_map_panel) chỉ có Ý NGHĨA khi có ít nhất 1
@@ -725,6 +734,14 @@ class GameState:
         if self.game_over and self.game_over_panel is not None:
             panels = [self.game_over_panel] + panels
         return panels
+
+    def toggle_ui_hidden(self):
+        """Ẩn/hiện TOÀN BỘ panel/cửa sổ nổi cùng lúc (phím Tab) - để xem
+        cảnh mô phỏng "sạch", không vướng giao diện, đúng tinh thần ngồi
+        ngắm 1 thế giới kiến thay vì thao tác 1 công cụ. Vẫn giữ lại
+        toast (thoáng qua, không chiếm chỗ cố định) và panel Game Over
+        (thông tin quan trọng, không thể ẩn)."""
+        self.ui_hidden = not self.ui_hidden
 
     def set_tool(self, name):
         self.current_tool = None if self.current_tool == name else name

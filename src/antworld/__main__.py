@@ -88,6 +88,8 @@ def handle_events(state):
                 state.save_game()
             elif event.key == pygame.K_l and ctrl_held:
                 state.load_game()
+            elif event.key == pygame.K_TAB:
+                state.toggle_ui_hidden()
         elif event.type == pygame.MOUSEWHEEL:
             state.touch_activity()
             mx, my = pygame.mouse.get_pos()
@@ -161,11 +163,13 @@ def render(state):
     if state.active_tab == "maze":
         screen.fill(cfg.COLOR_BG_SURFACE)
         state.maze_demo.render(state, screen)
-        hud.draw_tab_panel(state, screen)
-        hud.draw_maze_panel(state, screen)
+        if not state.ui_hidden:
+            hud.draw_tab_panel(state, screen)
+            hud.draw_maze_panel(state, screen)
         hud.draw_toasts(state, screen)
         hud.draw_game_over(state, screen)  # to that co the tuyet chung o
                                             # ngay ca khi dang xem tab nay
+        hud.draw_ui_hidden_hint(state, screen)
         pygame.display.flip()
         return
 
@@ -188,17 +192,19 @@ def render(state):
         overlay.fill((0, 0, 0, fade_alpha))
         screen.blit(overlay, (0, 0))
 
-    hud.draw_graph(state, screen)
-    hud.draw_hud(state, screen)
-    hud.draw_ant_card(state, screen)
-    hud.draw_founding_controls(state, screen)
-    hud.draw_event_log(state, screen)
-    hud.draw_cruise_indicator(state, screen)
-    hud.draw_toolbar(state, screen)
-    hud.draw_layer_map(state, screen)
-    hud.draw_tab_panel(state, screen)
+    if not state.ui_hidden:
+        hud.draw_graph(state, screen)
+        hud.draw_hud(state, screen)
+        hud.draw_ant_card(state, screen)
+        hud.draw_founding_controls(state, screen)
+        hud.draw_event_log(state, screen)
+        hud.draw_cruise_indicator(state, screen)
+        hud.draw_toolbar(state, screen)
+        hud.draw_layer_map(state, screen)
+        hud.draw_tab_panel(state, screen)
     hud.draw_toasts(state, screen)
     hud.draw_game_over(state, screen)  # luon ve SAU CUNG - nam TREN moi thu khac
+    hud.draw_ui_hidden_hint(state, screen)
     pygame.display.flip()
 
 

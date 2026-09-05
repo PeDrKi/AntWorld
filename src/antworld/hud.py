@@ -651,7 +651,7 @@ def draw_hud(state, surf):
             surf.blit(img, (cx + LX + 4, y[0]))
             y[0] += LINE_H
 
-        hint = "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Esc: thoat"
+        hint = "Ctrl+Lan chuot: doi tang | Lan chuot: zoom | Chuot phai+keo: di chuyen | Tab: an/hien giao dien | Esc: thoat"
         img = render_cached(state.font_small, hint, (135, 135, 145))
         surf.blit(img, (cx + LX, y[0] + 2))
 
@@ -762,6 +762,19 @@ def draw_ant_card(state, surf):
 
     for b in panel.children:
         b.draw(surf, state.font)
+
+
+def draw_ui_hidden_hint(state, surf):
+    """Dòng chữ nhỏ, mờ, ở góc dưới-phải - CHỈ hiện khi state.ui_hidden
+    (đã ẩn toàn bộ panel bằng phím Tab - xem GameState.toggle_ui_hidden())
+    - để người chơi luôn biết cách BẬT LẠI giao diện, dù đã ẩn hết mọi nút
+    bấm. Không phải 1 Panel (không khung/nền đậm) - cố tình tối giản hết
+    mức để không phá hỏng mục đích "xem cảnh sạch" của tính năng này."""
+    if not state.ui_hidden:
+        return
+    text = "Tab để hiện lại giao diện"
+    img = render_cached(state.font_small, text, (150, 150, 150))
+    surf.blit(img, (state.SCREEN_W - img.get_width() - 12, state.SCREEN_H - img.get_height() - 10))
 
 
 def draw_cruise_indicator(state, surf):

@@ -777,6 +777,11 @@ class GameState:
         enemy_spawn_btn.text = f"Ke thu tu nhien: {'BAT' if self.enemy.auto_spawn_enabled else 'TAT'}"
         enemy_spawn_btn.active = self.enemy.auto_spawn_enabled
 
+    def toggle_invasion_spawn(self, invasion_spawn_btn):
+        self.invasion.auto_spawn_enabled = not self.invasion.auto_spawn_enabled
+        invasion_spawn_btn.text = f"Dan xam nhap: {'BAT' if self.invasion.auto_spawn_enabled else 'TAT'}"
+        invasion_spawn_btn.active = self.invasion.auto_spawn_enabled
+
     # ------------------------------------------------------------------
     # Thông báo nổi bật (toast) - hiện cố định góc màn hình, không phụ
     # thuộc panel nào, tự biến mất sau vài giây. Dùng cho cả cảnh báo sự
@@ -1055,7 +1060,11 @@ class GameState:
             self.surface_world = data["surface_world"]
             self.underground_world = self.colony.underground
             self.enemy = data["enemy"]
+            if not hasattr(self.enemy, "auto_spawn_enabled"):
+                self.enemy.auto_spawn_enabled = True  # file lưu từ bản CŨ hơn - mặc định BẬT
             self.invasion = data.get("invasion", InvasionManager())
+            if not hasattr(self.invasion, "auto_spawn_enabled"):
+                self.invasion.auto_spawn_enabled = True
             self.ALL_COLONIES = [self.colony]
             self.camera.cx = data["camera_cx"]
             self.camera.cy = data["camera_cy"]

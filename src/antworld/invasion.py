@@ -58,6 +58,12 @@ class InvasionManager:
         self.is_nanitic = np.zeros(n, dtype=bool)
 
         self.active = False          # đang có đợt nào diễn ra không (để HUD/toast biết)
+        self.auto_spawn_enabled = True  # BẬT/TẮT bằng nút trên thanh công cụ
+                                         # (xem GameState.toggle_invasion_spawn) -
+                                         # TẮT thì KHÔNG BAO GIỜ có đợt xâm
+                                         # nhập mới nào xuất hiện nữa, đợt
+                                         # đang diễn ra (nếu có) vẫn tiếp
+                                         # tục cho hết như bình thường.
         self.wave_number = 0
         self.entrance_fight_ticks = 0
         self.tick_count = 0
@@ -102,7 +108,7 @@ class InvasionManager:
         self.combat_flash_ticks = np.maximum(0, self.combat_flash_ticks - 1).astype(np.int16)
 
         if not self.active:
-            if cfg.INVASION_ENABLED and self.tick_count >= self.next_wave_tick:
+            if self.auto_spawn_enabled and cfg.INVASION_ENABLED and self.tick_count >= self.next_wave_tick:
                 self._spawn_wave(colony)
             return
 

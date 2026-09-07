@@ -750,10 +750,23 @@ EGG_WATER_COST = 2           # nước cần thêm để đẻ 1 trứng - thi�
 # TẠI (không phải hằng số cố định), việc đẻ trứng sẽ tự động CHẬM LẠI dần
 # khi đàn tiệm cận mức tối đa mà tốc độ kiếm ăn thực tế có thể nuôi nổi -
 # giữ dân số ổn định quanh 1 mức bền vững thay vì phình to rồi sụp đổ.
-EGG_MIN_STORAGE_BUFFER_PER_ANT = 8.0  # kho phải dư ra >= (dân số hiện tại
+EGG_MIN_STORAGE_BUFFER_PER_ANT = 0.0  # kho phải dư ra >= (dân số hiện tại
                              # x số này) NGOÀI EGG_FOOD_COST thì mới được
-                             # đẻ trứng tiếp - đàn càng đông, ngưỡng an toàn
-                             # càng cao, tự nhiên hãm tốc độ sinh sản lại.
+                             # đẻ trứng tiếp. ĐÃ GIẢM VỀ 0 sau 2 lần thử
+                             # giảm dần (8.0 -> 1.5 -> 0.3) vẫn CHƯA đủ:
+                             # ngay cả 0.3 thỉnh thoảng vẫn khiến sinh sản
+                             # đóng băng hàng chục nghìn tick đúng lúc đàn
+                             # cần thay thế gấp lứa sáng lập đang chết già
+                             # đồng loạt (cùng tuổi vì cùng nở 1 đợt lúc
+                             # lập tổ) - dẫn tới "vách đá nhân khẩu học":
+                             # dân số rơi tự do quanh mốc MAX_AGE_TICKS vì
+                             # không kịp có lứa kế cận. Đã có
+                             # MAX_ANTS_PER_COLONY làm TRẦN CỨNG chặn tăng
+                             # trưởng vô hạn rồi, không cần thêm "phanh
+                             # mềm" theo dân số ở đây nữa - giờ chỉ cần đủ
+                             # EGG_FOOD_COST (+ nước) là đẻ được, giống hệt
+                             # logic đẻ trứng LÚC LẬP TỔ (dùng năng lượng
+                             # riêng của chúa, không bị chặn theo dân số).
                              # Giá trị này đã được KIỂM THỬ THỰC NGHIỆM qua
                              # nhiều mô phỏng dài (60.000-90.000 tick, nhiều
                              # seed khác nhau): thấp hơn (1.5-5.0) vẫn dẫn
@@ -875,6 +888,20 @@ PUPA_MATURE_PER_TICK = 0.004  # tốc độ "chín" mỗi tick (KHÔNG phụ thu
                              # thái toàn bộ cơ thể nên lâu hơn 1 chút)
 
 # ----- Kẻ thù tự nhiên (đe dọa trên mặt đất) -----
+ENEMY_MIN_COLONY_POPULATION = 15  # tổ phải có ÍT NHẤT bấy nhiêu thợ mới
+                                 # bắt đầu bị kẻ thù tự nhiên để ý tới (xem
+                                 # enemy.py update()) - 1 tổ CÒN NON (vừa
+                                 # lập tổ xong, quần thể còn quá nhỏ để tự
+                                 # vệ hay chịu nổi thương vong) gần như
+                                 # KHÔNG có khả năng phục hồi nếu liên tục
+                                 # bị tấn công đều đặn mỗi 500-1200 tick
+                                 # ngay từ những phút đầu tiên - đây từng
+                                 # là nguyên nhân chính khiến tổ mới lập
+                                 # gần như luôn tuyệt chủng dù thức ăn/nước
+                                 # dự trữ vẫn còn dư. Không áp dụng cho
+                                 # ENEMY_MAX_KILLS_PER_VISIT bên dưới -
+                                 # ngưỡng đó vẫn có tác dụng SAU KHI tổ đã
+                                 # vượt qua mốc này.
 ENEMY_SPAWN_COOLDOWN_MIN = 500   # số tick tối thiểu giữa 2 lần kẻ thù xuất hiện
 ENEMY_SPAWN_COOLDOWN_MAX = 1200
 ENEMY_LIFETIME_TICKS = 900       # kẻ thù tự rời đi sau bấy nhiêu tick

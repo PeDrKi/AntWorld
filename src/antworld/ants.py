@@ -246,10 +246,77 @@ class AntColony:
         self._update_eggs()
         self._update_larvae()
         self._update_pupae()
+        if not self.founding_phase:
+            self._rebalance_labor()
         # LƯU Ý: việc tái sinh thức ăn ngẫu nhiên KHÔNG còn nằm ở đây nữa -
         # đã chuyển sang main.py để có thể bật/tắt bằng nút trên thanh công
         # cụ, và để tránh 2 tổ (chính + đối thủ) cùng kích hoạt trùng lặp
         # khi cả 2 đều gọi update() mỗi khung hình.
+
+    def _rebalance_labor(self):
+        """AN TOÀN phân công lại lao động khi đàn THIẾU HẲN 1 vai trò
+        thiết yếu - đúng thực tế đàn kiến có khả năng ĐIỀU CHỈNH LINH
+        HOẠT phân công lao động theo nhu cầu (task allocation plasticity),
+        không cố định vai trò suốt đời ngay từ lúc nở. Có 3 mức ưu tiên,
+        xét THEO ĐÚNG THỨ TỰ này mỗi lần gọi (chỉ làm 1 việc/lần gọi, chờ
+        lần sau đánh giá lại):
+
+        1) KHÔNG BAO GIỜ để 0 thợ kiếm ăn khi đàn còn ít nhất 2 con - đây
+           là lỗi NGHIÊM TRỌNG NHẤT: hết người kiếm ăn = kho không còn
+           nguồn thu = từ từ chết đói toàn đàn dù trước đó vẫn ổn. Rút 1
+           y tá/hộ vệ (đang dư so với nhu cầu) về lại kiếm ăn.
+        2) Nếu CÒN DƯ ít nhất 3 thợ kiếm ăn mà 0 y tá dù đang có ấu trùng
+           cần ăn - lứa nanitic đầu tiên (thường chỉ 4 con) có xác suất
+           NGẪU NHIÊN ra được y tá là RẤT THẤP (JOB_NURSE_RATIO=10% trong
+           số thợ nhỏ). Không có y tá => ấu trùng ứ đọng mãi, không bao
+           giờ hóa nhộng thành thợ mới => đàn chỉ có thể co lại dần vì
+           chết già => TUYỆT CHỦNG dù thức ăn dư thừa.
+        3) Tương tự với hộ vệ (chăm trứng + chúa, JOB_ATTENDANT_RATIO=6%).
+        """
+        if self.tick_count % 200 != 0:
+            return
+        is_minor = self.role == cfg.ROLE_MINOR
+        alive_minor = self.alive & is_minor
+        n_foragers = int(np.sum(alive_minor & (self.job == cfg.JOB_FORAGER)))
+        n_nurses = int(np.sum(alive_minor & (self.job == cfg.JOB_NURSE)))
+        n_attendants = int(np.sum(alive_minor & (self.job == cfg.JOB_ATTENDANT)))
+        n_larvae = int(np.sum(self.larva_active))
+        population = int(np.sum(self.alive))
+
+        if n_foragers == 0 and population >= 1:
+            spare = np.where(alive_minor & (self.job != cfg.JOB_FORAGER))[0]
+            if len(spare) > 0:
+                pick = spare[0]
+                self.job[pick] = cfg.JOB_FORAGER
+                self.layer[pick] = cfg.LAYER_SURFACE
+                self.depth[pick] = cfg.LAYER_SURFACE_DEPTH
+                self.x[pick] = self.nest_pos[0]
+                self.y[pick] = self.nest_pos[1]
+                self.state[pick] = cfg.STATE_SEARCHING
+                self.theta[pick] = np.random.uniform(0, 2 * np.pi)
+                return  # 1 viec/lan goi - danh gia lai vao lan sau
+
+        forager_pool = list(np.where(alive_minor & (self.job == cfg.JOB_FORAGER) & (~self.carrying))[0])
+        # Chỉ "rút quân" khi còn DƯ ÍT NHẤT 3 thợ kiếm ăn - không bao giờ
+        # rút tới mức đàn hết sạch người đi tìm thức ăn.
+        if len(forager_pool) >= 3 and n_nurses == 0 and n_larvae > 0:
+            pick = forager_pool.pop()
+            self.job[pick] = cfg.JOB_NURSE
+            self.layer[pick] = cfg.LAYER_UNDERGROUND
+            self.depth[pick] = self.underground.storage_depth
+            self.x[pick], self.y[pick] = self.underground.storage[0], self.underground.storage[1]
+            self.state[pick] = cfg.STATE_NURSE_AT_STORAGE
+
+        if len(forager_pool) >= 3 and n_attendants == 0 and population >= 5:
+            pick = forager_pool.pop()
+            self.job[pick] = cfg.JOB_ATTENDANT
+            self.layer[pick] = cfg.LAYER_UNDERGROUND
+            self.depth[pick] = self.underground.queen_depth
+            self.x[pick], self.y[pick] = self.underground.queen_room[0], self.underground.queen_room[1]
+            self.state[pick] = cfg.STATE_ATTENDANT_AT_QUEEN
+            self.dwell_ticks[pick] = np.random.randint(
+                cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1
+            )
 
     # ------------------------------------------------------------------
     def _wrap_indices(self, arr):

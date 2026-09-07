@@ -63,7 +63,17 @@ class EnemyManager:
                 return  # tắt chế độ tự sinh - không đếm ngược, không xuất hiện
             self.spawn_cooldown -= 1
             if self.spawn_cooldown <= 0:
-                self._spawn()
+                # KHÔNG xuất hiện khi BẤT KỲ tổ nào còn đang lập tổ HOẶC
+                # chưa đạt dân số an toàn tối thiểu (xem
+                # cfg.ENEMY_MIN_COLONY_POPULATION) - tổ CÒN NON hoàn toàn
+                # không có khả năng tự vệ hay chịu nổi thương vong. CHỈ
+                # ĐÓNG BĂNG bộ đếm ngược ở mức 1 (thử lại đúng 1 tick sau)
+                # thay vì reset hẳn cả 1 chu kỳ mới, kẻo chờ quá lâu ngay
+                # sau khi tổ vừa đạt ngưỡng an toàn.
+                if any(self._colony_too_fragile(c) for c in colonies):
+                    self.spawn_cooldown = 1
+                else:
+                    self._spawn()
             return
 
         self.life_left -= 1
@@ -75,6 +85,15 @@ class EnemyManager:
         self._try_kill(colonies)
 
     # ------------------------------------------------------------------
+    def _colony_too_fragile(self, colony):
+        """True nếu tổ này còn đang lập tổ HOẶC chưa đạt dân số an toàn
+        tối thiểu (cfg.ENEMY_MIN_COLONY_POPULATION) - kẻ thù tự nhiên sẽ
+        KHÔNG xuất hiện khi có bất kỳ tổ nào còn ở trạng thái này (xem
+        update())."""
+        if getattr(colony, "founding_phase", False):
+            return True
+        return int(np.sum(colony.alive)) < cfg.ENEMY_MIN_COLONY_POPULATION
+
     def _spawn(self):
         self.active = True
         self.x = float(np.random.uniform(4, cfg.GRID_SIZE - 4))
@@ -205,8 +224,19 @@ class EnemyManager:
             )
             rolls = np.random.uniform(0, 1, len(near))
             killed = near[rolls < kill_prob]
-            if len(killed) > remaining_quota:
-                killed = killed[:remaining_quota]
+            # Giới hạn THEO ĐÚNG QUY MÔ ĐÀN của tổ này, KHÔNG CHỈ theo
+            # ENEMY_MAX_KILLS_PER_VISIT cố định - nếu không, 1 lần ghé
+            # thăm DUY NHẤT của 1 kẻ thù có thể giết tới 5 con bất kể tổ
+            # đó có 100 hay chỉ 6 con, xóa sổ gần hết 1 đàn CÒN NON YẾU chỉ
+            # trong 1 sự kiện (đây từng là nguyên nhân chính khiến tổ mới
+            # lập rất khó sống sót). Tổ càng nhỏ, mức trần càng thấp - tối
+            # thiểu vẫn là 1 (không loại trừ hẳn rủi ro, chỉ giảm mức độ
+            # thảm khốc của 1 lần chạm trán).
+            population = int(np.sum(colony.alive))
+            pop_cap = max(1, population // 4)
+            local_quota = min(remaining_quota, pop_cap)
+            if len(killed) > local_quota:
+                killed = killed[:local_quota]
             if len(killed) > 0:
                 colony.alive[killed] = False
                 colony.underground.total_deaths += len(killed)

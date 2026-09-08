@@ -57,18 +57,54 @@ TURN_NOISE = 0.6             # độ nhiễu góc quay mỗi tick (radian) khi
                              # KHÔNG dùng cho việc tìm đường trên mặt đất
                              # (xem PATH_* bên dưới, dùng pathfinding.py thật)
 
+MAX_TURN_RATE_PER_TICK = 0.35  # (radian) góc quay đầu TỐI ĐA mỗi tick khi
+                             # đang bám đường đi thật (_follow_paths/
+                             # _move_towards_2d) - trước đây kiến BẺ ĐẦU
+                             # TỨC THỜI (arctan2 thẳng) mỗi khi đổi waypoint,
+                             # trông "dán mắt" máy móc; giờ đầu xoay DẦN về
+                             # hướng mới (khoảng 0.15s để quay 180 độ ở 60
+                             # FPS x1), giống côn trùng thật xoay thân trước
+                             # khi đổi hướng thay vì bật ngay lập tức.
+
+# ----- Hành vi "dò đường bằng râu" (antenna tapping) - kiến thật khi bò
+# hay dừng khựng lại vài trăm mili-giây, ngoáy đầu/râu dò xét trước khi đi
+# tiếp, KHÔNG đi liên tục đều đều như robot. Chỉ áp dụng cho kiến đang tự
+# do khám phá/quay về (KHÔNG áp dụng cho lính gác lao lên nghênh chiến hay
+# thợ khiêng mồi lớn - những tình huống cần phản ứng ngay, xem các lời gọi
+# _follow_paths(..., allow_pause=...) trong ants.py). -----
+ANTENNA_PAUSE_PROB = 0.004    # xác suất BẮT ĐẦU 1 lần dừng mỗi tick đang đi
+                             # (kiến thật) - trung bình ~4-5 giây/lần ở 60 FPS
+ANTENNA_PAUSE_MIN_TICKS = 8   # (~0.13s ở 60 FPS)
+ANTENNA_PAUSE_MAX_TICKS = 24  # (~0.4s ở 60 FPS)
+ANTENNA_TAP_JITTER = 0.18    # (radian) đầu lắc nhẹ ngẫu nhiên mỗi tick
+                             # trong lúc đang dừng dò đường
+
 # ----- Animation - trước đây kiến chỉ là 3 hình tròn TRƯỢT cứng theo vị
 # trí (chỉ xoay hướng qua get_rotated, không có dáng đi/phản hồi hành động
 # nào) - xem render_surface.py draw_ants()/_leg_wiggle_offsets() để biết
 # cách dùng các hằng số dưới đây. -----
-ANT_LEG_ANIM_SPEED = 0.9     # tốc độ dao động chân/thân khi vẽ dáng đi
-                             # (nhân với frame_counter - xem draw_ants) -
-                             # KHÔNG phụ thuộc tốc độ di chuyển thật của
-                             # từng con (đơn giản hóa: coi như "bước chân
-                             # đều", không tính vận tốc tức thời)
+ANT_LEG_ANIM_SPEED = 0.9     # (chỉ còn dùng làm HỆ SỐ NHÂN THÊM cho pha
+                             # chân - xem ANIM_PHASE_DISTANCE_SCALE bên
+                             # dưới; bản thân chân giờ đã gắn với quãng
+                             # đường DI CHUYỂN THẬT của từng con, không còn
+                             # chạy vô điều kiện theo frame_counter toàn cục
+                             # nữa - kiến đứng yên thì chân cũng đứng yên)
+ANIM_PHASE_DISTANCE_SCALE = 10.0  # số radian pha đi/chân tăng thêm mỗi 1
+                             # ô khoảng cách DI CHUYỂN THẬT trong 1 tick
+                             # (xem AntColony.anim_phase/InvasionManager.
+                             # anim_phase, cập nhật cuối update()) - quy đổi
+                             # quãng đường thành nhịp bước chân, để bước
+                             # chân nhanh/chậm ĐÚNG theo tốc độ thật đang đi
+                             # (kiến lính gác lao nhanh thì bước chân cũng
+                             # nhanh hơn kiến đi thường, không còn "phi
+                             # nhanh mà chân lướt như trượt băng" nữa)
 ANT_LEG_MIN_RADIUS_PX = 1.8  # chỉ vẽ chân khi kiến đủ to trên màn hình
                              # (zoom đủ gần) - xa hơn thì chân chỉ còn 1
                              # chấm vô nghĩa, bỏ qua để đỡ tốn vẽ
+ANT_ANTENNA_WIGGLE_SPEED = 0.22  # tốc độ ngoe nguẩy ĐỘC LẬP của râu (không
+                             # phụ thuộc bước chân) - râu kiến thật luôn
+                             # động đậy dò xét ngay cả khi đứng yên hẳn
+ANT_ANTENNA_WIGGLE_AMOUNT = 0.35  # (radian) biên độ ngoe nguẩy của râu
 
 BOUNCE_DURATION_TICKS = 14   # độ dài hiệu ứng "nảy lên" khi nhặt/giao đồ
                              # (thức ăn, nước, xác, mồi lớn) - xem các chỗ

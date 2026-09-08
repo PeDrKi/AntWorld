@@ -19,6 +19,17 @@ from . import config as cfg
 from . import pathfinding
 
 
+def _turn_limited(current, target, max_delta):
+    """Trả về góc mới sau khi xoay từ `current` về `target`, nhưng KHÔNG
+    xoay quá `max_delta` radian trong lần gọi này (dùng mỗi tick) - mô
+    phỏng việc côn trùng thật XOAY THÂN DẦN trước khi đổi hướng, thay vì
+    bật thẳng sang hướng mới ngay lập tức (arctan2 trực tiếp) như trước.
+    Vector hóa (numpy), xử lý đúng vòng lặp góc (wrap quanh ±pi)."""
+    diff = (target - current + np.pi) % (2 * np.pi) - np.pi
+    diff = np.clip(diff, -max_delta, max_delta)
+    return current + diff
+
+
 class AntColony:
     def __init__(self, n_start, max_ants, surface, underground, nest_pos=None, founding=False):
         self.n = max_ants   # tổng SỐ CHỖ cấp phát sẵn trong mảng = trần dân số
@@ -93,6 +104,17 @@ class AntColony:
         # phỏng/logic, chỉ đọc bởi render_surface.py để vẽ hiệu ứng. ---
         self.bounce_ticks = np.zeros(self.n, dtype=np.int16)         # nảy lên khi nhặt/giao đồ
         self.combat_flash_ticks = np.zeros(self.n, dtype=np.int16)   # nhấp nháy/rung khi giao chiến
+        # "Dừng dò đường bằng râu" (antenna tapping) - xem cfg.ANTENNA_PAUSE_*
+        # + _follow_paths(allow_pause=True): số tick còn lại đang đứng khựng
+        # lại (không tịnh tiến) để "ngoáy đầu" trước khi đi tiếp.
+        self.pause_ticks = np.zeros(self.n, dtype=np.int16)
+        # Pha bước chân/animation (radian), TĂNG THEO QUÃNG ĐƯỜNG DI CHUYỂN
+        # THẬT mỗi tick (xem cuối update()) - KHÔNG chạy theo frame_counter
+        # toàn cục vô điều kiện như animation cũ, nên kiến đứng yên (đang
+        # dừng dò đường, đang xếp hàng chờ...) thì chân/sprite đi bộ cũng
+        # đứng yên theo, còn kiến đang lao nhanh (lính gác) thì bước chân
+        # cũng nhanh hơn tương ứng - xem render_surface.draw_ants().
+        self.anim_phase = np.zeros(self.n, dtype=np.float32)
 
         # --- Tìm đường trên mặt đất (pathfinding.py): mỗi kiến giữ sẵn 1
         # "hàng đợi" điểm rẽ hướng (waypoint) của đường đi any-angle NGẮN
@@ -212,7 +234,14 @@ class AntColony:
         self.avoid_cooldown = np.maximum(0, self.avoid_cooldown - 1).astype(np.int16)
         self.bounce_ticks = np.maximum(0, self.bounce_ticks - 1).astype(np.int16)
         self.combat_flash_ticks = np.maximum(0, self.combat_flash_ticks - 1).astype(np.int16)
+        self.pause_ticks = np.maximum(0, self.pause_ticks - 1).astype(np.int16)
         self._path_budget = cfg.PATH_REPLAN_BUDGET_PER_TICK
+        # Chụp lại vị trí ĐẦU tick để cuối tick tính quãng đường DI CHUYỂN
+        # THẬT của từng con (xem cfg.ANIM_PHASE_DISTANCE_SCALE) - dùng để
+        # cập nhật pha bước chân/animation đúng theo tốc độ thật, thay vì
+        # chạy vô điều kiện theo thời gian như animation cũ.
+        prev_x = self.x.copy()
+        prev_y = self.y.copy()
         if self.trophallaxis_events:
             cutoff = self.tick_count - cfg.TROPHALLAXIS_TTL_TICKS
             self.trophallaxis_events = [e for e in self.trophallaxis_events if e[4] > cutoff]
@@ -252,6 +281,15 @@ class AntColony:
         # đã chuyển sang main.py để có thể bật/tắt bằng nút trên thanh công
         # cụ, và để tránh 2 tổ (chính + đối thủ) cùng kích hoạt trùng lặp
         # khi cả 2 đều gọi update() mỗi khung hình.
+
+        # Cập nhật pha bước chân/animation THEO QUÃNG ĐƯỜNG DI CHUYỂN THẬT
+        # trong tick này (xem giải thích ở đầu update() + cfg.ANIM_PHASE_
+        # DISTANCE_SCALE) - con nào không nhúc nhích (đứng yên/đang dừng dò
+        # đường) thì pha không đổi, chân/sprite đi bộ đứng yên theo.
+        moved_dist = np.hypot(self.x - prev_x, self.y - prev_y)
+        self.anim_phase = (
+            self.anim_phase + moved_dist * cfg.ANIM_PHASE_DISTANCE_SCALE
+        ).astype(np.float32) % (2 * np.pi)
 
     def _rebalance_labor(self):
         """AN TOÀN phân công lại lao động khi đàn THIẾU HẲN 1 vai trò
@@ -353,12 +391,41 @@ class AntColony:
         self.path_idx[i] = 0
         return True
 
-    def _follow_paths(self, idx, speed):
+    def _follow_paths(self, idx, speed, allow_pause=False):
         """Di chuyển hàng loạt (vector hóa) các kiến trong idx theo waypoint
         HIỆN TẠI của đường đi đã tính sẵn - khi tới đủ gần 1 waypoint thì tự
         chuyển sang waypoint kế tiếp; tới waypoint CUỐI (đích) thì xóa path
         (path_len=0) để nơi gọi hàm này biết mà xử lý tiếp (nhặt đồ, xuống
-        hầm, chọn điểm khám phá mới...)."""
+        hầm, chọn điểm khám phá mới...).
+
+        `allow_pause=True`: bật hành vi "dừng dò đường bằng râu" (xem
+        cfg.ANTENNA_PAUSE_*) - CHỈ dùng cho kiến đang tự do khám
+        phá/quay về, KHÔNG dùng cho lính gác lao lên nghênh chiến hay thợ
+        khiêng mồi lớn (cần phản ứng ngay, không được khựng lại giữa
+        chừng)."""
+        if allow_pause:
+            paused_mask = self.pause_ticks[idx] > 0
+            if np.any(paused_mask):
+                pidx = idx[paused_mask]
+                # Đứng khựng lại: KHÔNG tịnh tiến, chỉ lắc đầu nhẹ ngẫu
+                # nhiên mỗi tick như đang "ngoáy râu" dò xét xung quanh.
+                self.theta[pidx] += np.random.uniform(
+                    -cfg.ANTENNA_TAP_JITTER, cfg.ANTENNA_TAP_JITTER, len(pidx)
+                ).astype(np.float32)
+            moving_idx = idx[~paused_mask]
+            if len(moving_idx) > 0:
+                roll = np.random.random(len(moving_idx)) < cfg.ANTENNA_PAUSE_PROB
+                if np.any(roll):
+                    newly = moving_idx[roll]
+                    self.pause_ticks[newly] = np.random.randint(
+                        cfg.ANTENNA_PAUSE_MIN_TICKS,
+                        cfg.ANTENNA_PAUSE_MAX_TICKS + 1,
+                        size=len(newly),
+                    ).astype(np.int16)
+            idx = moving_idx
+            if len(idx) == 0:
+                return
+
         cur_wp = self.path_idx[idx].astype(np.int64)
         tx = self.path_x[idx, cur_wp]
         ty = self.path_y[idx, cur_wp]
@@ -371,7 +438,10 @@ class AntColony:
         self.y[idx] = y + dy / safe_dist * step
         moved = dist > 1e-6
         if np.any(moved):
-            self.theta[idx[moved]] = np.arctan2(dy[moved], dx[moved])
+            target_theta = np.arctan2(dy[moved], dx[moved])
+            self.theta[idx[moved]] = _turn_limited(
+                self.theta[idx[moved]], target_theta, cfg.MAX_TURN_RATE_PER_TICK
+            )
 
         reached = dist < cfg.WAYPOINT_ARRIVE_THRESHOLD
         if np.any(reached):
@@ -533,7 +603,7 @@ class AntColony:
         active = idx[self.path_len[idx] > 0]
         if len(active) == 0:
             return
-        self._follow_paths(active, cfg.ANT_SPEED)
+        self._follow_paths(active, cfg.ANT_SPEED, allow_pause=True)
 
         xi = self._wrap_indices(self.x[active])
         yi = self._wrap_indices(self.y[active])
@@ -595,7 +665,7 @@ class AntColony:
         active = idx[self.path_len[idx] > 0]
         if len(active) == 0:
             return
-        self._follow_paths(active, cfg.ANT_SPEED)
+        self._follow_paths(active, cfg.ANT_SPEED, allow_pause=True)
 
         # Để lại vệt mùi pheromone dọc đường - dùng để VẼ trực quan
         # (render_surface.py) VÀ để TUYỂN MỘ các kiến khác đang tìm ăn
@@ -683,7 +753,8 @@ class AntColony:
         step = np.minimum(speed, dist)  # không đi vượt quá đích trong 1 tick
         self.x[idx] = x + dx / safe_dist * step
         self.y[idx] = y + dy / safe_dist * step
-        self.theta[idx] = np.arctan2(dy, dx)
+        target_theta = np.arctan2(dy, dx)
+        self.theta[idx] = _turn_limited(self.theta[idx], target_theta, cfg.MAX_TURN_RATE_PER_TICK)
         return dist
 
     def _update_underground_ants(self):

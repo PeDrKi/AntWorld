@@ -368,3 +368,33 @@ Bộ test tự set `SDL_VIDEODRIVER=dummy` (qua `tests/__init__.py`) nên
 chạy được cả trên máy không có màn hình (SSH, CI...), không cần mở cửa
 sổ game thật.
 
+## Hành vi kiến "thật" hơn - chuyển động + animation
+
+Trước đây kiến bẻ hướng TỨC THỜI mỗi khi đổi waypoint (trông "dán mắt"
+máy móc), chân/râu (khi vẽ vector) chạy animation VÔ ĐIỀU KIỆN theo thời
+gian dù kiến có đang đứng yên hay không, và ảnh sprite tùy chỉnh (nếu có)
+chỉ là 1 khung tĩnh xoay cứng theo hướng. Đã cải thiện cả 3 mặt:
+
+- **Xoay đầu mượt dần** (`MAX_TURN_RATE_PER_TICK` trong `config.py`):
+  kiến giờ xoay thân DẦN về hướng mới (~0.15s để quay 180° ở 60 FPS x1)
+  thay vì bật thẳng góc mới ngay lập tức.
+- **Dừng dò đường bằng râu** (`ANTENNA_PAUSE_*`): kiến đang tự do khám
+  phá/mang mồi về thỉnh thoảng khựng lại vài trăm mili-giây, lắc đầu nhẹ
+  ngẫu nhiên rồi đi tiếp - giống hành vi thật, KHÔNG áp dụng cho lính gác
+  lao lên nghênh chiến hay thợ khiêng mồi lớn (vẫn phản ứng ngay).
+- **Pha bước chân/animation gắn với quãng đường di chuyển THẬT**
+  (`AntColony.anim_phase`/`InvasionManager.anim_phase`, xem
+  `ANIM_PHASE_DISTANCE_SCALE`): kiến đứng yên thì chân/khung sprite cũng
+  đứng yên; kiến di chuyển càng nhanh (vd. lính gác lao lên) thì bước
+  chân càng nhanh tương ứng - không còn "chân lướt như trượt băng" hay
+  "đi tại chỗ" khi đứng im.
+- **Chân có khớp gối** (2 đoạn: đùi + ống chân, chỉ áp dụng khi vẽ vector
+  - tức lúc KHÔNG có ảnh sprite tùy chỉnh) thay vì 1 đường thẳng cứng, và
+  **râu ngoe nguẩy độc lập** với bước chân (luôn động đậy kể cả lúc đứng
+  yên hẳn).
+- **Ảnh sprite hỗ trợ bộ khung đi bộ (walk cycle) tùy chọn**: đặt thêm
+  các file `..._walk0.png .. _walk3.png` (xem quy ước đầy đủ trong
+  docstring `sprite_manager.py`) để kiến có dáng đi bộ thật thay vì 1
+  khung tĩnh xoay cứng - game tự chọn đúng khung theo pha bước chân thật
+  ở trên. Đã có sẵn bộ khung này cho `ant_worker_main(_carry)` và
+  `ant_invader(_carry)` trong `assets/sprites/`.

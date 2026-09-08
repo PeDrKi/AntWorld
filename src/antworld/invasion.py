@@ -56,6 +56,11 @@ class InvasionManager:
         self.is_guard = np.zeros(n, dtype=bool)
         self.job = np.zeros(n, dtype=np.int8)
         self.is_nanitic = np.zeros(n, dtype=bool)
+        # Pha bước chân/animation - cùng cơ chế với AntColony.anim_phase
+        # (tăng theo quãng đường DI CHUYỂN THẬT mỗi tick, xem update() bên
+        # dưới), để quân xâm lược cũng có dáng đi/sprite đúng nhịp thay vì
+        # chạy vô điều kiện theo frame_counter toàn cục.
+        self.anim_phase = np.zeros(n, dtype=np.float32)
 
         self.active = False          # đang có đợt nào diễn ra không (để HUD/toast biết)
         self.auto_spawn_enabled = True  # BẬT/TẮT bằng nút trên thanh công cụ
@@ -112,6 +117,9 @@ class InvasionManager:
                 self._spawn_wave(colony)
             return
 
+        prev_x = self.x.copy()
+        prev_y = self.y.copy()
+
         self._update_approach(colony)
         self._update_fight_entrance(colony)
         self._update_descend(colony)
@@ -119,6 +127,13 @@ class InvasionManager:
         self._update_raid_brood(colony)
         self._update_retreat_ug(colony)
         self._update_retreat_surface(colony)
+
+        # Xem giải thích cơ chế trong AntColony.update() - pha bước chân
+        # gắn với quãng đường DI CHUYỂN THẬT trong tick này.
+        moved_dist = np.hypot(self.x - prev_x, self.y - prev_y)
+        self.anim_phase = (
+            self.anim_phase + moved_dist * cfg.ANIM_PHASE_DISTANCE_SCALE
+        ).astype(np.float32) % (2 * np.pi)
 
         if not np.any(self.alive):
             self.active = False

@@ -511,6 +511,14 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     # cfg.BOUNCE_DURATION_TICKS + các chỗ gán bounce_ticks trong ants.py) -
     # chỉ AntColony có mảng này (InvasionManager không tha đồ về tổ theo
     # kiểu này), getattr AN TOÀN để hàm dùng chung cho cả 2 loại. ---
+    # Pha bước chân/animation THẬT (xem AntColony.anim_phase/InvasionManager.
+    # anim_phase - tăng theo quãng đường di chuyển thật, không còn chạy vô
+    # điều kiện theo frame_counter toàn cục) - getattr AN TOÀN để hàm này
+    # vẫn hoạt động nếu 1 loại colony_obj nào đó (tương lai) chưa có mảng
+    # này, rơi về hành vi animation cũ (theo frame_counter) trong trường
+    # hợp đó.
+    anim_phase_arr = getattr(colony_obj, "anim_phase", None)
+
     bounce_arr = getattr(colony_obj, "bounce_ticks", None)
     if bounce_arr is not None:
         bticks = bounce_arr[idx].astype(np.float32)
@@ -594,11 +602,30 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         # phần vẽ vector thân/đầu/râu bên dưới - mọi lớp phủ khác (huy
         # hiệu, vòng sáng, mồi tha) vẫn vẽ đè lên như cũ dù dùng sprite hay
         # vector, để không mất chức năng nào khi chuyển sang ảnh tùy chỉnh.
+        # Pha bước chân của CHÍNH con kiến này - lệch thêm 1 chút theo
+        # index (int(idx[i]) % 17) * 0.9 để nhiều con đứng gần nhau không
+        # bước chân ĐỒNG BỘ tăm tắp (trông giả tạo/diễu binh) dù cùng tốc
+        # độ di chuyển; rơi về frame_counter cũ nếu colony_obj không có
+        # anim_phase (an toàn phòng hờ, xem getattr ở trên).
+        if anim_phase_arr is not None:
+            leg_phase = float(anim_phase_arr[idx[i]]) + (int(idx[i]) % 17) * 0.9
+        else:
+            leg_phase = state.frame_counter * cfg.ANT_LEG_ANIM_SPEED + (int(idx[i]) % 17) * 0.9
+
         sprite_img = None
         if sprite_prefix is not None:
             sname = sprite_prefix + ("_carry.png" if carrying[i] else ".png")
-            if state.sprites.has(sname):
-                size_px = max(4, int(r * 3.6))
+            walk_base = sprite_prefix + ("_carry" if carrying[i] else "")
+            size_px = max(4, int(r * 3.6))
+            n_frames = state.sprites.walk_frame_count(walk_base)
+            if n_frames > 0:
+                # Ảnh sprite CÓ bộ khung đi bộ (walk cycle) - chọn đúng
+                # khung theo pha bước chân thật, giống hệt cách vector vẽ
+                # chân xoay vòng bên dưới, để 2 chế độ vẽ (sprite/vector)
+                # đồng bộ cảm giác nhịp bước dù dùng ảnh hay không.
+                frame_idx = int((leg_phase / (2 * math.pi)) * n_frames) % n_frames
+                sprite_img = state.sprites.get_rotated_frame(walk_base, frame_idx, size_px, th)
+            elif state.sprites.has(sname):
                 sprite_img = state.sprites.get_rotated(sname, size_px, th)
 
         if sprite_img is not None:
@@ -622,27 +649,48 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             # nghĩa lúc zoom xa, cũng tránh tốn vẽ không cần thiết. Trước
             # đây kiến hoàn toàn không có chân, chỉ trượt vị trí cứng nhắc.
             if r >= cfg.ANT_LEG_MIN_RADIUS_PX:
-                phase = state.frame_counter * cfg.ANT_LEG_ANIM_SPEED + (int(idx[i]) % 17) * 0.9
                 leg_len = head_r * 1.35
+                knee_bend = leg_len * 0.32  # độ "gập" ra ngoài ở khớp gối
                 for k, along in enumerate((-0.5, 0.0, 0.45)):
                     base_x = sx + dirx * r * along
                     base_y = sy + diry * r * along
-                    swing = math.sin(phase + k * math.pi) * leg_len * 0.55
+                    swing = math.sin(leg_phase + k * math.pi) * leg_len * 0.55
                     for side in (-1, 1):
                         s = swing if side > 0 else -swing
                         tip_x = base_x + perp_x * leg_len * side + dirx * s
                         tip_y = base_y + perp_y * leg_len * side + diry * s
-                        pygame.draw.line(surf, head_color, (int(base_x), int(base_y)), (int(tip_x), int(tip_y)), 1)
+                        # --- Khớp "gối" (2 đoạn: đùi + ống chân) thay vì 1
+                        # đường thẳng đơ - điểm giữa được đẩy lệch thêm ra
+                        # phía trước/sau theo pha bước (chân đang vung tới
+                        # thì gối gập về sau và ngược lại), giống dáng chân
+                        # hexapod thật gập góc rõ ràng khi bước, không còn
+                        # trông như 1 que cứng xoay quanh thân.
+                        knee_fwd = math.sin(leg_phase + k * math.pi) * knee_bend
+                        knee_x = base_x + perp_x * leg_len * side * 0.55 + dirx * knee_fwd
+                        knee_y = base_y + perp_y * leg_len * side * 0.55 + diry * knee_fwd
+                        pygame.draw.line(surf, head_color, (int(base_x), int(base_y)), (int(knee_x), int(knee_y)), 1)
+                        pygame.draw.line(surf, head_color, (int(knee_x), int(knee_y)), (int(tip_x), int(tip_y)), 1)
 
             pygame.draw.circle(surf, color, (int(abd_x), int(abd_y)), abdomen_r)
             pygame.draw.circle(surf, color, (int(sx), int(sy)), thorax_r)
             pygame.draw.circle(surf, head_color, (int(hd_x), int(hd_y)), head_r)
 
             if r >= 2.6:  # đủ to (zoom gần) mới vẽ thêm râu, tránh rối ở xa
+                # Râu ngoe nguẩy ĐỘC LẬP với bước chân (kiến thật luôn động
+                # đậy râu dò xét môi trường ngay cả khi đứng yên hẳn) - mỗi
+                # bên lệch pha nhau + lệch riêng theo idx để không phải mọi
+                # con cùng ngoe nguẩy y hệt nhau cùng lúc.
                 ant_len = head_r * 0.9
-                for side in (-1, 1):
-                    ax = hd_x + dirx * ant_len + perp_x * head_r * 0.5 * side
-                    ay = hd_y + diry * ant_len + perp_y * head_r * 0.5 * side
+                wiggle_base = state.frame_counter * cfg.ANT_ANTENNA_WIGGLE_SPEED + (int(idx[i]) % 13) * 1.7
+                for side_k, side in enumerate((-1, 1)):
+                    wiggle = math.sin(wiggle_base + side_k * math.pi * 0.7) * cfg.ANT_ANTENNA_WIGGLE_AMOUNT
+                    # Xoay nhẹ vector hướng (dirx,diry) 1 góc `wiggle` quanh
+                    # đầu kiến - phép quay 2D chuẩn - rồi lệch thêm ra ngoài
+                    # (perp * side) như cũ để 2 râu tách sang 2 bên đầu.
+                    rot_x = dirx * math.cos(wiggle) - diry * math.sin(wiggle)
+                    rot_y = dirx * math.sin(wiggle) + diry * math.cos(wiggle)
+                    ax = hd_x + rot_x * ant_len + perp_x * head_r * 0.5 * side
+                    ay = hd_y + rot_y * ant_len + perp_y * head_r * 0.5 * side
                     pygame.draw.line(surf, head_color, (int(hd_x), int(hd_y)), (int(ax), int(ay)), 1)
 
         if is_guard[i]:  # lính gác: 1 chấm sáng nhỏ trên bụng để phân biệt

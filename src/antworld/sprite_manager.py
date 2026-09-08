@@ -31,9 +31,26 @@ QUY ƯỚC TÊN FILE (đặt trong assets/sprites/, đuôi .png, nền trong su�
 Ảnh kiến (ant_worker_*) và kẻ thù (enemy.png) sẽ được TỰ ĐỘNG XOAY theo
 đúng hướng di chuyển thật của từng con (vẽ ảnh gốc quay đầu sang PHẢI,
 code sẽ tự xoay góc còn lại) - không cần bạn tự vẽ nhiều hướng khác nhau.
+
+BỘ KHUNG ĐI BỘ (walk cycle) - TÙY CHỌN, chỉ dành cho ant_worker_main(_carry)
+và ant_invader(_carry): nếu muốn kiến có dáng đi bộ THẬT (chân/thân đổi tư
+thế theo từng bước) thay vì 1 khung tĩnh xoay cứng, đặt thêm các file:
+    <tên gốc không có .png>_walk0.png, _walk1.png, _walk2.png, _walk3.png
+Ví dụ: ant_worker_main_walk0.png .. ant_worker_main_walk3.png (4 khung,
+cùng kích thước, cùng quy ước "đầu quay sang PHẢI" như ảnh tĩnh). Có bao
+nhiêu khung dùng bấy nhiêu (không bắt buộc đúng 4) - game tự dò xem có
+bao nhiêu khung liên tiếp bắt đầu từ _walk0 rồi chọn đúng khung theo pha
+bước chân thật (xem ANT_WALK_MAX_FRAMES bên dưới, AntColony.anim_phase).
+Không đặt file nào theo quy ước này thì game vẫn dùng ảnh tĩnh xoay như
+trước - HOÀN TOÀN TÙY CHỌN, không có gì bị hỏng nếu bỏ qua.
 """
 import os
 import pygame
+
+# Số khung TỐI ĐA sẽ dò tìm cho 1 bộ walk cycle (xem has_walk_frames() +
+# walk_frame_count() bên dưới) - chặn trên hợp lý, tránh dò vô hạn nếu
+# người chơi lỡ đặt tên file nhầm quy ước.
+ANT_WALK_MAX_FRAMES = 8
 
 # Số bước góc xoay được CACHE SẴN cho mỗi ảnh kiến (24 bước = mỗi bước 15°)
 # - xoay pygame khá tốn, cache theo bước rời rạc thay vì xoay lại mỗi khung
@@ -65,6 +82,31 @@ class SpriteManager:
     def has(self, filename):
         """Có ảnh sẵn sàng dùng cho tên file này không (đã tồn tại + đọc được)."""
         return self._load_raw(filename) is not None
+
+    def walk_frame_count(self, base_name):
+        """Số khung đi bộ LIÊN TIẾP tìm thấy cho `base_name` (ví dụ
+        "ant_worker_main" hoặc "ant_worker_main_carry"), bắt đầu từ
+        `{base_name}_walk0.png` - trả về 0 nếu không có khung nào (game sẽ
+        tự rơi về ảnh tĩnh xoay cứng qua get_rotated() như trước, xem
+        docstring module ở đầu file). Có cache riêng để không phải quét
+        đĩa lại mỗi khung hình."""
+        key = "_walk_count::" + base_name
+        cached = self._render_cache.get(key)
+        if cached is not None:
+            return cached
+        count = 0
+        for i in range(ANT_WALK_MAX_FRAMES):
+            if not self.has(f"{base_name}_walk{i}.png"):
+                break
+            count += 1
+        self._render_cache[key] = count
+        return count
+
+    def get_rotated_frame(self, base_name, frame_idx, size_px, angle_rad):
+        """Như get_rotated(), nhưng đọc đúng khung `frame_idx` của bộ walk
+        cycle `{base_name}_walk{frame_idx}.png` thay vì 1 ảnh tĩnh duy
+        nhất - dùng khi walk_frame_count(base_name) > 0."""
+        return self.get_rotated(f"{base_name}_walk{frame_idx}.png", size_px, angle_rad)
 
     def get_static(self, filename, size_px):
         """Ảnh KHÔNG xoay (thức ăn/đá/nước/trứng/ấu trùng/nhộng/chúa), đã co

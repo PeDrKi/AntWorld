@@ -398,3 +398,27 @@ chỉ là 1 khung tĩnh xoay cứng theo hướng. Đã cải thiện cả 3 m�
   khung tĩnh xoay cứng - game tự chọn đúng khung theo pha bước chân thật
   ở trên. Đã có sẵn bộ khung này cho `ant_worker_main(_carry)` và
   `ant_invader(_carry)` trong `assets/sprites/`.
+
+## Hành động/thao tác thực tế hơn (ngoài chuyển động)
+
+- **Lính gác chạm râu kiểm tra đồng đội ra vào cửa tổ** (nestmate
+  recognition - `GUARD_INSPECT_*`, `_update_guard_inspections()`): lính
+  đang trực ngẫu nhiên "chạm râu" bất kỳ ai đi ngang trạm gác (quanh giếng
+  lên mặt đất, đúng tầng phòng gác) - hiệu ứng đường nối màu xanh nhạt,
+  phân biệt với mớm mồi (vàng). Thuần túy hình ảnh, không chặn đường ai.
+- **Cắn giữ mồi trước khi tha đi** (`BITE_GRIP_PAUSE_TICKS`): vừa nhặt
+  được mồi, kiến khựng lại một chút (mượn cơ chế "dừng dò đường" có sẵn)
+  kèm animation hàm (mandible) mở-khép, thay vì mồi tự dính lên lưng ngay.
+  Cùng animation áp dụng khi đang gồng giữ mồi lớn chờ đồng đội
+  (`STATE_HAUL_GRIP`).
+- **Chăm sóc lẫn nhau thật sự** (`GROOM_*`, `_update_grooming()`): ngoài
+  hiệu ứng lấp lánh ngẫu nhiên có sẵn giữa các kiến rảnh rỗi đứng gần
+  nhau, giờ có thêm cơ chế TỪNG CẶP cụ thể thực sự ghép đôi chăm sóc nhau
+  trong ~0.8s (có thời lượng, có thời gian nghỉ giữa các lần), vẽ nổi bật
+  hơn hẳn (đường nối xanh lá nhạt).
+- **Hấp hối trước khi chết** (`DYING_DURATION_TICKS`): kiến chết vì
+  già/đói/khát không biến mất/thành xác NGAY LẬP TỨC nữa - đứng khựng lại
+  run rẩy tại chỗ ~0.67s, thân xám dần, rồi mới thực sự chết và đăng ký
+  xác. Chết vì GIAO CHIẾN vẫn tức thời như cũ (đúng thực tế - bị cắn chết
+  là chết ngay).
+

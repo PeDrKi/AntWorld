@@ -57,6 +57,19 @@ TURN_NOISE = 0.6             # độ nhiễu góc quay mỗi tick (radian) khi
                              # KHÔNG dùng cho việc tìm đường trên mặt đất
                              # (xem PATH_* bên dưới, dùng pathfinding.py thật)
 
+DYING_DURATION_TICKS = 40    # (~0.67s ở 60 FPS) kiến già/đói/khát không
+                             # BIẾN MẤT NGAY khi "trúng số" chết - đứng
+                             # khựng lại run rẩy TRONG bấy nhiêu tick rồi
+                             # mới thực sự chết hẳn (thành xác/bị dọn), mô
+                             # phỏng cảnh hấp hối thật thay vì "bụp" 1 cái
+                             # biến mất. CHỈ áp dụng cho chết già/đói/khát
+                             # (_update_lifecycle) - chết vì GIAO CHIẾN vẫn
+                             # tức thời như cũ (đúng thực tế: bị cắn chết
+                             # là chết ngay, không hấp hối).
+DYING_TREMBLE_JITTER = 0.55  # (radian) biên độ run rẩy góc quay ngẫu nhiên
+                             # mỗi tick trong lúc hấp hối (KHÔNG dịch
+                             # chuyển vị trí, chỉ xoay run - xem render)
+
 MAX_TURN_RATE_PER_TICK = 0.35  # (radian) góc quay đầu TỐI ĐA mỗi tick khi
                              # đang bám đường đi thật (_follow_paths/
                              # _move_towards_2d) - trước đây kiến BẺ ĐẦU
@@ -105,6 +118,35 @@ ANT_ANTENNA_WIGGLE_SPEED = 0.22  # tốc độ ngoe nguẩy ĐỘC LẬP của r
                              # phụ thuộc bước chân) - râu kiến thật luôn
                              # động đậy dò xét ngay cả khi đứng yên hẳn
 ANT_ANTENNA_WIGGLE_AMOUNT = 0.35  # (radian) biên độ ngoe nguẩy của râu
+
+# ----- Lính gác "chạm râu" kiểm tra đồng đội ra vào cửa tổ (nestmate
+# recognition) - kiến thật LUÔN chạm râu nhận diện mùi tổ của bất kỳ con
+# nào đi ngang qua trạm gác, không chỉ đứng canh vô tri. Thuần túy HIỆU
+# ỨNG HÌNH ẢNH (không chặn đường/không có "kiến lạ" trong game), xem
+# AntColony._update_guard_inspections(). -----
+GUARD_INSPECT_RADIUS = 1.1     # bán kính (quanh giếng lên mặt đất, ở đúng
+                             # tầng phòng gác) tính là "đi ngang trạm gác"
+GUARD_INSPECT_PROB = 0.05    # xác suất kiểm tra mỗi tick khi hội đủ điều
+                             # kiện (1 lính gác rảnh + 1 con khác ở gần)
+GUARD_INSPECT_COOLDOWN_TICKS = 90   # (~1.5s) 1 con không bị kiểm tra lại
+                             # ngay sau khi vừa được kiểm tra
+GUARD_INSPECT_TTL_TICKS = 18  # hiệu ứng chạm râu hiển thị bao lâu
+
+# ----- Cắn giữ mồi trước khi tha đi - kiến thật CẮN/NGOẠM vào thức ăn để
+# lấy đà và giữ chắc trước khi kéo lê đi, không phải cứ chạm vào là mồi tự
+# dính lên lưng. Áp dụng khi thợ (1 mình) vừa tìm thấy mồi VÀ trong lúc cả
+# nhóm đang gồng giữ con mồi lớn chờ đủ đồng đội (STATE_HAUL_GRIP - xem
+# ants.py/render_surface.py). -----
+BITE_GRIP_PAUSE_TICKS = 14   # (~0.23s) đứng khựng "cắn giữ" mồi tại chỗ
+                             # trước khi thực sự bắt đầu tha đi
+
+# ----- Chăm sóc lẫn nhau (allogrooming) giữa các kiến đang rảnh rỗi dưới
+# hầm (STATE_DWELL) - hành vi xã hội phổ biến thật của loài kiến, không
+# liên quan tới việc cho ăn (khác trophallaxis). Thuần túy hình ảnh. -----
+GROOM_RADIUS = 0.9            # khoảng cách để 2 con rảnh rỗi coi là "đủ gần"
+GROOM_PROB = 0.008            # xác suất bắt đầu mỗi tick khi đủ gần + rảnh
+GROOM_DURATION_TICKS = 50     # (~0.8s) thời lượng 1 lượt chăm sóc
+GROOM_COOLDOWN_TICKS = 200    # (~3.3s) nghỉ trước khi có thể chăm sóc tiếp
 
 BOUNCE_DURATION_TICKS = 14   # độ dài hiệu ứng "nảy lên" khi nhặt/giao đồ
                              # (thức ăn, nước, xác, mồi lớn) - xem các chỗ

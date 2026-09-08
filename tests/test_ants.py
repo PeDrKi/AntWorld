@@ -216,7 +216,18 @@ class TestNecrophoresis(unittest.TestCase):
         colony, victim = self._make_colony_with_idle_nurses_and_victim()
         underground = colony.underground
         colony.update()
-        self.assertFalse(colony.alive[victim], "Kien chua chet - cong thuc xac suat co the da doi")
+        # Kien "trung so" chet gia KHONG chet ngay nua - phai HAP HOI truoc
+        # 1 khoang ngan (xem cfg.DYING_DURATION_TICKS), van con "song" va
+        # CHUA co xac nao duoc dang ky trong luc nay.
+        self.assertTrue(colony.alive[victim], "Kien phai HAP HOI truoc, chua chet ngay lap tuc")
+        self.assertGreater(colony.dying_ticks[victim], 0, "Kien phai dang o trang thai hap hoi (dying_ticks>0)")
+        self.assertEqual(underground.corpse_count, 0.0)
+        self.assertEqual(len(underground.pending_corpses), 0, "Chua duoc dang ky xac trong luc con dang hap hoi")
+
+        for _ in range(cfg.DYING_DURATION_TICKS + 2):
+            colony.update()
+
+        self.assertFalse(colony.alive[victim], "Kien phai chet han sau khi hap hoi xong")
         self.assertEqual(
             underground.corpse_count, 0.0,
             "corpse_count tang NGAY LAP TUC - necrophoresis khong con hoat dong dung",
@@ -229,7 +240,13 @@ class TestNecrophoresis(unittest.TestCase):
         colony.update()
 
         undertaker_seen = False
-        for _ in range(800):
+        # +DYING_DURATION_TICKS: xac gio chi duoc dang ky SAU khi kien hap
+        # hoi xong (xem cfg.DYING_DURATION_TICKS). Da nhan them he so an
+        # toan (thay vi chi +DYING_DURATION_TICKS) vi test nay VON DA hoi
+        # "sat nut" tu truoc (phu thuoc RNG dieu phoi nurse ranh - xem ghi
+        # chu trong _make_colony_with_idle_nurses_and_victim), them dieu
+        # kien hap hoi cang de bien no thanh flaky neu khong du du dia.
+        for _ in range(1600 + cfg.DYING_DURATION_TICKS):
             colony.update()
             in_transit = colony.alive & np.isin(
                 colony.state, [cfg.STATE_UNDERTAKER_TO_CORPSE, cfg.STATE_UNDERTAKER_TO_GRAVEYARD]
@@ -256,7 +273,11 @@ class TestNecrophoresis(unittest.TestCase):
         colony.update()
 
         undertaker_idx = None
-        for _ in range(cfg.UNDERTAKER_CHECK_INTERVAL + 5):
+        # Cua so cho phep gio phai TINH THEM thoi gian hap hoi (xem
+        # cfg.DYING_DURATION_TICKS) - xac chi thuc su duoc dang ky sau khi
+        # kien hap hoi xong, roi moi toi luot UNDERTAKER_CHECK_INTERVAL de
+        # phan cong nurse di khieng.
+        for _ in range(cfg.DYING_DURATION_TICKS + cfg.UNDERTAKER_CHECK_INTERVAL + 5):
             colony.update()
             in_transit = np.where(
                 colony.alive & (colony.state == cfg.STATE_UNDERTAKER_TO_CORPSE)

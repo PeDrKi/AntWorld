@@ -504,6 +504,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     job = colony_obj.job[idx]
     is_nanitic = colony_obj.is_nanitic[idx]
     is_working = colony_obj.state[idx] == cfg.STATE_DWELL
+    is_haul_grip = colony_obj.state[idx] == cfg.STATE_HAUL_GRIP
     sxs = CENTER_X + (xs - camera.cx) * cell
     sys_ = CENTER_Y + (ys - camera.cy) * cell
 
@@ -518,6 +519,14 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
     # này, rơi về hành vi animation cũ (theo frame_counter) trong trường
     # hợp đó.
     anim_phase_arr = getattr(colony_obj, "anim_phase", None)
+
+    # Hấp hối (chết già/đói/khát, xem cfg.DYING_DURATION_TICKS) - CHỈ
+    # AntColony có mảng này. dying_progress: 0.0 (vừa bắt đầu) -> 1.0
+    # (sắp chết hẳn), dùng để thân XÁM DẦN đi trông như đang kiệt sức.
+    dying_arr = getattr(colony_obj, "dying_ticks", None)
+    # Cắn giữ mồi trước khi tha đi / đang gồng giữ con mồi lớn chờ đồng
+    # đội (STATE_HAUL_GRIP) - vẽ thêm animation hàm (mandible) đang ngoạm.
+    bite_arr = getattr(colony_obj, "bite_ticks", None)
 
     bounce_arr = getattr(colony_obj, "bounce_ticks", None)
     if bounce_arr is not None:
@@ -585,6 +594,14 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             flicker = 0.5 + 0.5 * math.sin(state.frame_counter * 0.9 + idx[i])
             mix = fmag * (0.4 + 0.6 * flicker)
             color = tuple(int(c + (255 - c) * mix) for c in color)
+        # Hấp hối vì già/đói/khát (xem cfg.DYING_DURATION_TICKS) - thân
+        # XÁM DẦN theo tiến độ hấp hối, trông như đang kiệt sức trước khi
+        # chết hẳn, thay vì giữ nguyên màu khỏe mạnh tới tận giây cuối.
+        if dying_arr is not None and dying_arr[idx[i]] > 0:
+            dying_progress = 1.0 - float(dying_arr[idx[i]]) / cfg.DYING_DURATION_TICKS
+            gray = 90
+            g_mix = 0.75 * dying_progress
+            color = tuple(int(c + (gray - c) * g_mix) for c in color)
         head_color = tuple(max(0, c - 75) for c in color)
 
         th = float(thetas[i])
@@ -702,6 +719,22 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         elif job[i] == cfg.JOB_ATTENDANT:  # chuyên chăm trứng+chúa: chấm tím
             badge_r = max(1, int(abdomen_r * 0.4))
             pygame.draw.circle(surf, (200, 150, 240), (int(abd_x), int(abd_y)), badge_r)
+
+        # --- Cắn giữ mồi (vừa nhặt xong, xem cfg.BITE_GRIP_PAUSE_TICKS)
+        # hoặc đang GỒNG GIỮ con mồi lớn chờ đồng đội (STATE_HAUL_GRIP) -
+        # vẽ 2 "hàm" nhỏ mở-khép liên tục ở đầu, trông như đang ngoạm chặt
+        # chứ không phải mồi tự dính lên lưng. Vẽ đè lên cả 2 chế độ
+        # sprite/vector (giống huy hiệu) vì đây là hành động, không phải
+        # chi tiết giải phẫu cố định. ---
+        chomping = is_haul_grip[i] or (bite_arr is not None and bite_arr[idx[i]] > 0)
+        if chomping and r >= 2.0:
+            chomp_phase = state.frame_counter * 0.5 + (int(idx[i]) % 11) * 1.3
+            open_amt = (0.5 + 0.5 * math.sin(chomp_phase)) * 0.5  # 0..0.5 rad
+            jaw_len = head_r * 0.8
+            for side in (-1, 1):
+                jx = hd_x + dirx * jaw_len * math.cos(open_amt * side) - diry * jaw_len * math.sin(open_amt * side)
+                jy = hd_y + diry * jaw_len * math.cos(open_amt * side) + dirx * jaw_len * math.sin(open_amt * side)
+                pygame.draw.line(surf, (235, 220, 200), (int(hd_x), int(hd_y)), (int(jx), int(jy)), 1)
 
         # --- Đang LÀM VIỆC (STATE_DWELL - lượn trong phòng): 1 vòng sáng
         # nhấp nháy nhẹ quanh con kiến, để phân biệt rõ ràng với kiến chỉ

@@ -116,6 +116,38 @@ class AntColony:
         # cũng nhanh hơn tương ứng - xem render_surface.draw_ants().
         self.anim_phase = np.zeros(self.n, dtype=np.float32)
 
+        # --- Hấp hối trước khi chết thật (chết già/đói/khát - xem
+        # cfg.DYING_DURATION_TICKS + _update_lifecycle/_finalize_dying) -
+        # KHÔNG áp dụng cho chết vì giao chiến (vẫn tức thời như cũ).
+        # dying_ticks>0: con này đang hấp hối, ĐỨNG YÊN tại đúng vị trí
+        # dying_x/dying_y (chụp lại đúng lúc bắt đầu hấp hối) - layer/depth
+        # cũng chụp lại để lúc chết THẬT vẫn đăng ký xác đúng chỗ dù trong
+        # lúc hấp hối có bị hệ thống khác lỡ đổi layer/depth.
+        self.dying_ticks = np.zeros(self.n, dtype=np.int16)
+        self.dying_x = np.zeros(self.n, dtype=np.float32)
+        self.dying_y = np.zeros(self.n, dtype=np.float32)
+        self.dying_layer = np.zeros(self.n, dtype=np.int8)
+        self.dying_depth = np.zeros(self.n, dtype=np.int16)
+
+        # --- Lính gác chạm râu kiểm tra đồng đội ra vào cửa tổ (nestmate
+        # recognition) - xem cfg.GUARD_INSPECT_*/_update_guard_inspections().
+        # Thuần túy hiệu ứng hình ảnh, giống cơ chế trophallaxis_events.
+        self.inspect_cooldown = np.zeros(self.n, dtype=np.int16)
+        self.inspection_events = []
+
+        # --- Cắn giữ mồi trước khi tha đi (xem cfg.BITE_GRIP_PAUSE_TICKS) -
+        # đếm ngược HIỂN THỊ animation "ngoạm/cắn" ở render_surface.py; việc
+        # ĐỨNG YÊN trong lúc này mượn lại cơ chế pause_ticks có sẵn (xem nơi
+        # gán ở _update_searching_ants).
+        self.bite_ticks = np.zeros(self.n, dtype=np.int16)
+
+        # --- Chăm sóc lẫn nhau (allogrooming) giữa kiến rảnh rỗi dưới hầm -
+        # xem cfg.GROOM_*/_update_grooming(). groom_partner=-1 nghĩa là
+        # không đang chăm sóc ai.
+        self.groom_ticks = np.zeros(self.n, dtype=np.int16)
+        self.groom_partner = np.full(self.n, -1, dtype=np.int32)
+        self.groom_cooldown = np.zeros(self.n, dtype=np.int16)
+
         # --- Tìm đường trên mặt đất (pathfinding.py): mỗi kiến giữ sẵn 1
         # "hàng đợi" điểm rẽ hướng (waypoint) của đường đi any-angle NGẮN
         # NHẤT đang đi theo (tới điểm khám phá ngẫu nhiên nếu đang
@@ -235,7 +267,29 @@ class AntColony:
         self.bounce_ticks = np.maximum(0, self.bounce_ticks - 1).astype(np.int16)
         self.combat_flash_ticks = np.maximum(0, self.combat_flash_ticks - 1).astype(np.int16)
         self.pause_ticks = np.maximum(0, self.pause_ticks - 1).astype(np.int16)
+        self.inspect_cooldown = np.maximum(0, self.inspect_cooldown - 1).astype(np.int16)
+        self.bite_ticks = np.maximum(0, self.bite_ticks - 1).astype(np.int16)
         self._path_budget = cfg.PATH_REPLAN_BUDGET_PER_TICK
+
+        # --- Hoàn tất cái chết THẬT cho những con vừa hấp hối xong (xem
+        # cfg.DYING_DURATION_TICKS/__init__) - phải làm SỚM trong update(),
+        # trước khi các hệ thống khác (giao việc, tuần tra...) coi chúng là
+        # "còn sống bình thường" trong tick này. ---
+        was_dying = self.dying_ticks > 0
+        self.dying_ticks = np.maximum(0, self.dying_ticks - 1).astype(np.int16)
+        newly_dead = np.where(was_dying & (self.dying_ticks == 0))[0]
+        if len(newly_dead) > 0:
+            self.alive[newly_dead] = False
+            self.underground.total_deaths += len(newly_dead)
+            died_ug = newly_dead[self.dying_layer[newly_dead] == cfg.LAYER_UNDERGROUND]
+            died_surface = newly_dead[self.dying_layer[newly_dead] == cfg.LAYER_SURFACE]
+            for i in died_ug.tolist():
+                self.underground.register_corpse(
+                    float(self.dying_x[i]), float(self.dying_y[i]), int(self.dying_depth[i])
+                )
+            if len(died_surface) > 0:
+                self.underground.add_corpse(len(died_surface))
+
         # Chụp lại vị trí ĐẦU tick để cuối tick tính quãng đường DI CHUYỂN
         # THẬT của từng con (xem cfg.ANIM_PHASE_DISTANCE_SCALE) - dùng để
         # cập nhật pha bước chân/animation đúng theo tốc độ thật, thay vì
@@ -245,16 +299,33 @@ class AntColony:
         if self.trophallaxis_events:
             cutoff = self.tick_count - cfg.TROPHALLAXIS_TTL_TICKS
             self.trophallaxis_events = [e for e in self.trophallaxis_events if e[4] > cutoff]
+        if self.inspection_events:
+            cutoff = self.tick_count - cfg.GUARD_INSPECT_TTL_TICKS
+            self.inspection_events = [e for e in self.inspection_events if e[4] > cutoff]
         self._update_surface_ants(enemy)
         self._update_underground_ants()
         self._update_nurses()
         self._update_undertakers()
         self._update_attendants()
         self._update_guards(enemy, invasion)
+        self._update_guard_inspections()
+        self._update_grooming()
         self._update_haulers(enemy)
         self.surface.decay_pheromone()
         self.surface.decay_visit()
         self.surface.decay_food()
+        # Kiến đang HẤP HỐI phải đứng YÊN TUYỆT ĐỐI bất kể các hệ thống ở
+        # trên vừa lỡ di chuyển/gán việc gì cho nó trong tick này - phục
+        # hồi đúng vị trí lúc bắt đầu hấp hối, chỉ cho phép RUN RẨY góc
+        # quay (không tịnh tiến) để trông như đang giãy giụa/kiệt sức chứ
+        # không phải tượng đứng im cứng nhắc.
+        dying_now = np.where(self.dying_ticks > 0)[0]
+        if len(dying_now) > 0:
+            self.x[dying_now] = self.dying_x[dying_now]
+            self.y[dying_now] = self.dying_y[dying_now]
+            self.theta[dying_now] += np.random.uniform(
+                -cfg.DYING_TREMBLE_JITTER, cfg.DYING_TREMBLE_JITTER, len(dying_now)
+            ).astype(np.float32)
         population = int(np.sum(self.alive))
         # Tổ MỞ RỘNG theo dân số (xem UndergroundWorld.update_room_sizes)
         # - trước đây kích thước phòng CỐ ĐỊNH suốt ván, không phản ánh
@@ -624,6 +695,13 @@ class AntColony:
             self.state[got_idx] = cfg.STATE_RETURNING
             self.total_food_collected += len(got_idx)
             self.bounce_ticks[got_idx] = cfg.BOUNCE_DURATION_TICKS
+            # Cắn giữ mồi trước khi tha đi (xem cfg.BITE_GRIP_PAUSE_TICKS):
+            # đứng khựng lại "ngoạm chặt" 1 chút (mượn cơ chế pause_ticks
+            # đã có, sẽ tự lắc đầu nhẹ trong lúc này) trước khi thực sự
+            # bắt đầu kéo đi - bite_ticks riêng chỉ để render vẽ animation
+            # mandible, không ảnh hưởng gì tới việc đứng yên.
+            self.pause_ticks[got_idx] = cfg.BITE_GRIP_PAUSE_TICKS
+            self.bite_ticks[got_idx] = cfg.BITE_GRIP_PAUSE_TICKS
             # Vừa nhặt được mồi -> hủy đường khám phá dở dang, tick sau sẽ
             # tự tính đường mới thẳng về tổ (xem _update_returning_ants)
             self.path_len[got_idx] = 0
@@ -1076,6 +1154,98 @@ class AntColony:
                 self.state[arrived] = cfg.STATE_NURSE_AT_STORAGE
                 self.bounce_ticks[arrived] = cfg.BOUNCE_DURATION_TICKS
 
+    def _update_guard_inspections(self):
+        """Lính gác đang trực (STATE_GUARD_DUTY) CHẠM RÂU kiểm tra bất kỳ
+        đồng đội nào đi ngang qua trạm gác (quanh giếng lên mặt đất, ở
+        đúng tầng phòng gác) - hành vi nhận diện mùi tổ (nestmate
+        recognition) THẬT của loài kiến, không phải đứng canh vô tri.
+        Thuần túy hiệu ứng hình ảnh (self.inspection_events, vẽ giống
+        trophallaxis nhưng màu khác ở render_underground.py) - game không
+        có khái niệm "kiến lạ" nên không chặn đường ai cả."""
+        guards_on_duty = np.where(self.alive & self.is_guard & (self.state == cfg.STATE_GUARD_DUTY))[0]
+        if len(guards_on_duty) == 0:
+            return
+        shaft = self.underground.shaft_xy
+        guard_depth = self.underground.guard_depth
+        # Ứng viên bị kiểm tra: bất kỳ con nào KHÔNG PHẢI lính đang trực,
+        # đang ở đúng tầng phòng gác, còn sống hẳn (không đang hấp hối),
+        # và không vừa được kiểm tra gần đây.
+        passersby = np.where(
+            self.alive
+            & (self.dying_ticks == 0)
+            & (self.depth == guard_depth)
+            & ~(self.is_guard & (self.state == cfg.STATE_GUARD_DUTY))
+            & (self.inspect_cooldown == 0)
+        )[0]
+        if len(passersby) == 0:
+            return
+        dx = self.x[passersby] - shaft[0]
+        dy = self.y[passersby] - shaft[1]
+        near = passersby[(dx * dx + dy * dy) <= cfg.GUARD_INSPECT_RADIUS ** 2]
+        if len(near) == 0:
+            return
+        roll = np.random.random(len(near)) < cfg.GUARD_INSPECT_PROB
+        chosen = near[roll]
+        if len(chosen) == 0:
+            return
+        guard_pick = np.random.choice(guards_on_duty, size=len(chosen))
+        self.inspect_cooldown[chosen] = cfg.GUARD_INSPECT_COOLDOWN_TICKS
+        tick_now = self.tick_count
+        for gi, pi in zip(guard_pick.tolist(), chosen.tolist()):
+            self.inspection_events.append((
+                float(self.x[gi]), float(self.y[gi]),
+                float(self.x[pi]), float(self.y[pi]),
+                tick_now, int(self.depth[pi]),
+            ))
+        if len(self.inspection_events) > 300:
+            self.inspection_events = self.inspection_events[-300:]
+
+    def _update_grooming(self):
+        """Chăm sóc lẫn nhau (allogrooming) giữa các kiến đang RẢNH RỖI
+        dưới hầm (STATE_DWELL) - hành vi xã hội phổ biến thật của loài
+        kiến, KHÁC trophallaxis (không phải cho ăn, chỉ là chải chuốt/làm
+        sạch cho nhau). Thuần túy hiệu ứng hình ảnh - trong lúc chăm sóc,
+        2 con vẫn cứ "lượn" bình thường (không tự đứng yên), render sẽ tự
+        vẽ 1 đường nối ngắn giữa 2 con khi chúng đủ gần."""
+        ending = np.where(self.groom_ticks == 1)[0]
+        if len(ending) > 0:
+            self.groom_cooldown[ending] = cfg.GROOM_COOLDOWN_TICKS
+            self.groom_partner[ending] = -1
+        self.groom_ticks = np.maximum(0, self.groom_ticks - 1).astype(np.int16)
+        self.groom_cooldown = np.maximum(0, self.groom_cooldown - 1).astype(np.int16)
+
+        free = np.where(
+            self.alive & (self.dying_ticks == 0) & (self.state == cfg.STATE_DWELL)
+            & (self.groom_ticks == 0) & (self.groom_cooldown == 0)
+        )[0]
+        if len(free) < 2:
+            return
+        # So khoảng cách từng cặp - O(k^2) với k = số kiến RẢNH RỖI, luôn
+        # rất nhỏ so với tổng đàn (đa số đang làm việc/tuần tra) nên chấp
+        # nhận được, không cần cây không gian (KD-tree) cho việc này.
+        xs, ys, ds = self.x[free], self.y[free], self.depth[free]
+        dx = xs[:, None] - xs[None, :]
+        dy = ys[:, None] - ys[None, :]
+        same_depth = ds[:, None] == ds[None, :]
+        close = same_depth & (dx * dx + dy * dy <= cfg.GROOM_RADIUS ** 2)
+        np.fill_diagonal(close, False)
+        pairs = np.argwhere(close)
+        if len(pairs) == 0:
+            return
+        used = set()
+        for a_local, b_local in pairs:
+            a, b = int(free[a_local]), int(free[b_local])
+            if a in used or b in used:
+                continue
+            if np.random.random() >= cfg.GROOM_PROB:
+                continue
+            used.add(a)
+            used.add(b)
+            self.groom_ticks[a] = cfg.GROOM_DURATION_TICKS
+            self.groom_ticks[b] = cfg.GROOM_DURATION_TICKS
+            self.groom_partner[a] = b
+            self.groom_partner[b] = a
+
     def _update_haulers(self, enemy):
         """Khiêng mồi lớn theo nhóm (cooperative transport) - xem HAUL_*
         trong config.py + EnemyManager._spawn_carcass()/_decay_carcass()
@@ -1333,20 +1503,20 @@ class AntColony:
             death_prob = 1.0 - (1.0 - old_age_prob) * (1.0 - starve_prob) * (1.0 - dehydrate_prob)
             rolls = np.random.uniform(0, 1, len(alive_idx))
             died = alive_idx[rolls < death_prob]
+            died = died[self.dying_ticks[died] == 0]  # đang hấp hối rồi thì bỏ qua, không "trúng số" chồng thêm lần nữa
             if len(died) > 0:
-                self.alive[died] = False
-                self.underground.total_deaths += len(died)
-                # Chết DƯỚI HẦM: để lại XÁC THẬT tại đúng vị trí vừa chết,
-                # chờ 1 nurse rảnh việc tới khiêng (xem _update_undertakers)
-                # - corpse_count CHƯA tăng ngay, chỉ tăng lúc khiêng xong.
-                # Chết TRÊN MẶT ĐẤT (forager già/đói giữa lúc kiếm ăn): hi
-                # sinh tại trận, không ai thu hồi được, tính ngay như cũ.
-                died_ug = died[self.layer[died] == cfg.LAYER_UNDERGROUND]
-                died_surface = died[self.layer[died] == cfg.LAYER_SURFACE]
-                for i in died_ug.tolist():
-                    self.underground.register_corpse(self.x[i], self.y[i], self.depth[i])
-                if len(died_surface) > 0:
-                    self.underground.add_corpse(len(died_surface))
+                # KHÔNG chết ngay - chuyển sang trạng thái HẤP HỐI (xem
+                # cfg.DYING_DURATION_TICKS/update()): đứng khựng lại run
+                # rẩy tại chỗ trong 1 khoảng ngắn rồi mới thực sự chết hẳn
+                # (finalize ở đầu update() của tick kế tiếp), thay vì biến
+                # mất/thành xác NGAY LẬP TỨC như trước - mô phỏng cảnh hấp
+                # hối vì già/đói/khát thật, khác hẳn chết vì giao chiến
+                # (vẫn tức thời, xem enemy.py/invasion.py/game_state.py).
+                self.dying_ticks[died] = cfg.DYING_DURATION_TICKS
+                self.dying_x[died] = self.x[died]
+                self.dying_y[died] = self.y[died]
+                self.dying_layer[died] = self.layer[died]
+                self.dying_depth[died] = self.depth[died]
 
         # --- Đẻ trứng ---
         if self.founding_phase:

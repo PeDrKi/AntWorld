@@ -496,6 +496,58 @@ def draw_ant_social_fx(state, surf, colony_obj, depth_filter):
                 spark_r = max(2, int(cell * 0.07))
                 pygame.draw.circle(surf, (255, 245, 200), (int(mx), int(my)), spark_r)
 
+    # --- Chăm sóc lẫn nhau THẬT SỰ (allogrooming có trạng thái/thời
+    # lượng hẳn hoi - xem cfg.GROOM_*/AntColony._update_grooming()), KHÁC
+    # với tia lấp lánh "gần nhau ngẫu nhiên" ở trên (vốn chỉ là hiệu ứng
+    # trang trí không trạng thái) - đây là 1 CẶP CỤ THỂ đang thực sự chăm
+    # sóc nhau trong 1 khoảng thời gian, vẽ đậm/rõ hơn hẳn để phân biệt. ---
+    groom_ticks_arr = getattr(colony_obj, "groom_ticks", None)
+    groom_partner_arr = getattr(colony_obj, "groom_partner", None)
+    if groom_ticks_arr is not None and groom_partner_arr is not None:
+        active = np.where(mask & (groom_ticks_arr > 0))[0]
+        for a in active.tolist():
+            b = int(groom_partner_arr[a])
+            if b < 0 or b < a:
+                continue  # vẽ 1 lần/cặp (bỏ qua chiều ngược lại)
+            if not (colony_obj.alive[b] and colony_obj.depth[b] == depth_filter):
+                continue
+            sx1, sy1 = camera.world_to_screen(float(colony_obj.x[a]), float(colony_obj.y[a]), state.CENTER_X, state.CENTER_Y)
+            sx2, sy2 = camera.world_to_screen(float(colony_obj.x[b]), float(colony_obj.y[b]), state.CENTER_X, state.CENTER_Y)
+            pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.3 + a)
+            col = (int(150 + 60 * pulse), int(220 + 30 * pulse), int(140 + 60 * pulse))
+            pygame.draw.line(surf, col, (int(sx1), int(sy1)), (int(sx2), int(sy2)), 1)
+            mx, my = (sx1 + sx2) / 2, (sy1 + sy2) / 2
+            pygame.draw.circle(surf, col, (int(mx), int(my)), max(2, int(cell * 0.08)))
+
+
+def draw_guard_inspections(state, surf, colony_obj, depth):
+    """Vẽ các khoảnh khắc lính gác CHẠM RÂU kiểm tra đồng đội ra vào cửa tổ
+    GẦN ĐÂY (xem cfg.GUARD_INSPECT_*/AntColony._update_guard_inspections())
+    - cùng cơ chế nhòe dần như draw_trophallaxis nhưng màu XANH NHẠT để
+    phân biệt rõ đây là NHẬN DIỆN (nestmate recognition), không phải trao
+    đổi thức ăn."""
+    events = getattr(colony_obj, "inspection_events", None)
+    if not events:
+        return
+    camera = state.camera
+    tick_now = colony_obj.tick_count
+    ttl = cfg.GUARD_INSPECT_TTL_TICKS
+    for x1, y1, x2, y2, tick_created, ev_depth in events:
+        if ev_depth != depth:
+            continue
+        age = tick_now - tick_created
+        if age < 0 or age > ttl:
+            continue
+        t = 1.0 - age / ttl
+        brightness = 0.3 + 0.7 * t
+        col = tuple(int(c * brightness) for c in (150, 200, 255))
+        sx1, sy1 = camera.world_to_screen(x1, y1, state.CENTER_X, state.CENTER_Y)
+        sx2, sy2 = camera.world_to_screen(x2, y2, state.CENTER_X, state.CENTER_Y)
+        pygame.draw.line(surf, col, (int(sx1), int(sy1)), (int(sx2), int(sy2)), 1)
+        dot_r = max(2, int(2 + 2 * t))
+        pygame.draw.circle(surf, col, (int(sx1), int(sy1)), dot_r)
+        pygame.draw.circle(surf, col, (int(sx2), int(sy2)), dot_r)
+
 
 def _draw_merged_room_contents(state, surf, uworld, colony_obj, cx, cy, r_px, depth):
     """Các phòng CHƯA được đào thành phòng riêng (room_id không nằm trong
@@ -607,3 +659,4 @@ def draw_underground_layer(state, surf, depth):
     draw_ants(state, surf, state.invasion, (80, 15, 15), (150, 40, 20), depth_filter=depth, underground=True)
     draw_ant_social_fx(state, surf, state.colony, depth)
     draw_trophallaxis(state, surf, state.colony, depth)
+    draw_guard_inspections(state, surf, state.colony, depth)

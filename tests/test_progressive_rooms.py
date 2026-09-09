@@ -27,6 +27,20 @@ def _advance_past_founding(gs, max_ticks=20000):
         ticks += 1
 
 
+def _predig_all_rooms(uw):
+    """Đào sẵn (giả lập "đã đào xong từ lâu") vị trí THẬT của MỌI phòng -
+    dùng trong các test kiểm tra LỊCH/thứ tự mở khóa (GameState.
+    _check_room_unlocks, tên tầng, HUD...), vốn không nhắm tới việc kiểm
+    tra riêng cơ chế đào đất thật (xem TestDiggerAnts cho việc đó) - tránh
+    phải mô phỏng hàng nghìn tick digger ants thật chỉ để test lịch trình
+    mở khóa. Sau khi gọi hàm này, try_finish_unlock() cho BẤT KỲ room_id
+    nào cũng sẽ thấy đã "đào đủ" và tách phòng ngay khi được yêu cầu."""
+    for room_id, (off_xy, depth) in uw._real_offsets.items():
+        cx = uw.nest_pos[0] + off_xy[0]
+        cy = uw.nest_pos[1] + off_xy[1]
+        uw.dig_disk(depth, cx, cy, uw._base_radius[room_id] + 1.0)
+
+
 class TestUndergroundWorldProgressive(unittest.TestCase):
     def test_default_construction_unlocks_all_rooms(self):
         """progressive=False (mặc định, dùng cho tổ đối thủ) - hành vi CŨ
@@ -110,14 +124,20 @@ class TestGameStateRoomUnlockSchedule(unittest.TestCase):
         self.assertEqual(gs.underground_world.unlocked_rooms, {2})
 
     def test_egg_room_unlocks_immediately_after_founding_completes(self):
+        """LƯU Ý: "immediately" ở đây là NGAY SAU KHI ĐÀO XONG (giả lập
+        bằng _predig_all_rooms - xem docstring hàm đó), không còn nghĩa là
+        "ngay khi đạt mốc dân số" nữa như trước khi có digger ants THẬT -
+        đào đất cần thời gian thật, xem TestDiggerAnts."""
         gs = game_state.GameState()
         _advance_past_founding(gs)
+        _predig_all_rooms(gs.underground_world)
         gs.check_alerts()
         self.assertIn(4, gs.underground_world.unlocked_rooms)
 
     def test_check_room_unlocks_follows_schedule_order(self):
         gs = game_state.GameState()
         _advance_past_founding(gs)
+        _predig_all_rooms(gs.underground_world)
         gs._check_room_unlocks(cfg.FOUNDING_NANITIC_TARGET)
         self.assertEqual(gs.underground_world.unlocked_rooms, {2, 4, 5})
         gs._check_room_unlocks(8)
@@ -128,6 +148,7 @@ class TestGameStateRoomUnlockSchedule(unittest.TestCase):
     def test_check_room_unlocks_logs_event_and_toast(self):
         gs = game_state.GameState()
         _advance_past_founding(gs)
+        _predig_all_rooms(gs.underground_world)
         n_events_before = len(gs.events)
         gs._check_room_unlocks(8)
         self.assertGreater(len(gs.events), n_events_before)
@@ -137,6 +158,7 @@ class TestGameStateRoomUnlockSchedule(unittest.TestCase):
     def test_check_room_unlocks_idempotent(self):
         gs = game_state.GameState()
         _advance_past_founding(gs)
+        _predig_all_rooms(gs.underground_world)
         gs._check_room_unlocks(40)
         n_events_after_first = len(gs.events)
         gs._check_room_unlocks(40)
@@ -222,6 +244,7 @@ class TestLayerMapReflectsRealState(unittest.TestCase):
 
         gs = game_state.GameState()
         _advance_past_founding(gs)
+        _predig_all_rooms(gs.underground_world)
         self.assertEqual(layer_name(gs, cfg.DEPTH_GUARD), "(chưa đào)")
         gs._check_room_unlocks(cfg.FOUNDING_NANITIC_TARGET)
         self.assertEqual(layer_name(gs, cfg.DEPTH_GUARD), "Phòng gác cửa")
@@ -273,6 +296,7 @@ class TestLayerMapReflectsRealState(unittest.TestCase):
         gs = game_state.GameState()
         hud.build_toolbar(gs)
         _advance_past_founding(gs)
+        _predig_all_rooms(gs.underground_world)
         gs._check_room_unlocks(cfg.FOUNDING_NANITIC_TARGET)  # tự rebuild toolbar bên trong
         depths = sorted(b.depth for b in gs.layer_map_buttons)
         self.assertIn(cfg.DEPTH_EGG, depths)

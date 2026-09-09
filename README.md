@@ -422,3 +422,48 @@ chỉ là 1 khung tĩnh xoay cứng theo hướng. Đã cải thiện cả 3 m�
   xác. Chết vì GIAO CHIẾN vẫn tức thời như cũ (đúng thực tế - bị cắn chết
   là chết ngay).
 
+## Đào đất THẬT - theo dõi trực tiếp quá trình mở rộng tổ
+
+Trước đây phòng mới "hiện ra" tức thời ngay khi đạt mốc dân số (chỉ là
+đổi vị trí 1 mảng numpy), và phòng lớn dần theo dân số cũng chỉ là đổi
+1 con số bán kính - không có khái niệm "đất" nào cả. Giờ mỗi tầng hầm có
+1 lưới ô vuông THẬT (đặc/đã đào, xem `UndergroundWorld.dirt_layers`),
+và có kiến đào chuyên trách (`JOB_DIGGER`) thật sự bò tới rìa đất, đứng
+đào từng ô, rồi lặp lại - **có thể xem trực tiếp** đường hầm được đào dần
+qua `render_underground.draw_dirt_grid()` (đất chưa đào có kết cấu lấm
+tấm, viền sáng ở rìa đang đào tới; ô đã đào để trống).
+
+- **`ants.py` - `_update_diggers()`/`_assign_digger_targets()`**: kiến
+  đào bò tới rìa đất gần tâm phòng mục tiêu nhất (dùng lại NGUYÊN hệ
+  pathfinding any-angle vốn viết cho mặt đất, né đất đặc y hệt né
+  đá/nước), đứng đào 1 ô trong `DIG_TICKS_PER_CELL` (~0.75s) rồi lặp lại.
+  Tối đa `MAX_CONCURRENT_DIGGERS` con đào cùng lúc, ưu tiên THẤP NHẤT
+  trong `_rebalance_labor` (rút thợ đào chỉ khi dư dả, không đe dọa sống
+  còn như thiếu y tá/hộ vệ).
+- **`world.py` - `UndergroundWorld.dirt_layers`**: 1 lưới riêng/tầng,
+  tái dùng nguyên `pathfinding.VisibilityPathfinder`. `dig_cell()`/
+  `dig_disk()` đào ô/vùng; `dug_fraction()` tính % đã đào; `find_frontier_
+  cell()` tìm ô rìa hợp lệ tiếp theo (quét TOÀN LƯỚI, không giới hạn
+  trong vùng phòng - để có thể đào XUYÊN đường hầm nối từ giếng tới
+  phòng ở xa, không chỉ đào lấp đầy tại chỗ).
+- **Mở khóa phòng mới**: `_check_room_unlocks()` giờ chỉ đưa phòng vào
+  hàng chờ đào (`request_dig`) khi đạt mốc dân số - phòng CHỈ thực sự
+  tách khỏi Phòng chúa (`unlock_room`) sau khi đào đủ
+  `ROOM_DIG_UNLOCK_FRACTION` (80%) diện tích thiết kế
+  (`try_finish_unlock`).
+- **Mở rộng phòng cũ theo dân số**: `room[3]` (bán kính THẬT mọi hành vi
+  kiến khác đọc) giờ chỉ lớn theo đúng tỉ lệ đất ĐÃ ĐÀO trong vùng mục
+  tiêu - dân số tăng chỉ đặt "mục tiêu mới cần đào tới"
+  (`_target_radius`), không tự động phình to ngay.
+- Tổ KHÔNG mô phỏng lập tổ thật (`progressive=False`, dùng cho tổ đối
+  thủ/1 số test) giữ nguyên hành vi CŨ hoàn toàn: đào sẵn đủ 8 phòng ngay
+  từ đầu, không có digger ants nào cả.
+
+**Lưu ý cân bằng**: đào 1 đường hầm dài ~15-18 ô (khoảng cách điển hình
+từ giếng tới 1 phòng) tốn kha khá thời gian thật (hàng trăm-nghìn tick,
+tùy có bao nhiêu thợ đào cùng lúc) - phòng mới vì vậy xuất hiện CHẬM hơn
+hẳn so với trước (tức thời). Nếu thấy tổ mở rộng quá chậm/quá nhanh so
+với ý muốn, các hằng số đáng chỉnh trước tiên: `DIG_TICKS_PER_CELL`
+(giảm để đào nhanh hơn), `MAX_CONCURRENT_DIGGERS` (tăng để đào nhiều
+hướng cùng lúc), và ngưỡng rút thợ đào trong `_rebalance_labor` (mục 4).
+

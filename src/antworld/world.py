@@ -3,6 +3,21 @@ import math
 
 import numpy as np
 from . import config as cfg
+from . import pathfinding
+
+
+class _DirtLayer:
+    """Bọc 1 tầng lưới đất (1 phần tử/ô, TERRAIN_ROCK=đất đặc chưa đào,
+    TERRAIN_EMPTY=đã đào) - CHỈ để tái sử dụng NGUYÊN VisibilityPathfinder
+    (pathfinding.py, vốn viết cho SurfaceWorld) cho việc tìm đường của
+    kiến đào (JOB_DIGGER trong ants.py): pathfinder chỉ cần đọc đúng 2
+    thuộc tính `terrain`/`terrain_version` của đối tượng truyền vào, không
+    quan tâm đó là SurfaceWorld hay không."""
+    __slots__ = ("terrain", "terrain_version")
+
+    def __init__(self, size):
+        self.terrain = np.full((size, size), cfg.TERRAIN_ROCK, dtype=np.int8)
+        self.terrain_version = 0
 
 
 class SurfaceWorld:
@@ -345,6 +360,7 @@ class UndergroundWorld:
         nest_x, nest_y = nest_pos
         self.nest_pos = nest_pos
         self.shaft_xy = np.array([nest_x, nest_y], dtype=np.float32)
+        self.progressive = progressive
 
         def offset(off_xy):
             return np.array([nest_x + off_xy[0], nest_y + off_xy[1]], dtype=np.float32)
@@ -424,6 +440,39 @@ class UndergroundWorld:
         self._room_depth_attr = {0: "storage_depth", 1: "nursery_depth", 3: "water_depth", 4: "egg_depth",
                                   5: "guard_depth", 6: "graveyard_depth", 7: "pupa_depth"}
 
+        # ===== Lưới đất THẬT (đào tới đâu mới đi/ở được tới đó) =====
+        # 1 lưới riêng cho MỖI TẦNG (đủ 5 tầng đang dùng: gác cửa/kho+nước/
+        # trứng+ấu trùng+nhộng/chúa/nghĩa địa) - TÁI DÙNG NGUYÊN
+        # VisibilityPathfinder (pathfinding.py, vốn viết cho SurfaceWorld)
+        # cho việc kiến đào (JOB_DIGGER trong ants.py) tìm đường bò tới rìa
+        # đất cần đào, y hệt cách kiến trên mặt đất né đá/nước.
+        all_depths = sorted({self.queen_depth} | {d for _, d in real_offsets.values()})
+        self.dirt_layers = {d: _DirtLayer(cfg.GRID_SIZE) for d in all_depths}
+        self.dig_pathfinders = {}      # depth -> VisibilityPathfinder (tạo khi cần, xem get_dig_pathfinder)
+        self.dig_queue = set()         # room_id đã tới mốc dân số nhưng CHƯA đào xong tới nơi thật
+        self.reserved_dig_cells = set()  # (depth,gx,gy) đang có 1 con kiến đào nhắm tới - tránh 2 con giành nhau
+        self._target_radius = {}       # room_id -> bán kính "MONG MUỐN" theo dân số (xem update_room_sizes) -
+                                        # room[3] (bán kính THẬT dùng để kiến đi lại) chỉ đuổi theo dần khi đào tới
+
+        # Giếng lên mặt đất LUÔN thông suốt ở MỌI TẦNG (không phải chờ ai
+        # đào - đại diện cho trục thang máy cố định, không thuộc phòng nào)
+        for d in all_depths:
+            self.dig_disk(d, float(nest_x), float(nest_y), cfg.SHAFT_DIG_RADIUS)
+
+        if progressive:
+            # CHỈ đào sẵn HỐC LẬP TỔ ban đầu của chúa (nhỏ) - toàn bộ phần
+            # còn lại của tổ (kể cả mở to Phòng chúa sau này, xem
+            # AntColony._update_founding_egg_laying) phải chờ digger ants
+            # đào dần THẬT, xem ants.py.
+            self.dig_disk(self.queen_depth, float(self.queen_room[0]), float(self.queen_room[1]),
+                          cfg.ROOM_RADIUS_FOUNDING_CHAMBER)
+        else:
+            # KHÔNG mô phỏng lập tổ thật (tổ đối thủ / vài test cần 1 tổ ổn
+            # định sẵn) - đào sẵn TOÀN BỘ 8 phòng ở đúng vị trí NGAY LẬP
+            # TỨC, không cần digger ants nào cả.
+            for room in self.rooms:
+                self.dig_disk(room[5], float(room[2][0]), float(room[2][1]), float(room[3]) + 1.0)
+
         # Thống kê tổ
         self.food_in_storage = 0
         self.food_in_nursery = 0
@@ -446,9 +495,13 @@ class UndergroundWorld:
     def unlock_room(self, room_id):
         """Tách phòng `room_id` ra khỏi trạng thái "gộp chung" (đang dùng
         tạm vị trí + tầng của Phòng chúa) sang ĐÚNG vị trí + tầng thiết kế
-        riêng của nó - gọi từ GameState._check_room_unlocks() theo mốc
-        dân số. Trả về True nếu VỪA MỚI tách (để bên gọi biết mà báo toast/
-        ghi Nhật ký sự kiện), False nếu phòng này đã mở từ trước (gọi lại
+        riêng của nó. CHỈ nên gọi khi đã đào xong tới nơi (xem
+        try_finish_unlock() - nơi gọi hàm này bình thường) - gọi hàm này
+        thẳng (vd trong test) sẽ tách phòng dù đất CHƯA CHẮC đã đào tới,
+        chấp nhận được cho mục đích test 1 tổ ổn định sẵn.
+
+        Trả về True nếu VỪA MỚI tách (để bên gọi biết mà báo toast/ghi
+        Nhật ký sự kiện), False nếu phòng này đã mở từ trước (gọi lại
         nhiều lần AN TOÀN, không làm gì thêm lần thứ 2 trở đi).
 
         Mutate vị trí NGAY TRÊN mảng numpy hiện có (self.storage[:] = ...)
@@ -459,6 +512,7 @@ class UndergroundWorld:
         if room_id in self.unlocked_rooms or room_id not in self._real_offsets:
             return False
         self.unlocked_rooms.add(room_id)
+        self.dig_queue.discard(room_id)
         off_xy, real_depth = self._real_offsets[room_id]
         nest_x, nest_y = self.nest_pos
         pos_attr = self._room_pos_attr[room_id]
@@ -468,20 +522,231 @@ class UndergroundWorld:
         self.rooms[room_id][5] = real_depth  # center (index 2) đã tự cập nhật do cùng mảng numpy ở trên
         return True
 
+    def request_dig(self, room_id):
+        """Đưa `room_id` vào hàng chờ đào (nếu chưa mở & chưa được yêu
+        cầu đào trước đó) - gọi khi đàn tới mốc dân số cần phòng này (xem
+        GameState._check_room_unlocks), nhưng việc "tách phòng" THẬT
+        (unlock_room) chỉ xảy ra sau khi digger ants đào xong tới đó, xem
+        try_finish_unlock()."""
+        if room_id in self.unlocked_rooms or room_id not in self._real_offsets:
+            return
+        self.dig_queue.add(room_id)
+
+    def try_finish_unlock(self, room_id):
+        """Nếu `room_id` đang trong hàng chờ đào VÀ đã đào đủ tới vị trí
+        THẬT của nó (xem cfg.ROOM_DIG_UNLOCK_FRACTION) thì tách phòng luôn
+        (unlock_room) và trả về True - ngược lại trả về False (vẫn đang
+        đào dở, hoặc chưa hề được yêu cầu đào)."""
+        if room_id not in self.dig_queue:
+            return False
+        off_xy, depth = self._real_offsets[room_id]
+        cx = self.nest_pos[0] + off_xy[0]
+        cy = self.nest_pos[1] + off_xy[1]
+        radius = self._base_radius[room_id]
+        if self.dug_fraction(depth, cx, cy, radius) < cfg.ROOM_DIG_UNLOCK_FRACTION:
+            return False
+        return self.unlock_room(room_id)
+
+    # ------------------------------------------------------------------
+    # Lưới đất THẬT - xem giải thích tổng quan ở __init__ (self.dirt_layers)
+    # ------------------------------------------------------------------
+    def dig_cell(self, depth, gx, gy):
+        """Đào ĐÚNG 1 ô lưới (gx,gy) ở tầng `depth` - gọi từ AntColony
+        (JOB_DIGGER) sau khi 1 con kiến đào xong đếm ngược tại ô đó. Trả
+        về True nếu ô đó TRƯỚC ĐÓ còn là đất đặc (vừa đào THẬT, cần render
+        lại/dựng lại pathfinder), False nếu ô đó đã được đào từ trước
+        (gọi lại vô hại, không tăng terrain_version thêm lần nữa)."""
+        layer = self.dirt_layers.get(depth)
+        if layer is None:
+            return False
+        n = cfg.GRID_SIZE
+        gx = int(np.clip(gx, 0, n - 1))
+        gy = int(np.clip(gy, 0, n - 1))
+        if layer.terrain[gx, gy] == cfg.TERRAIN_EMPTY:
+            return False
+        layer.terrain[gx, gy] = cfg.TERRAIN_EMPTY
+        layer.terrain_version += 1
+        return True
+
+    def dig_disk(self, depth, cx, cy, radius):
+        """Đào NGUYÊN 1 vùng tròn NGAY LẬP TỨC - CHỈ dùng cho các bước
+        đào "tự động"/tường thuật (hốc lập tổ ban đầu của chúa, chúa tự mở
+        rộng Phòng chúa lúc lập tổ xong, trục giếng cố định, tổ KHÔNG mô
+        phỏng lập tổ thật) - KHÔNG dùng cho quá trình đào tăng dần bình
+        thường (đó là việc của digger ants, xem dig_cell())."""
+        layer = self.dirt_layers.get(depth)
+        if layer is None or radius <= 0:
+            return
+        n = cfg.GRID_SIZE
+        x0, x1 = max(0, int(cx - radius)), min(n, int(cx + radius) + 1)
+        y0, y1 = max(0, int(cy - radius)), min(n, int(cy + radius) + 1)
+        if x0 >= x1 or y0 >= y1:
+            return
+        xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
+        mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= radius ** 2
+        region = layer.terrain[x0:x1, y0:y1]
+        if np.any(mask & (region == cfg.TERRAIN_ROCK)):
+            region[mask] = cfg.TERRAIN_EMPTY
+            layer.terrain_version += 1
+
+    def dug_fraction(self, depth, cx, cy, radius):
+        """Tỉ lệ (0..1) diện tích hình tròn (cx,cy,radius) ở tầng `depth`
+        ĐÃ được đào - dùng để biết 1 phòng đã "đủ đào" tới đâu (gate mở
+        khóa phòng mới + thu hẹp bán kính THẬT của phòng đang lớn dần,
+        xem try_finish_unlock()/update_room_sizes())."""
+        layer = self.dirt_layers.get(depth)
+        if layer is None or radius <= 0:
+            return 1.0
+        n = cfg.GRID_SIZE
+        x0, x1 = max(0, int(cx - radius)), min(n, int(cx + radius) + 1)
+        y0, y1 = max(0, int(cy - radius)), min(n, int(cy + radius) + 1)
+        if x0 >= x1 or y0 >= y1:
+            return 1.0
+        xs, ys = np.meshgrid(np.arange(x0, x1), np.arange(y0, y1), indexing="ij")
+        mask = (xs - cx) ** 2 + (ys - cy) ** 2 <= radius ** 2
+        total = int(mask.sum())
+        if total == 0:
+            return 1.0
+        dug = int(np.sum((layer.terrain[x0:x1, y0:y1] == cfg.TERRAIN_EMPTY) & mask))
+        return dug / total
+
+    def find_frontier_cell(self, depth, cx, cy, radius, reserved=None):
+        """Tìm 1 ô đất đặc GẦN TÂM (cx,cy) NHẤT mà có ÍT NHẤT 1 ô liền kề
+        (4 hướng) ĐÃ ĐƯỢC ĐÀO - tức 1 ô "ở rìa" hợp lệ để đào tiếp (đảm bảo
+        luôn đào LAN RA từ vùng đã có, không bao giờ tạo ra 1 hốc rời rạc
+        giữa đất đặc không ai tới được).
+
+        CỐ Ý quét TOÀN BỘ lưới của tầng này (không giới hạn trong vùng
+        tròn radius quanh tâm phòng) - phòng thường nằm CÁCH XA trục giếng
+        hàng chục ô, nên muốn đào TỚI được phòng, trước tiên phải đào
+        XUYÊN 1 đường hầm nối từ mạng lưới đã đào (giếng/phòng khác) sang
+        tới đó; giới hạn tìm kiếm trong vùng tròn phòng sẽ không bao giờ
+        thấy rìa nào cả vì chưa có gì đào tới đó. Ưu tiên GẦN TÂM PHÒNG
+        NHẤT khiến hướng đào tự nhiên "nhắm thẳng" về phía phòng (như đào
+        đường hầm), rồi lấp dần bên trong khi đã tới nơi - việc DỪNG đào
+        đúng lúc (không đào lan ra vô tận) do get_active_dig_jobs() tự
+        loại phòng này khỏi danh sách việc cần làm ngay khi dug_fraction
+        trong vùng tròn phòng đã đạt 100%, bất kể lưới CÒN đất đặc ở xa.
+        Lưới chỉ 40x40 nên quét toàn bộ vẫn rất rẻ, không cần tối ưu thêm.
+        Trả về None nếu KHÔNG còn ô đất đặc nào có thể đào tới được nữa
+        (toàn bộ tầng đã đào hết, hiếm khi xảy ra)."""
+        layer = self.dirt_layers.get(depth)
+        if layer is None:
+            return None
+        terrain = layer.terrain
+        solid = terrain == cfg.TERRAIN_ROCK
+        dug = ~solid
+        neighbor_dug = np.zeros_like(dug)
+        neighbor_dug[1:, :] |= dug[:-1, :]
+        neighbor_dug[:-1, :] |= dug[1:, :]
+        neighbor_dug[:, 1:] |= dug[:, :-1]
+        neighbor_dug[:, :-1] |= dug[:, 1:]
+        frontier = solid & neighbor_dug
+        if reserved:
+            for (rd, rx, ry) in reserved:
+                if rd == depth and 0 <= rx < frontier.shape[0] and 0 <= ry < frontier.shape[1]:
+                    frontier[rx, ry] = False
+        gx, gy = np.where(frontier)
+        if len(gx) == 0:
+            return None
+        d2 = (gx - cx) ** 2 + (gy - cy) ** 2
+        best = int(np.argmin(d2))
+        return int(gx[best]), int(gy[best])
+
+    def dug_neighbor_of(self, depth, gx, gy):
+        """1 ô liền kề (4 hướng) ĐÃ ĐÀO của (gx,gy) - nơi kiến đào cần
+        ĐỨNG để với tới đào (gx,gy) (bản thân ô đang đào thì chưa đi vào
+        được). None nếu (hiếm) không có ô liền kề nào đã đào (dữ liệu
+        không nhất quán - nơi gọi tự có phương án dự phòng)."""
+        layer = self.dirt_layers.get(depth)
+        if layer is None:
+            return None
+        n = cfg.GRID_SIZE
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = gx + dx, gy + dy
+            if 0 <= nx < n and 0 <= ny < n and layer.terrain[nx, ny] == cfg.TERRAIN_EMPTY:
+                return nx, ny
+        return None
+
+    def get_dig_pathfinder(self, depth):
+        """VisibilityPathfinder (pathfinding.py) riêng cho tầng `depth`,
+        tạo lười biếng lần đầu cần tới rồi cache lại - TỰ ĐỘNG dựng lại
+        visibility graph mỗi khi self.dirt_layers[depth].terrain_version
+        đổi (đúng cơ chế sẵn có của VisibilityPathfinder, không cần code
+        gì thêm ở đây)."""
+        pf = self.dig_pathfinders.get(depth)
+        if pf is None:
+            pf = pathfinding.VisibilityPathfinder(self.dirt_layers[depth])
+            self.dig_pathfinders[depth] = pf
+        return pf
+
+    def get_active_dig_jobs(self):
+        """Danh sách (room_id, depth, cx, cy, target_radius) các phòng
+        ĐANG CẦN đào thêm lúc này - ưu tiên phòng MỚI đang chờ trong
+        dig_queue (đào tới vị trí THẬT của nó để kịp mở khóa) trước, rồi
+        mới tới các phòng ĐÃ mở đang cần MỞ RỘNG thêm theo dân số
+        (ROOM_GROWABLE_IDS, xem update_room_sizes()).
+
+        Tổ KHÔNG mô phỏng lập tổ thật (progressive=False, vd đối thủ)
+        không dùng hệ thống đào này (đã đào sẵn đủ dùng từ đầu, không có
+        digger ants nào) nên luôn trả về danh sách rỗng."""
+        if not self.progressive:
+            return []
+        jobs = []
+        for room_id in sorted(self.dig_queue):
+            off_xy, depth = self._real_offsets[room_id]
+            cx = self.nest_pos[0] + off_xy[0]
+            cy = self.nest_pos[1] + off_xy[1]
+            radius = self._base_radius[room_id]
+            if self.dug_fraction(depth, cx, cy, radius) < 1.0:
+                jobs.append((room_id, depth, float(cx), float(cy), float(radius)))
+        for room in self.rooms:
+            room_id = room[0]
+            if room_id not in cfg.ROOM_GROWABLE_IDS or room_id not in self.unlocked_rooms:
+                continue
+            target = self._target_radius.get(room_id)
+            if target is None:
+                continue
+            cx, cy = float(room[2][0]), float(room[2][1])
+            depth = room[5]
+            if self.dug_fraction(depth, cx, cy, target) < 1.0:
+                jobs.append((room_id, depth, cx, cy, float(target)))
+        return jobs
+
     def update_room_sizes(self, population):
         """Cập nhật bán kính CÁC PHÒNG GẮN LIỀN QUY MÔ ĐÀN (xem
         ROOM_GROWABLE_IDS trong config.py) theo dân số hiện tại - gọi mỗi
         tick từ AntColony.update(). Phòng KHÔNG nằm trong danh sách này
         giữ nguyên bán kính gốc, không đổi gì.
 
-        AN TOÀN GỌI LẶP LẠI: tính lại từ `_base_radius` gốc mỗi lần (không
-        cộng dồn), nên gọi bao nhiêu lần cũng cho kết quả nhất quán, không
-        bị "phình to" sai do gọi nhầm nhiều lần trong 1 tick."""
+        `room[3]` (bán kính THẬT, mọi hành vi kiến khác đọc trực tiếp giá
+        trị này) giờ CHỈ lớn theo đúng tỉ lệ đất ĐÃ ĐƯỢC ĐÀO THẬT trong
+        vùng mục tiêu (self._target_radius[room_id], xem
+        get_active_dig_jobs()/dug_fraction()) - dân số tăng chỉ đặt ra
+        "mục tiêu mới cần đào tới", KHÔNG tự động phình to ngay, phải chờ
+        digger ants đào xong (xem ants.py JOB_DIGGER) mới thực sự dùng
+        được không gian đó. AN TOÀN GỌI LẶP LẠI: tính lại từ `_base_radius`
+        gốc mỗi lần, không cộng dồn."""
         growth = cfg.ROOM_GROWTH_PER_SQRT_ANT * math.sqrt(max(0, population))
         for room in self.rooms:
             room_id = room[0]
-            if room_id in cfg.ROOM_GROWABLE_IDS:
-                room[3] = self._base_radius[room_id] + growth
+            if room_id not in cfg.ROOM_GROWABLE_IDS:
+                continue
+            target = self._base_radius[room_id] + growth
+            self._target_radius[room_id] = target
+            if not self.progressive:
+                # Tổ KHÔNG mô phỏng lập tổ thật (vd đối thủ) - GIỮ NGUYÊN
+                # hành vi cũ: bán kính lớn NGAY theo dân số, không cần chờ
+                # đào (đã đào sẵn dư ngay từ đầu ở __init__, không có
+                # digger ants nào phụ trách tổ này).
+                room[3] = target
+                continue
+            if room_id not in self.unlocked_rooms:
+                continue  # chưa mở thật - chưa có gì để "lớn dần", room[3] giữ nguyên (đọc từ hốc gộp chung)
+            cx, cy = float(room[2][0]), float(room[2][1])
+            depth = room[5]
+            frac = self.dug_fraction(depth, cx, cy, target)
+            room[3] = self._base_radius[room_id] + growth * frac
 
     def room_center_and_radius(self, depth):
         """Tra tâm + bán kính phòng ở 1 tầng cho trước - dùng cho trường

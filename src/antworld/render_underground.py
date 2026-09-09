@@ -576,12 +576,94 @@ def _draw_merged_room_contents(state, surf, uworld, colony_obj, cx, cy, r_px, de
             draw_pupae(state, surf, cx, cy, r_px, colony_obj, seed_key)
 
 
+def draw_dirt_grid(state, surf, depth):
+    """Vẽ NỀN ĐẤT thật của tầng hầm `depth` - mỗi ô lưới CHƯA ĐÀO (đất
+    đặc, xem UndergroundWorld.dirt_layers) được tô màu đất + vài chấm lấm
+    tấm cho có kết cấu; ô ĐÃ ĐÀO để trống (chỉ còn nền hầm bình thường) -
+    nhờ vậy có thể THEO DÕI TRỰC TIẾP quá trình digger ants (JOB_DIGGER,
+    xem ants.py) đào rộng tổ ra TỪNG Ô MỘT, thay vì phòng "hiện ra" tức
+    thời như trước. Ô đất đặc nằm SÁT rìa vùng đã đào (tức digger có thể
+    tới đào NGAY) được tô viền sáng hơn hẳn để dễ nhận ra "đang đào tới
+    đây". Chỉ vẽ đúng phần lưới đang lọt vào khung hình, bỏ qua hẳn nếu
+    camera đang zoom quá xa (ô bé tí không đáng vẽ)."""
+    uworld = state.underground_world
+    layer = uworld.dirt_layers.get(depth)
+    if layer is None:
+        return
+    camera = state.camera
+    cell_px = camera.cell_px()
+    if cell_px < 2:
+        return
+    n = cfg.GRID_SIZE
+    half_w = (state.SCREEN_W / 2) / cell_px + 1
+    half_h = (state.CANVAS_H / 2) / cell_px + 1
+    gx0 = max(0, int(camera.cx - half_w))
+    gx1 = min(n, int(camera.cx + half_w) + 1)
+    gy0 = max(0, int(camera.cy - half_h))
+    gy1 = min(n, int(camera.cy + half_h) + 1)
+    if gx0 >= gx1 or gy0 >= gy1:
+        return
+
+    terrain = layer.terrain
+    sub = terrain[gx0:gx1, gy0:gy1]
+    solid = sub == cfg.TERRAIN_ROCK
+    if not np.any(solid):
+        return  # cả vùng nhìn thấy đã đào sạch - khỏi mất công vẽ gì thêm
+
+    dug = ~solid
+    neighbor_dug = np.zeros_like(dug)
+    neighbor_dug[1:, :] |= dug[:-1, :]
+    neighbor_dug[:-1, :] |= dug[1:, :]
+    neighbor_dug[:, 1:] |= dug[:, :-1]
+    neighbor_dug[:, :-1] |= dug[:, 1:]
+    is_frontier = solid & neighbor_dug
+
+    size = max(1, int(cell_px) + 1)
+    show_specks = cell_px >= 6
+    xs, ys = np.where(solid)
+    for k in range(len(xs)):
+        gx, gy = int(xs[k] + gx0), int(ys[k] + gy0)
+        sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
+        rect = pygame.Rect(int(sx - cell_px / 2), int(sy - cell_px / 2), size, size)
+        pygame.draw.rect(surf, cfg.COLOR_DIRT_SOLID, rect)
+        if is_frontier[xs[k], ys[k]]:
+            pygame.draw.rect(surf, cfg.COLOR_DIRT_FRONTIER, rect, 1)
+        elif show_specks:
+            pygame.draw.circle(surf, cfg.COLOR_DIRT_SPECK, (int(sx - cell_px * 0.2), int(sy - cell_px * 0.15)), 1)
+            pygame.draw.circle(surf, cfg.COLOR_DIRT_SPECK, (int(sx + cell_px * 0.15), int(sy + cell_px * 0.2)), 1)
+
+
+def draw_active_digging(state, surf, depth):
+    """Vẽ 1 chấm sáng NHỎ NHÁY tại ĐÚNG ô đất đang bị đào (STATE_DIGGER_
+    DIGGING, xem ants.py) - để nhận ra ngay "đang đào ở đây" khi theo dõi,
+    thay vì chỉ thấy ô đất im lìm rồi đột nhiên biến mất."""
+    colony_obj = state.colony
+    camera = state.camera
+    digging = np.where(
+        colony_obj.alive
+        & (colony_obj.job == cfg.JOB_DIGGER)
+        & (colony_obj.state == cfg.STATE_DIGGER_DIGGING)
+        & (colony_obj.dig_target_depth == depth)
+    )[0]
+    if len(digging) == 0:
+        return
+    cell_px = camera.cell_px()
+    pulse = 0.5 + 0.5 * math.sin(state.frame_counter * 0.5)
+    for i in digging.tolist():
+        gx, gy = int(colony_obj.dig_target_x[i]), int(colony_obj.dig_target_y[i])
+        sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
+        r = max(2, int(cell_px * 0.28 * (0.7 + 0.3 * pulse)))
+        pygame.draw.circle(surf, (200, 170, 110), (int(sx), int(sy)), r, 1)
+
+
 def draw_underground_layer(state, surf, depth):
     camera = state.camera
     pygame.draw.rect(surf, cfg.COLOR_BG_UNDERGROUND, (0, 0, state.SCREEN_W, state.CANVAS_H))
     cell = camera.cell_px()
     if state.grid_visible and cell >= 3:
         draw_underground_grid_lines(state, surf)
+    draw_dirt_grid(state, surf, depth)
+    draw_active_digging(state, surf, depth)
 
     uworld, colony_obj = state.underground_world, state.colony
     # giếng (thang máy) - chỉ hiện nếu có phòng ĐÃ MỞ (unlocked_rooms) ở

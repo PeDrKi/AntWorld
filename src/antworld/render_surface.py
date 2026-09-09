@@ -719,6 +719,9 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
         elif job[i] == cfg.JOB_ATTENDANT:  # chuyên chăm trứng+chúa: chấm tím
             badge_r = max(1, int(abdomen_r * 0.4))
             pygame.draw.circle(surf, (200, 150, 240), (int(abd_x), int(abd_y)), badge_r)
+        elif job[i] == cfg.JOB_DIGGER:  # đang đào đất mở rộng tổ: chấm nâu đất
+            badge_r = max(1, int(abdomen_r * 0.4))
+            pygame.draw.circle(surf, (150, 110, 70), (int(abd_x), int(abd_y)), badge_r)
 
         # --- Cắn giữ mồi (vừa nhặt xong, xem cfg.BITE_GRIP_PAUSE_TICKS)
         # hoặc đang GỒNG GIỮ con mồi lớn chờ đồng đội (STATE_HAUL_GRIP) -

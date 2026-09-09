@@ -547,6 +547,10 @@ GUARD_SPEED = 0.22          # lính gác lao lên nhanh hơn tốc độ đi th�
 JOB_FORAGER = 0
 JOB_NURSE = 1
 JOB_ATTENDANT = 2
+JOB_DIGGER = 3               # đào đất mở rộng/xây phòng mới - xem
+                             # AntColony._update_diggers(), MAX_CONCURRENT_
+                             # DIGGERS + DIG_* bên dưới, và UndergroundWorld.
+                             # dirt_layers/get_active_dig_jobs() trong world.py
 JOB_NURSE_RATIO = 0.10       # trong số thợ nhỏ, bấy nhiêu % chuyên chăm ấu trùng
 JOB_ATTENDANT_RATIO = 0.06   # ... bấy nhiêu % chuyên chăm trứng + chúa
                              # (phần còn lại ~84% là JOB_FORAGER - ĐÃ KIỂM
@@ -716,6 +720,23 @@ ROOM_GROWABLE_IDS = (0, 1, 3, 4)   # id các phòng ĐƯỢC mở rộng: 0=Kho 
                                     # 4=Phòng trứng (khớp room_id trong
                                     # UndergroundWorld.rooms)
 
+# ===== Đào đất THẬT (JOB_DIGGER, xem AntColony._update_diggers() +
+# UndergroundWorld.dirt_layers trong world.py) - phòng mới/mở rộng phòng
+# cũ giờ không còn "hiện ra" tức thời khi đạt mốc dân số nữa, mà phải chờ
+# 1-vài kiến đào chuyên trách BÒ TỚI RÌA và đào THẬT từng ô lưới, có thể
+# THEO DÕI TRỰC TIẾP quá trình này (xem render_underground.draw_dirt_grid).
+SHAFT_DIG_RADIUS = 1.2       # trục giếng lên mặt đất LUÔN thông ở mọi tầng
+                             # (không phải chờ đào - đại diện thang máy cố định)
+DIG_TICKS_PER_CELL = 45      # (~0.75s ở 60 FPS) thời gian đào XONG 1 ô đất
+MAX_CONCURRENT_DIGGERS = 3   # tối đa bấy nhiêu thợ đang đào CÙNG LÚC (đủ
+                             # để thấy rõ tiến độ mà không rút cạn lực
+                             # lượng kiếm ăn/chăm sóc - xem _rebalance_labor)
+ROOM_DIG_UNLOCK_FRACTION = 0.8  # phòng MỚI (chưa từng mở) cần đào đủ bấy
+                             # nhiêu % diện tích thiết kế mới coi là "xong"
+                             # để chính thức tách khỏi Phòng chúa (không
+                             # cần 100% tuyệt đối vì rìa hình tròn/lưới ô
+                             # vuông không bao giờ khớp tuyệt đối)
+
 # ----- Trạng thái kiến (state machine) -----
 STATE_SEARCHING = 0        # trên mặt đất, đang tìm thức ăn
 STATE_RETURNING = 1        # trên mặt đất, đang tha thức ăn về tổ
@@ -773,6 +794,19 @@ STATE_UNDERTAKER_TO_GRAVEYARD = 20  # đang khiêng xác về Nghĩa địa
 # transport) - trước đây kẻ thù bị đánh bại chỉ biến mất, không để lại gì.
 STATE_HAUL_APPROACH = 21   # đang trên đường tới xác con mồi lớn
 STATE_HAUL_GRIP = 22       # đã tới nơi, đang ĐỨNG CHỜ đủ đồng đội mới cùng khiêng
+
+STATE_DIGGER_TRAVEL = 23  # đang bò tới rìa đất cần đào (xem JOB_DIGGER)
+STATE_DIGGER_DIGGING = 24  # đang đứng đào 1 ô đất cụ thể (đếm ngược DIG_TICKS_PER_CELL)
+STATE_DIGGER_IDLE = 25    # vừa được giao JOB_DIGGER HOẶC vừa đào xong 1 ô,
+                          # đang chờ _update_diggers() gán việc kế tiếp -
+                          # CỐ Ý KHÔNG dùng STATE_DWELL (dù ý nghĩa gần
+                          # giống "đang rảnh"): STATE_DWELL có 1 hàm xử lý
+                          # CHUNG riêng (_update_dwelling_ants, đọc
+                          # dwell_room_id/dwell_ticks/next_state) áp dụng
+                          # cho MỌI kiến đang ở state đó bất kể job - dùng
+                          # nhầm sẽ khiến digger bị hàm đó "cuỗm mất" và
+                          # lôi đi lượn/rời hầm ngoài ý muốn trước khi kịp
+                          # nhận việc đào mới.
 
 # Kiến "lượn" trong phòng bao lâu trước khi tiếp tục hành trình (tick mô
 # phỏng), và di chuyển nhẹ/chậm ra sao trong lúc đó
@@ -1038,6 +1072,13 @@ COLOR_BG_SURFACE = (74, 58, 40)
 COLOR_BG_UNDERGROUND = (32, 27, 24)
 COLOR_GROUND_FILL = (205, 178, 132)
 COLOR_SHAFT = (25, 18, 12)
+
+# Lưới đất THẬT (xem UndergroundWorld.dirt_layers/render_underground.
+# draw_dirt_grid) - ô CHƯA đào tô màu đất, chấm lấm tấm cho có kết cấu,
+# viền sáng hơn cho ô đang Ở RÌA (sát vùng đã đào) để dễ theo dõi tiến độ.
+COLOR_DIRT_SOLID = (58, 44, 34)
+COLOR_DIRT_SPECK = (40, 30, 23)
+COLOR_DIRT_FRONTIER = (110, 90, 60)
 
 # LƯU Ý: TOOLBAR_H / GRAPH_PANEL_W / GRAPH_PANEL_H (hằng số kích thước cố
 # định của thanh công cụ/biểu đồ) đã được XÓA - từ khi thanh công cụ, bảng

@@ -14,6 +14,8 @@ qua sinh sản, tới khi chạm trần max_ants. Chúa không sinh kiến trự
 chúa chỉ đẻ trứng (tốn thức ăn từ kho); trứng lớn dần thành ấu trùng THẬT
 SỰ trong phòng ấu trùng (ăn đúng thức ăn nurse mang tới), và chỉ "nở" thành
 1 kiến thợ mới khi đủ lớn (xem _update_larvae)."""
+import math
+
 import numpy as np
 from . import config as cfg
 from . import pathfinding
@@ -147,6 +149,15 @@ class AntColony:
         self.groom_ticks = np.zeros(self.n, dtype=np.int16)
         self.groom_partner = np.full(self.n, -1, dtype=np.int32)
         self.groom_cooldown = np.zeros(self.n, dtype=np.int16)
+
+        # --- Đào đất THẬT (JOB_DIGGER, xem cfg.DIG_TICKS_PER_CELL +
+        # UndergroundWorld.dirt_layers/get_active_dig_jobs() trong world.py)
+        # dig_target_x/y: tọa độ Ô LƯỚI (không phải world-space liên tục)
+        # đang nhắm đào; dig_ticks_left: đếm ngược lúc STATE_DIGGER_DIGGING.
+        self.dig_target_x = np.zeros(self.n, dtype=np.int16)
+        self.dig_target_y = np.zeros(self.n, dtype=np.int16)
+        self.dig_target_depth = np.zeros(self.n, dtype=np.int8)
+        self.dig_ticks_left = np.zeros(self.n, dtype=np.int16)
 
         # --- Tìm đường trên mặt đất (pathfinding.py): mỗi kiến giữ sẵn 1
         # "hàng đợi" điểm rẽ hướng (waypoint) của đường đi any-angle NGẮN
@@ -310,6 +321,7 @@ class AntColony:
         self._update_guards(enemy, invasion)
         self._update_guard_inspections()
         self._update_grooming()
+        self._update_diggers()
         self._update_haulers(enemy)
         self.surface.decay_pheromone()
         self.surface.decay_visit()
@@ -366,7 +378,7 @@ class AntColony:
         """AN TOÀN phân công lại lao động khi đàn THIẾU HẲN 1 vai trò
         thiết yếu - đúng thực tế đàn kiến có khả năng ĐIỀU CHỈNH LINH
         HOẠT phân công lao động theo nhu cầu (task allocation plasticity),
-        không cố định vai trò suốt đời ngay từ lúc nở. Có 3 mức ưu tiên,
+        không cố định vai trò suốt đời ngay từ lúc nở. Có 4 mức ưu tiên,
         xét THEO ĐÚNG THỨ TỰ này mỗi lần gọi (chỉ làm 1 việc/lần gọi, chờ
         lần sau đánh giá lại):
 
@@ -381,6 +393,9 @@ class AntColony:
            giờ hóa nhộng thành thợ mới => đàn chỉ có thể co lại dần vì
            chết già => TUYỆT CHỦNG dù thức ăn dư thừa.
         3) Tương tự với hộ vệ (chăm trứng + chúa, JOB_ATTENDANT_RATIO=6%).
+        4) Còn phòng cần đào (mới hoặc mở rộng, xem JOB_DIGGER) mà chưa
+           đủ thợ đào - ưu tiên THẤP NHẤT (rút muộn hơn, cần dư nhiều
+           hơn), vì chậm 1 chút không đe dọa sống còn như 3 mức trên.
         """
         if self.tick_count % 200 != 0:
             return
@@ -427,6 +442,19 @@ class AntColony:
                 cfg.ATTENDANT_SWITCH_TICKS_MIN, cfg.ATTENDANT_SWITCH_TICKS_MAX + 1
             )
 
+        # 4) Còn việc đào (phòng mới đang chờ, hoặc phòng cũ cần mở rộng
+        # thêm - xem UndergroundWorld.get_active_dig_jobs()) mà CHƯA đủ
+        # MAX_CONCURRENT_DIGGERS con đang đào - rút thêm 1 thợ (chỉ khi
+        # còn DƯ kha khá, ưu tiên thấp hơn hẳn nurse/attendant ở trên vì
+        # đào chậm 1 chút không gây tuyệt chủng như thiếu người cho ăn).
+        n_diggers = int(np.sum(alive_minor & (self.job == cfg.JOB_DIGGER)))
+        if len(forager_pool) >= 4 and n_diggers < cfg.MAX_CONCURRENT_DIGGERS:
+            if self.underground.get_active_dig_jobs():
+                pick = forager_pool.pop()
+                self.job[pick] = cfg.JOB_DIGGER
+                self.layer[pick] = cfg.LAYER_UNDERGROUND
+                self.state[pick] = cfg.STATE_DIGGER_IDLE  # _update_diggers() sẽ tự gán việc đào ngay tick sau
+
     # ------------------------------------------------------------------
     def _wrap_indices(self, arr):
         return np.clip(arr.astype(np.int32), 0, cfg.GRID_SIZE - 1)
@@ -445,12 +473,17 @@ class AntColony:
             self._update_returning_ants(np.where(returning)[0])
 
     # ------------------------------------------------------------------
-    def _assign_new_path(self, i, start_xy, target_xy):
+    def _assign_new_path(self, i, start_xy, target_xy, pathfinder=None):
         """Tính đường đi any-angle NGẮN NHẤT (visibility graph + A*, xem
         pathfinding.py) cho ĐÚNG 1 con kiến (chỉ số i) và lưu vào hàng đợi
         waypoint của nó. Trả về True nếu tìm được đường (dù rất hiếm khi
-        thất bại - chỉ khi kiến/đích bị vây kín hoàn toàn bởi vật cản)."""
-        path = self.pathfinder.find_path(start_xy, target_xy)
+        thất bại - chỉ khi kiến/đích bị vây kín hoàn toàn bởi vật cản).
+
+        `pathfinder`: mặc định dùng self.pathfinder (bản đồ MẶT ĐẤT) - kiến
+        đào (JOB_DIGGER) truyền vào 1 VisibilityPathfinder RIÊNG của đúng
+        tầng hầm đang đào (xem UndergroundWorld.get_dig_pathfinder)."""
+        pf = pathfinder if pathfinder is not None else self.pathfinder
+        path = pf.find_path(start_xy, target_xy)
         if not path:
             return False
         path = path[: cfg.PATH_MAX_WAYPOINTS]
@@ -1246,6 +1279,112 @@ class AntColony:
             self.groom_partner[a] = b
             self.groom_partner[b] = a
 
+    def _assign_digger_targets(self, idle_diggers):
+        """Gán 1 ô đất cần đào (+ tính đường bò tới đó) cho từng con đang
+        RẢNH trong `idle_diggers` (state==STATE_DIGGER_IDLE, vừa được nhận
+        JOB_DIGGER hoặc vừa đào xong 1 ô) - xem UndergroundWorld.
+        get_active_dig_jobs()/find_frontier_cell(). Con nào không tìm
+        được việc đào nào phù hợp (hết việc, hoặc phòng đang nhắm tới đã
+        bị con khác giành hết rìa) thì TRẢ VỀ lại lực lượng kiếm ăn ngay
+        (không đứng khựng vô nghĩa dưới hầm chờ mãi)."""
+        if len(idle_diggers) == 0:
+            return
+        jobs = self.underground.get_active_dig_jobs()
+        if not jobs:
+            for i in idle_diggers.tolist():
+                self._return_digger_to_forager(i)
+            return
+        for i in idle_diggers.tolist():
+            assigned = False
+            for room_id, depth, cx, cy, radius in jobs:
+                cell = self.underground.find_frontier_cell(
+                    depth, cx, cy, radius, reserved=self.underground.reserved_dig_cells
+                )
+                if cell is None:
+                    continue
+                gx, gy = cell
+                stand = self.underground.dug_neighbor_of(depth, gx, gy)
+                if stand is None:
+                    stand = (int(cx), int(cy))  # phòng hờ, hiếm khi xảy ra
+                self.underground.reserved_dig_cells.add((depth, gx, gy))
+                self.dig_target_x[i] = gx
+                self.dig_target_y[i] = gy
+                self.dig_target_depth[i] = depth
+                self.layer[i] = cfg.LAYER_UNDERGROUND
+                self.depth[i] = depth
+                self.x[i] = self.underground.shaft_xy[0]
+                self.y[i] = self.underground.shaft_xy[1]
+                pf = self.underground.get_dig_pathfinder(depth)
+                self._assign_new_path(
+                    i, (self.x[i], self.y[i]), (float(stand[0]) + 0.5, float(stand[1]) + 0.5), pathfinder=pf
+                )
+                self.state[i] = cfg.STATE_DIGGER_TRAVEL
+                assigned = True
+                break
+            if not assigned:
+                self._return_digger_to_forager(i)
+
+    def _return_digger_to_forager(self, i):
+        """Hết việc đào phù hợp (hoặc phòng vừa đào xong) - trả 1 con đào
+        về lại lực lượng kiếm ăn trên mặt đất ngay, không để rảnh rỗi vô
+        ích dưới hầm."""
+        self.job[i] = cfg.JOB_FORAGER
+        self.layer[i] = cfg.LAYER_SURFACE
+        self.depth[i] = cfg.LAYER_SURFACE_DEPTH
+        self.x[i] = self.nest_pos[0]
+        self.y[i] = self.nest_pos[1]
+        self.state[i] = cfg.STATE_SEARCHING
+        self.theta[i] = np.random.uniform(0, 2 * np.pi)
+        self.path_len[i] = 0
+
+    def _update_diggers(self):
+        """Vòng đời của kiến đào chuyên trách (JOB_DIGGER) - BÒ THẬT tới
+        rìa đất cần đào (STATE_DIGGER_TRAVEL, dùng đúng pathfinder của
+        tầng hầm đang đào, né đất đặc y hệt kiến mặt đất né đá/nước), rồi
+        ĐỨNG ĐÀO tại chỗ 1 khoảng thời gian thật (STATE_DIGGER_DIGGING,
+        xem cfg.DIG_TICKS_PER_CELL) trước khi ô đất đó thực sự biến thành
+        lối đi (UndergroundWorld.dig_cell) - có thể THEO DÕI TRỰC TIẾP quá
+        trình này qua render_underground.draw_dirt_grid()."""
+        diggers = np.where(self.alive & (self.dying_ticks == 0) & (self.job == cfg.JOB_DIGGER))[0]
+        if len(diggers) == 0:
+            return
+
+        traveling = diggers[self.state[diggers] == cfg.STATE_DIGGER_TRAVEL]
+        if len(traveling) > 0:
+            active = traveling[self.path_len[traveling] > 0]
+            if len(active) > 0:
+                self._follow_paths(active, cfg.ANT_SPEED)
+            arrived = traveling[self.path_len[traveling] == 0]
+            if len(arrived) > 0:
+                self.state[arrived] = cfg.STATE_DIGGER_DIGGING
+                self.dig_ticks_left[arrived] = cfg.DIG_TICKS_PER_CELL
+                # Quay mặt về phía ô đất đang đào - thuần túy hình ảnh
+                # (xem cfg.ANT_ANTENNA_WIGGLE_* dùng chung cách ngoe nguẩy).
+                for i in arrived.tolist():
+                    dx = float(self.dig_target_x[i]) + 0.5 - self.x[i]
+                    dy = float(self.dig_target_y[i]) + 0.5 - self.y[i]
+                    if abs(dx) > 1e-6 or abs(dy) > 1e-6:
+                        self.theta[i] = math.atan2(dy, dx)
+
+        digging = diggers[self.state[diggers] == cfg.STATE_DIGGER_DIGGING]
+        if len(digging) > 0:
+            self.dig_ticks_left[digging] = np.maximum(0, self.dig_ticks_left[digging] - 1)
+            done = digging[self.dig_ticks_left[digging] == 0]
+            if len(done) > 0:
+                for i in done.tolist():
+                    depth = int(self.dig_target_depth[i])
+                    gx, gy = int(self.dig_target_x[i]), int(self.dig_target_y[i])
+                    self.underground.dig_cell(depth, gx, gy)
+                    self.underground.reserved_dig_cells.discard((depth, gx, gy))
+                self.state[done] = cfg.STATE_DIGGER_IDLE
+
+        # Rảnh việc = vừa đào xong 1 ô (state vừa được đặt về IDLE ở trên)
+        # HOẶC vừa được nhận JOB_DIGGER từ _rebalance_labor (cũng khởi tạo
+        # ở state IDLE) - cả 2 trường hợp đều cần 1 việc đào mới.
+        idle = diggers[self.state[diggers] == cfg.STATE_DIGGER_IDLE]
+        if len(idle) > 0:
+            self._assign_digger_targets(idle)
+
     def _update_haulers(self, enemy):
         """Khiêng mồi lớn theo nhóm (cooperative transport) - xem HAUL_*
         trong config.py + EnemyManager._spawn_carcass()/_decay_carcass()
@@ -1565,6 +1704,19 @@ class AntColony:
         population = int(np.sum(self.alive))
         if population >= cfg.FOUNDING_NANITIC_TARGET:
             self.founding_phase = False
+            # Lập tổ xong -> Phòng chúa "nở rộng" từ hốc lập tổ nhỏ ra kích
+            # thước đầy đủ (render_underground.py đã tự chuyển bán kính
+            # HIỂN THỊ ngay lập tức lúc founding_phase tắt - xem
+            # room_center_and_radius_by_id) - đào luôn phần đất mở rộng
+            # tương ứng NGAY LÚC NÀY để nền đất không bị "lố" (phòng to
+            # hơn hẳn phần đã đào), vì đây là bước NỘI THẤT chúa tự mở
+            # rộng lấy sức chúa (không phải việc của digger thợ thường).
+            self.underground.dig_disk(
+                self.underground.queen_depth,
+                float(self.underground.queen_room[0]),
+                float(self.underground.queen_room[1]),
+                float(self.underground.rooms[2][3]),
+            )
             return
 
         if self.tick_count % cfg.EGG_LAY_INTERVAL == 0:

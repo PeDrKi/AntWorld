@@ -870,14 +870,17 @@ class GameState:
     ]
 
     def _check_room_unlocks(self, population):
-        """Tách dần từng phòng ra khỏi Phòng chúa theo ROOM_UNLOCK_SCHEDULE
-        - gọi mỗi khung hình (an toàn gọi lặp lại, unlock_room() tự bỏ qua
-        nếu phòng đó đã mở từ trước)."""
+        """Đưa dần từng phòng vào hàng chờ đào theo ROOM_UNLOCK_SCHEDULE
+        (gọi mỗi khung hình, an toàn gọi lặp lại) - việc tách phòng THẬT
+        (unlock_room) giờ do digger ants đào xong tới nơi mới xảy ra (xem
+        UndergroundWorld.request_dig()/try_finish_unlock(), ants.py
+        JOB_DIGGER), không còn tức thời ngay khi đạt mốc dân số nữa."""
         unlocked_any = False
         for room_id, threshold in self.ROOM_UNLOCK_SCHEDULE:
             if population < threshold:
                 continue
-            if not self.underground_world.unlock_room(room_id):
+            self.underground_world.request_dig(room_id)
+            if not self.underground_world.try_finish_unlock(room_id):
                 continue
             unlocked_any = True
             room = self.underground_world.rooms[room_id]

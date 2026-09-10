@@ -26,6 +26,7 @@ _ring_cache = {}
 # 1 vòng viền đơn, để tạo cảm giác "mờ ảo, tan dần ra mép" thay vì rìa
 # cứng như 1 khối tròn phẳng.
 _pheromone_glow_cache = {}
+_shadow_cache = {}
 
 
 def _get_pheromone_glow(color, radius, bucket, n_buckets):
@@ -45,6 +46,26 @@ def _get_pheromone_glow(color, radius, bucket, n_buckets):
             pygame.draw.circle(sprite, (*color, min(255, a)), (radius, radius), rr)
     _pheromone_glow_cache[key] = sprite
     return sprite
+
+
+def _get_shadow_surface(shadow_r, shadow_alpha):
+    """Trả về 1 surface bóng đổ hình vuông (bán kính/alpha đã lượng tử
+    hóa) từ cache - cùng lý do với _get_ring_surface/_get_pheromone_glow:
+    tránh cấp phát 1 surface pygame MỚI cho MỖI con kiến đang nảy (bounce)
+    ở MỖI khung hình - với vài chục con cùng lúc, chi phí cấp phát lặp lại
+    y hệt nhau hàng chục lần/khung hình cộng dồn khá rõ, nhất là trên máy
+    yếu."""
+    r_q = max(1, int(round(shadow_r)))
+    a_q = max(0, min(255, int(round(shadow_alpha / 8.0)) * 8))
+    key = (r_q, a_q)
+    surf = _shadow_cache.get(key)
+    if surf is None:
+        if len(_shadow_cache) > 300:
+            _shadow_cache.clear()
+        surf = pygame.Surface((r_q * 2, r_q * 2), pygame.SRCALPHA)
+        surf.fill((0, 0, 0, a_q))
+        _shadow_cache[key] = surf
+    return surf
 
 
 def _get_ring_surface(ring_r, ring_color, ring_alpha, width):
@@ -207,7 +228,17 @@ def draw_pheromone_trails(state, surf):
     camera = state.camera
     cell = camera.cell_px()
 
-    overlay = pygame.Surface((state.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
+    # Tái dùng LẠI 1 surface overlay cố định thay vì cấp phát mới mỗi
+    # khung hình (pygame.Surface(..., SRCALPHA) cỡ toàn màn hình KHÔNG hề
+    # rẻ nếu tạo lại 60 lần/giây) - chỉ tạo lại khi đổi kích thước cửa sổ
+    # (resize), xem GameState.handle_resize()). fill((0,0,0,0)) mỗi khung
+    # hình để xóa sạch nội dung cũ, RẺ hơn nhiều so với cấp phát lại.
+    overlay = getattr(state, "_pheromone_overlay_cache", None)
+    if overlay is None or overlay.get_size() != (state.SCREEN_W, state.CANVAS_H):
+        overlay = pygame.Surface((state.SCREEN_W, state.CANVAS_H), pygame.SRCALPHA)
+        state._pheromone_overlay_cache = overlay
+    else:
+        overlay.fill((0, 0, 0, 0))
     r = max(3, int(cell * 0.5))
     n_buckets = 8
 
@@ -574,8 +605,7 @@ def draw_ants(state, surf, colony_obj, color_normal, color_carry, depth_filter=0
             shadow_alpha = int(90 * (1.0 - bmag * 0.5))
             # Hình VUÔNG (không phải tròn mượt) cho bóng đổ - nhất quán
             # phong cách pixel-art góc cạnh của toàn bộ game.
-            shadow_surf = pygame.Surface((shadow_r * 2, shadow_r * 2), pygame.SRCALPHA)
-            shadow_surf.fill((0, 0, 0, shadow_alpha))
+            shadow_surf = _get_shadow_surface(shadow_r, shadow_alpha)
             surf.blit(shadow_surf, shadow_surf.get_rect(center=(int(ground_sx), int(ground_sy))))
 
         # --- Áp hiệu ứng rung khi giao chiến: dịch vị trí vẽ 1 chút ngẫu

@@ -467,3 +467,40 @@ với ý muốn, các hằng số đáng chỉnh trước tiên: `DIG_TICKS_PER_
 (giảm để đào nhanh hơn), `MAX_CONCURRENT_DIGGERS` (tăng để đào nhiều
 hướng cùng lúc), và ngưỡng rút thợ đào trong `_rebalance_labor` (mục 4).
 
+## Tối ưu hiệu suất (đàn đông bị giật/lag)
+
+Đã tìm và sửa vài chỗ tốn kém không cần thiết, phát hiện qua profiling
+thực tế (cProfile) với đàn 50-150 con:
+
+- **`render_underground.draw_dirt_grid()` - thủ phạm CHÍNH gây giật khi
+  đàn đông**: trước đây vẽ MỖI Ô LƯỚI đất đặc bằng 1 lệnh `pygame.draw.
+  rect` riêng - đầu game gần như CẢ TẦNG hầm còn nguyên (hàng nghìn ô),
+  tốn tới ~4ms/khung hình CHỈ RIÊNG việc này. Giờ ĐẢO NGƯỢC cách vẽ: tô
+  NGUYÊN VÙNG nhìn thấy bằng màu đất trong 1 lệnh, rồi "khoét" lại đúng
+  phần đã đào (thường nhỏ hơn nhiều, nhất là đầu game) - còn ~1ms lúc
+  gần như chưa đào gì, gần như MIỄN PHÍ (return sớm) khi 1 phòng đã đào
+  xong hoàn toàn.
+- **`UndergroundWorld.dug_fraction()`**: thêm cache theo `terrain_version`
+  của từng tầng - hàm này bị gọi lại MỖI KHUNG HÌNH từ `_check_room_
+  unlocks()` cho mọi phòng đang chờ đào, nhưng đất chỉ thực sự đổi khi có
+  1 ô được đào xong (hiếm hơn nhiều so với tần suất gọi) - giờ hầu như
+  luôn trúng cache, khỏi tính lại mặt nạ hình tròn mỗi lần.
+- **Bóng đổ khi kiến nảy (bounce)**: trước đây cấp phát 1 `pygame.Surface`
+  MỚI cho MỖI con đang nảy ở MỖI khung hình - giờ dùng cache theo (bán
+  kính, độ mờ) đã lượng tử hóa, giống cách `_get_pheromone_glow`/`_get_
+  ring_surface` đã làm từ trước.
+- **Vệt mùi pheromone (`draw_pheromone_trails`)**: trước đây cấp phát 1
+  surface overlay cỡ TOÀN MÀN HÌNH MỚI mỗi khung hình - giờ tái dùng 1
+  surface cố định (chỉ `fill()` xóa sạch mỗi khung, rẻ hơn cấp phát lại).
+- **Layout ấu trùng (`draw_larvae`)**: trước đây tạo mới 1 `RandomState`
+  + sinh lại toàn bộ mảng vị trí ngẫu nhiên MỖI KHUNG HÌNH dù vị trí
+  tương đối của từng con KHÔNG đổi giữa các khung hình (chỉ lớn dần theo
+  growth) - giờ cache lại, chỉ tính 1 lần/phòng. Lãng phí này càng rõ vì
+  phòng ấu trùng giờ có thể "gộp chung" vào Phòng chúa lâu hơn hẳn trước
+  (phải chờ đào thật, xem mục Đào đất ở trên).
+
+Nếu máy vẫn giật ở mức đàn rất đông (200+), đáng thử tiếp: giảm độ phân
+giải lưới hiển thị (`GRID_SIZE`), giảm `MAX_ANTS_PER_COLONY`, hoặc tắt
+bớt hiệu ứng hình ảnh (pheromone trail, hạt lấm tấm) qua các cờ trong
+`config.py`.
+

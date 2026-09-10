@@ -10,6 +10,33 @@ from . import config as cfg
 from .render_surface import draw_ants
 from .fonts import render_cached
 
+# Vị trí TƯƠNG ĐỐI (góc + bán kính đơn vị 0..1) của ấu trùng trong phòng,
+# theo seed_key - xem _get_larva_layout()/draw_larvae() để biết lý do
+# cache (tránh sinh lại ngẫu nhiên mỗi khung hình dù không đổi).
+_larva_layout_cache = {}
+
+
+def _get_larva_layout(seed_key, r_px):
+    """(ang, rad, body_ang) cho layout ấu trùng trong 1 phòng - phần góc/
+    bán kính ĐƠN VỊ (0..1, chưa nhân r_px) chỉ sinh ngẫu nhiên 1 LẦN DUY
+    NHẤT cho mỗi seed_key rồi cache lại, thay vì tạo mới 1 RandomState +
+    sinh lại nguyên mảng LARVA_MAX_COUNT phần tử MỖI KHUNG HÌNH như trước
+    - vị trí tương đối của từng con KHÔNG hề đổi giữa các khung hình (chỉ
+    kích thước lớn dần theo growth), nên tính 1 lần là đủ. Lãng phí này
+    càng rõ khi 1 phòng còn "gộp chung" vào Phòng chúa trong thời gian dài
+    (xem _draw_merged_room_contents - giờ có thể kéo dài hàng nghìn tick
+    vì phải chờ đào thật, xem UndergroundWorld.dig_queue)."""
+    cached = _larva_layout_cache.get(seed_key)
+    if cached is None:
+        rng_local = np.random.RandomState(seed_key * 331 + 7)
+        ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)
+        unit_rad = np.sqrt(rng_local.uniform(0, 1, cfg.LARVA_MAX_COUNT))
+        body_ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)
+        cached = (ang, unit_rad, body_ang)
+        _larva_layout_cache[seed_key] = cached
+    ang, unit_rad, body_ang = cached
+    return ang, unit_rad * r_px * 0.68, body_ang
+
 
 def layer_name(state, depth):
     """Tên tầng THEO ĐÚNG TRẠNG THÁI THẬT của ván đang chơi - KHÔNG dùng
@@ -218,10 +245,7 @@ def draw_larvae(state, surf, cx, cy, r_px, colony_obj, seed_key):
     active_idx = np.where(colony_obj.larva_active)[0]
     if len(active_idx) == 0:
         return
-    rng_local = np.random.RandomState(seed_key * 331 + 7)
-    ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)
-    rad = np.sqrt(rng_local.uniform(0, 1, cfg.LARVA_MAX_COUNT)) * r_px * 0.68
-    body_ang = rng_local.uniform(0, 2 * np.pi, cfg.LARVA_MAX_COUNT)  # hướng "nằm" của từng con - cố định, không đổi mỗi khung hình
+    ang, rad, body_ang = _get_larva_layout(seed_key, r_px)
     has_sprite = state.sprites.has("larva.png")
     for i in active_idx:
         growth = float(colony_obj.larva_growth[i])
@@ -578,14 +602,21 @@ def _draw_merged_room_contents(state, surf, uworld, colony_obj, cx, cy, r_px, de
 
 def draw_dirt_grid(state, surf, depth):
     """Vẽ NỀN ĐẤT thật của tầng hầm `depth` - mỗi ô lưới CHƯA ĐÀO (đất
-    đặc, xem UndergroundWorld.dirt_layers) được tô màu đất + vài chấm lấm
-    tấm cho có kết cấu; ô ĐÃ ĐÀO để trống (chỉ còn nền hầm bình thường) -
-    nhờ vậy có thể THEO DÕI TRỰC TIẾP quá trình digger ants (JOB_DIGGER,
-    xem ants.py) đào rộng tổ ra TỪNG Ô MỘT, thay vì phòng "hiện ra" tức
-    thời như trước. Ô đất đặc nằm SÁT rìa vùng đã đào (tức digger có thể
-    tới đào NGAY) được tô viền sáng hơn hẳn để dễ nhận ra "đang đào tới
-    đây". Chỉ vẽ đúng phần lưới đang lọt vào khung hình, bỏ qua hẳn nếu
-    camera đang zoom quá xa (ô bé tí không đáng vẽ)."""
+    đặc, xem UndergroundWorld.dirt_layers) được tô màu đất; ô ĐÃ ĐÀO để
+    trống (chỉ còn nền hầm bình thường) - nhờ vậy có thể THEO DÕI TRỰC
+    TIẾP quá trình digger ants (JOB_DIGGER, xem ants.py) đào rộng tổ ra
+    TỪNG Ô MỘT, thay vì phòng "hiện ra" tức thời như trước. Ô đất đặc nằm
+    SÁT rìa vùng đã đào (tức digger có thể tới đào NGAY) được tô viền
+    sáng hơn hẳn để dễ nhận ra "đang đào tới đây".
+
+    TỐI ƯU HIỆU SUẤT: vẽ theo DẢI LIÊN TỤC từng hàng (row-run) thay vì
+    từng Ô MỘT - vùng đất đặc thường liền thành khối lớn (nhất là đầu
+    game, gần như CẢ TẦNG còn nguyên), gộp thành 1 hình chữ nhật cho cả
+    dải giúp giảm từ có thể HÀNG NGHÌN lệnh vẽ/khung hình xuống chỉ còn
+    vài chục - đây từng là 1 nguyên nhân chính gây giật lag khi đàn đông
+    (không phải do vẽ kiến, mà do vẽ NỀN ĐẤT). Chỉ vẽ đúng phần lưới đang
+    lọt vào khung hình, bỏ qua hẳn nếu camera đang zoom quá xa (ô bé tí
+    không đáng vẽ)."""
     uworld = state.underground_world
     layer = uworld.dirt_layers.get(depth)
     if layer is None:
@@ -618,19 +649,62 @@ def draw_dirt_grid(state, surf, depth):
     neighbor_dug[:, :-1] |= dug[:, 1:]
     is_frontier = solid & neighbor_dug
 
+    # TỐI ƯU: tô CẢ VÙNG nhìn thấy bằng màu đất trong ĐÚNG 1 lệnh vẽ, rồi
+    # "khoét" lại đúng những ô ĐÃ ĐÀO về màu nền hầm bình thường (theo dải
+    # liên tục từng hàng, xem _draw_cell_mask_runs) - THAY VÌ tô từng ô
+    # đất đặc như trước. Chi phí pygame.draw.rect/fill tỉ lệ với DIỆN TÍCH
+    # PIXEL cần tô chứ không phải SỐ LỆNH VẼ, nên gộp nhiều ô đất đặc
+    # thành ít rect hơn KHÔNG giúp gì nếu vẫn tô đúng từng đó diện tích -
+    # điều thực sự giúp là đảo ngược: đầu game gần như CẢ TẦNG là đất đặc
+    # (diện tích "khoét"/đã đào RẤT NHỎ), nên tô nguyên khối + khoét phần
+    # nhỏ đã đào RẺ HƠN HẲN so với tô từng ô đất đặc chiếm phần lớn màn
+    # hình - đây từng là nguyên nhân chính gây giật lag khi đàn đông (tổ
+    # có nhiều đất chưa đào cần hiển thị), không phải do vẽ kiến.
+    sx0, sy0 = camera.world_to_screen(gx0, gy0, state.CENTER_X, state.CENTER_Y)
+    sx1, sy1 = camera.world_to_screen(gx1, gy1, state.CENTER_X, state.CENTER_Y)
+    pygame.draw.rect(surf, cfg.COLOR_DIRT_SOLID,
+                      pygame.Rect(int(sx0), int(sy0), max(1, int(sx1 - sx0)), max(1, int(sy1 - sy0))))
+
+    if np.any(dug):
+        _draw_cell_mask_runs(state, surf, dug, gx0, gy0, cfg.COLOR_BG_UNDERGROUND)
+
+    # Ô Ở RÌA (sát vùng đã đào) - luôn LÀ THIỂU SỐ so với tổng vùng đất đặc
+    # (chỉ nằm ngay biên đường hầm/phòng đang đào) - viền nổi bật để dễ
+    # nhận ra "đang đào tới đây" khi theo dõi tiến độ.
+    cell_px = camera.cell_px()
     size = max(1, int(cell_px) + 1)
-    show_specks = cell_px >= 6
-    xs, ys = np.where(solid)
+    xs, ys = np.where(is_frontier)
     for k in range(len(xs)):
         gx, gy = int(xs[k] + gx0), int(ys[k] + gy0)
         sx, sy = camera.world_to_screen(gx + 0.5, gy + 0.5, state.CENTER_X, state.CENTER_Y)
         rect = pygame.Rect(int(sx - cell_px / 2), int(sy - cell_px / 2), size, size)
-        pygame.draw.rect(surf, cfg.COLOR_DIRT_SOLID, rect)
-        if is_frontier[xs[k], ys[k]]:
-            pygame.draw.rect(surf, cfg.COLOR_DIRT_FRONTIER, rect, 1)
-        elif show_specks:
-            pygame.draw.circle(surf, cfg.COLOR_DIRT_SPECK, (int(sx - cell_px * 0.2), int(sy - cell_px * 0.15)), 1)
-            pygame.draw.circle(surf, cfg.COLOR_DIRT_SPECK, (int(sx + cell_px * 0.15), int(sy + cell_px * 0.2)), 1)
+        pygame.draw.rect(surf, cfg.COLOR_DIRT_FRONTIER, rect, 1)
+
+
+def _draw_cell_mask_runs(state, surf, mask, gx0, gy0, color):
+    """Tô `color` lên đúng các ô (True trong `mask`, tọa độ lưới đã lệch
+    thêm gx0/gy0) - gộp theo DẢI LIÊN TỤC từng hàng thành ít hình chữ nhật
+    nhất có thể, xem giải thích chi phí ở draw_dirt_grid(). Dùng chung cho
+    cả việc "khoét" ô đã đào lẫn (trong tương lai) các lớp phủ theo ô khác
+    nếu cần."""
+    camera = state.camera
+    for xi in range(mask.shape[0]):
+        row = mask[xi]
+        if not row.any():
+            continue
+        diff = np.diff(row.astype(np.int8))
+        starts = list(np.where(diff == 1)[0] + 1)
+        ends = list(np.where(diff == -1)[0] + 1)
+        if row[0]:
+            starts = [0] + starts
+        if row[-1]:
+            ends = ends + [len(row)]
+        gx = gx0 + xi
+        for s, e in zip(starts, ends):
+            sx0, sy0 = camera.world_to_screen(gx, gy0 + s, state.CENTER_X, state.CENTER_Y)
+            sx1, sy1 = camera.world_to_screen(gx + 1, gy0 + e, state.CENTER_X, state.CENTER_Y)
+            rect = pygame.Rect(int(sx0), int(sy0), max(1, int(sx1 - sx0)), max(1, int(sy1 - sy0)))
+            pygame.draw.rect(surf, color, rect)
 
 
 def draw_active_digging(state, surf, depth):

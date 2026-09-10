@@ -449,6 +449,7 @@ class UndergroundWorld:
         all_depths = sorted({self.queen_depth} | {d for _, d in real_offsets.values()})
         self.dirt_layers = {d: _DirtLayer(cfg.GRID_SIZE) for d in all_depths}
         self.dig_pathfinders = {}      # depth -> VisibilityPathfinder (tạo khi cần, xem get_dig_pathfinder)
+        self._dug_fraction_cache = {}  # (depth,cx,cy,radius) -> (terrain_version, fraction) - xem dug_fraction()
         self.dig_queue = set()         # room_id đã tới mốc dân số nhưng CHƯA đào xong tới nơi thật
         self.reserved_dig_cells = set()  # (depth,gx,gy) đang có 1 con kiến đào nhắm tới - tránh 2 con giành nhau
         self._target_radius = {}       # room_id -> bán kính "MONG MUỐN" theo dân số (xem update_room_sizes) -
@@ -593,10 +594,22 @@ class UndergroundWorld:
         """Tỉ lệ (0..1) diện tích hình tròn (cx,cy,radius) ở tầng `depth`
         ĐÃ được đào - dùng để biết 1 phòng đã "đủ đào" tới đâu (gate mở
         khóa phòng mới + thu hẹp bán kính THẬT của phòng đang lớn dần,
-        xem try_finish_unlock()/update_room_sizes())."""
+        xem try_finish_unlock()/update_room_sizes()).
+
+        CÓ CACHE theo `terrain_version` của tầng đó: đất tại 1 tầng chỉ
+        thực sự đổi khi có ô nào đó được đào xong (xem dig_cell/dig_disk,
+        hiếm hơn NHIỀU so với tần suất hàm này bị gọi - mỗi khung hình từ
+        check_alerts()/_check_room_unlocks()) - nên gần như luôn trúng
+        cache, tránh phải tính lại toàn bộ mặt nạ hình tròn (meshgrid) mỗi
+        khung hình cho những phòng đang chờ đào lâu ngày. Kết quả TRẢ VỀ
+        giống hệt không có cache (chỉ nhanh hơn), không đổi hành vi gì."""
         layer = self.dirt_layers.get(depth)
         if layer is None or radius <= 0:
             return 1.0
+        key = (depth, round(float(cx), 3), round(float(cy), 3), round(float(radius), 3))
+        cached = self._dug_fraction_cache.get(key)
+        if cached is not None and cached[0] == layer.terrain_version:
+            return cached[1]
         n = cfg.GRID_SIZE
         x0, x1 = max(0, int(cx - radius)), min(n, int(cx + radius) + 1)
         y0, y1 = max(0, int(cy - radius)), min(n, int(cy + radius) + 1)
@@ -608,7 +621,9 @@ class UndergroundWorld:
         if total == 0:
             return 1.0
         dug = int(np.sum((layer.terrain[x0:x1, y0:y1] == cfg.TERRAIN_EMPTY) & mask))
-        return dug / total
+        frac = dug / total
+        self._dug_fraction_cache[key] = (layer.terrain_version, frac)
+        return frac
 
     def find_frontier_cell(self, depth, cx, cy, radius, reserved=None):
         """Tìm 1 ô đất đặc GẦN TÂM (cx,cy) NHẤT mà có ÍT NHẤT 1 ô liền kề

@@ -166,6 +166,15 @@ class GameState:
         self.food_respawn_tick = 0
         self.grid_visible = True
         self.graph_visible = True
+        # Cờ ẩn/hiện riêng cho từng "tab"/panel thông tin, gộp bật/tắt tại
+        # 1 chỗ duy nhất - xem hud.build_toolbar() (display_menu_panel) và
+        # toggle_stats_visible()/toggle_layer_map_visible()/
+        # toggle_event_log_visible() bên dưới. Cùng cơ chế với
+        # graph_visible ở trên (ẨN HẲN cả khung panel, khác panel.collapsed
+        # vốn chỉ thu gọn còn tiêu đề).
+        self.stats_visible = True
+        self.layer_map_visible = True
+        self.event_log_visible = True
         self.frame_counter = 0
         self.history_tick = 0
         self.pop_history_main = []
@@ -726,6 +735,7 @@ class GameState:
             if not self.queen_walk_active:
                 base.append(getattr(self, "layer_map_panel", None))
             base.append(getattr(self, "event_log_panel", None))
+            base.append(getattr(self, "display_menu_panel", None))
             panels = [p for p in base if p is not None]
             if self.is_following() and getattr(self, "ant_panel", None) is not None:
                 panels = [self.ant_panel] + panels
@@ -771,6 +781,21 @@ class GameState:
         self.graph_visible = not self.graph_visible
         graph_btn.text = f"Bieu do: {'HIEN' if self.graph_visible else 'AN'}"
         graph_btn.active = self.graph_visible
+
+    def toggle_stats_visible(self, btn):
+        self.stats_visible = not self.stats_visible
+        btn.text = f"Bang thong ke: {'HIEN' if self.stats_visible else 'AN'}"
+        btn.active = self.stats_visible
+
+    def toggle_layer_map_visible(self, btn):
+        self.layer_map_visible = not self.layer_map_visible
+        btn.text = f"Ban do tang: {'HIEN' if self.layer_map_visible else 'AN'}"
+        btn.active = self.layer_map_visible
+
+    def toggle_event_log_visible(self, btn):
+        self.event_log_visible = not self.event_log_visible
+        btn.text = f"Nhat ky su kien: {'HIEN' if self.event_log_visible else 'AN'}"
+        btn.active = self.event_log_visible
 
     def toggle_enemy_spawn(self, enemy_spawn_btn):
         self.enemy.auto_spawn_enabled = not self.enemy.auto_spawn_enabled

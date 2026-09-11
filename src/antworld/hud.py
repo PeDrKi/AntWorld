@@ -39,7 +39,7 @@ def build_toolbar(state):
     chơi đã tự sắp xếp thay vì đặt lại về mặc định."""
     old_positions = {}
     for key in ("toolbar_panel", "stats_panel", "graph_panel", "layer_map_panel", "tab_panel", "maze_panel",
-                "ant_panel", "founding_panel", "event_log_panel"):
+                "ant_panel", "founding_panel", "event_log_panel", "display_menu_panel"):
         p = getattr(state, key, None)
         if p is not None:
             old_positions[key] = (p.x, p.y, p.collapsed)
@@ -120,14 +120,12 @@ def build_toolbar(state):
     add_section("CONG TAC BAT/TAT")
     respawn_btn = add_full_button("Tai sinh thuc an: BAT", None, "toggle", active=True, h=26)
     grid_btn = add_full_button("Luoi o vuong: BAT", None, "toggle", active=True, h=26)
-    graph_btn = add_full_button("Bieu do: HIEN", None, "toggle", active=True, h=26)
     enemy_spawn_btn = add_full_button("Ke thu tu nhien: BAT", None, "toggle", active=True, h=26)
     invasion_spawn_btn = add_full_button("Dan xam nhap: BAT", None, "toggle", active=True, h=26)
     auto_visit_btn = add_full_button("Tu dong ghe xem su kien: TAT", None, "toggle", active=False, h=26)
     cruise_btn = add_full_button("Camera tu lai (ranh tay): BAT", None, "toggle", active=True, h=26)
     respawn_btn.on_click = lambda: state.toggle_respawn(respawn_btn)
     grid_btn.on_click = lambda: state.toggle_grid(grid_btn)
-    graph_btn.on_click = lambda: state.toggle_graph(graph_btn)
     enemy_spawn_btn.on_click = lambda: state.toggle_enemy_spawn(enemy_spawn_btn)
     invasion_spawn_btn.on_click = lambda: state.toggle_invasion_spawn(invasion_spawn_btn)
     auto_visit_btn.on_click = lambda: state.toggle_auto_visit_events(auto_visit_btn)
@@ -290,14 +288,52 @@ def build_toolbar(state):
         state.buttons.append(row_btn)
     state.event_log_panel = event_log_panel
 
+    # -------------------------------------------------------------------
+    # MENU HIEN THI - gom bật/tắt các "tab"/panel thông tin (bảng thống
+    # kê, biểu đồ dân số, bản đồ tầng, nhật ký sự kiện) vào 1 CHỖ DUY
+    # NHẤT, thay vì rải rác trong sidebar công cụ (trước đây chỉ riêng
+    # biểu đồ có nút bật/tắt nằm lẫn trong mục "CONG TAC BAT/TAT") - xem
+    # draw_display_menu(). Panel NÀY thì luôn tự hiện (không có cờ ẩn
+    # riêng cho chính nó, khác 4 panel nó điều khiển) - nếu không sẽ
+    # không còn cách nào bật lại các panel kia một khi đã ẩn.
+    # -------------------------------------------------------------------
+    MENU_W = 232
+    # Đặt vào khoảng TRỐNG giữa Nhật ký sự kiện và ant_panel/founding_panel
+    # (không đè lên sidebar công cụ bên phải cũng như 2 panel kia) - vẫn
+    # kéo đi đâu tùy ý được như mọi panel khác nếu người chơi muốn.
+    display_menu_panel = Panel(8 + 310 + 12 + EVENT_LOG_W + 10, state.SCREEN_H - 214 - 10,
+                                MENU_W, 10, "Menu hien thi")
+    dm_cursor = {"y": 10}
+
+    def dm_add_button(label, active):
+        b = Button((0, 0, MENU_W - 20, 26), label, on_click=None, style="toggle", active=active)
+        b.bind_to_panel(display_menu_panel, 10, dm_cursor["y"])
+        state.buttons.append(b)
+        dm_cursor["y"] += 26 + 6
+        return b
+
+    dm_stats_btn = dm_add_button("Bang thong ke: HIEN", state.stats_visible)
+    dm_graph_btn = dm_add_button("Bieu do: HIEN", state.graph_visible)
+    dm_layer_map_btn = dm_add_button("Ban do tang: HIEN", state.layer_map_visible)
+    dm_event_log_btn = dm_add_button("Nhat ky su kien: HIEN", state.event_log_visible)
+    dm_stats_btn.on_click = lambda: state.toggle_stats_visible(dm_stats_btn)
+    dm_graph_btn.on_click = lambda: state.toggle_graph(dm_graph_btn)
+    dm_layer_map_btn.on_click = lambda: state.toggle_layer_map_visible(dm_layer_map_btn)
+    dm_event_log_btn.on_click = lambda: state.toggle_event_log_visible(dm_event_log_btn)
+
+    dm_cursor["y"] += 4
+    display_menu_panel.h = dm_cursor["y"] + 18
+    state.display_menu_panel = display_menu_panel
+
     state.panels = [toolbar_panel, stats_panel, graph_panel, layer_map_panel, tab_panel, maze_panel,
-                    ant_panel, founding_panel, event_log_panel]
+                    ant_panel, founding_panel, event_log_panel, display_menu_panel]
 
     for key, panel in (
         ("toolbar_panel", toolbar_panel), ("stats_panel", stats_panel),
         ("graph_panel", graph_panel), ("layer_map_panel", layer_map_panel),
         ("tab_panel", tab_panel), ("maze_panel", maze_panel), ("ant_panel", ant_panel),
         ("founding_panel", founding_panel), ("event_log_panel", event_log_panel),
+        ("display_menu_panel", display_menu_panel),
     ):
         if key in old_positions:
             x, y, collapsed = old_positions[key]
@@ -342,6 +378,8 @@ def _layer_swatches(state, depth):
 def draw_layer_map(state, surf):
     if state.queen_walk_active:
         return  # chưa có tầng ngầm nào tồn tại - xem visible_panels()
+    if not state.layer_map_visible:
+        return
     panel = state.layer_map_panel
     # Cập nhật "đang xem tầng nào" mỗi khung hình TRƯỚC khi vẽ - current_layer
     # có thể đổi bất cứ lúc nào (phím tắt, lăn chuột, camera tự bám kiến),
@@ -506,6 +544,8 @@ def _draw_progress_bar(surf, x, y, w, h, frac, fill_color, bg_color=(40, 40, 46)
 
 
 def draw_hud(state, surf):
+    if not state.stats_visible:
+        return
     colony, enemy, invasion = state.colony, state.enemy, state.invasion
     c = colony.counts()
     inv = invasion.counts()
@@ -796,12 +836,15 @@ def draw_cruise_indicator(state, surf):
 
 
 def draw_event_log(state, surf):
-    """Vẽ panel Nhật ký sự kiện - LUÔN hiện (không tùy trạng thái gì).
-    Liệt kê tối đa state.EVENT_LOG_MAX_ROWS mục GẦN NHẤT (mới nhất trên
-    cùng), mỗi dòng kèm thời điểm (quy đổi tick -> phút:giây thực) - dòng
-    NÀO CÓ GẮN VỊ TRÍ thì bấm vào sẽ đưa camera tới đó ngay (xem
-    GameState.jump_to_event(), đã gắn sẵn nút click vô hình đè lên từng
-    dòng - xem build_toolbar())."""
+    """Vẽ panel Nhật ký sự kiện - hiện theo state.event_log_visible (bật
+    tắt qua Menu hien thi, xem hud.build_toolbar()/draw_display_menu()),
+    mặc định LUÔN BẬT. Liệt kê tối đa state.EVENT_LOG_MAX_ROWS mục GẦN
+    NHẤT (mới nhất trên cùng), mỗi dòng kèm thời điểm (quy đổi tick ->
+    phút:giây thực) - dòng NÀO CÓ GẮN VỊ TRÍ thì bấm vào sẽ đưa camera tới
+    đó ngay (xem GameState.jump_to_event(), đã gắn sẵn nút click vô hình
+    đè lên từng dòng - xem build_toolbar())."""
+    if not state.event_log_visible:
+        return
     panel = state.event_log_panel
     panel.draw_frame(surf, state.font)
     if panel.collapsed:
@@ -862,6 +905,21 @@ def draw_founding_controls(state, surf):
     hint = "Chỉnh được cả lúc đang đi lẫn đang đào"
     img = render_cached(state.font_small, hint, (135, 135, 145))
     surf.blit(img, (cx + LX, cy + 146))
+
+
+def draw_display_menu(state, surf):
+    """Vẽ Menu hien thi - nút bật/tắt gộp cho các "tab"/panel thông tin
+    (bảng thống kê, biểu đồ, bản đồ tầng, nhật ký sự kiện), xem hud.
+    build_toolbar() (display_menu_panel) + GameState.toggle_stats_
+    visible()/toggle_graph()/toggle_layer_map_visible()/toggle_event_log_
+    visible(). Panel này LUÔN tự hiện (không có cờ ẩn riêng cho chính nó)
+    - nếu không sẽ hết cách bật lại các panel mà nó điều khiển."""
+    panel = state.display_menu_panel
+    panel.draw_frame(surf, state.font)
+    if panel.collapsed:
+        return
+    for b in panel.children:
+        b.draw(surf, state.font)
 
 
 def draw_toolbar(state, surf):

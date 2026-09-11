@@ -679,10 +679,21 @@ INVASION_RETREAT_SPEED = 0.20         # rút lui nhanh hơn lúc tiến quân (v
                             # chạy khi đã cướp được đồ / bị đánh lui)
 
 # ----- (Đã bỏ tổ đối thủ cố định - xem khối "Đàn kiến ngoại lai" ở trên) -----
-MAX_ANTS_PER_COLONY = 200   # giới hạn TỐI ĐA quy mô 1 đàn (bộ nhớ cấp phát
-                            # sẵn cho mảng NumPy) - đàn khởi tạo NUM_ANTS con,
-                            # rồi tự sinh sản lớn lên dần tới tối đa số này
-                            # nếu đủ thức ăn/nước/không gian ấu trùng
+MAX_ANTS_PER_COLONY = 5000  # ĐÃ BỎ TRẦN THỰC TẾ theo yêu cầu (trước là
+                            # 200) - vẫn là 1 con số CỐ ĐỊNH vì kiến trúc
+                            # AntColony cấp phát sẵn mảng NumPy kích thước
+                            # cố định ngay từ đầu (không phải mảng "tự lớn
+                            # động" - đổi sang kiểu đó là 1 việc tái cấu
+                            # trúc lớn hơn hẳn, không chỉ đổi 1 con số),
+                            # nhưng 5000 đủ cao để KHÔNG BAO GIỜ là nút
+                            # thắt cổ chai thật trong 1 ván chơi bình
+                            # thường - dân số trên thực tế bị chặn lại bởi
+                            # chính nền kinh tế của tổ (không gian phòng/
+                            # thức ăn/nước, xem ROOM_GROWTH_PER_SQRT_ANT)
+                            # từ rất lâu trước khi chạm tới con số này.
+                            # Đàn khởi tạo NUM_ANTS con, rồi tự sinh sản
+                            # lớn lên dần nếu đủ thức ăn/nước/không gian
+                            # ấu trùng.
 ROOM_RADIUS = 3.4 * ROOM_LAYOUT_SCALE            # bán kính MẶC ĐỊNH (dùng cho phòng tự đào)
 # Mỗi phòng CHỨC NĂNG khác nhau có kích thước khác nhau cho hợp lý: kho +
 # bể nước chứa số lượng lớn nên to nhất; phòng chúa đủ rộng; ấu trùng vừa

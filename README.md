@@ -10,13 +10,15 @@ Dùng thư viện **Pygame** để dựng 2D (không còn Ursina/Panda3D).
 
 ## Dân số & sinh sản
 
-- Mỗi đàn khởi tạo **10 con**, có thể **tự sinh sản lớn lên tới tối đa 200
+- Mỗi đàn khởi tạo **10 con**, có thể **tự sinh sản lớn lên tới tối đa 5000
   con** (`NUM_ANTS`, `MAX_ANTS_PER_COLONY` trong `config.py`) - không còn bị
-  giới hạn cứng ở đúng số khởi tạo như bản trước.
+  giới hạn cứng ở đúng số khởi tạo như bản trước. Trên thực tế hiếm khi
+  chạm được tới trần này - nền kinh tế của tổ (không gian phòng/thức ăn/
+  nước) tự nhiên chặn đà tăng dân số lại từ rất lâu trước đó.
 - Chúa **đẻ trứng** định kỳ (tốn thức ăn + nước từ kho) thay vì "sinh" kiến
   trực tiếp. Trứng lớn dần thành ấu trùng thật trong phòng ấu trùng, ăn
   đúng thức ăn nurse mang tới - đủ lớn mới "nở" thành 1 kiến thợ mới, và
-  chỉ nở được nếu đàn CHƯA chạm trần 200 con.
+  chỉ nở được nếu đàn CHƯA chạm trần 5000 con.
 
 ## Các phòng ngầm - thực hiện đúng chức năng
 
@@ -504,3 +506,54 @@ giải lưới hiển thị (`GRID_SIZE`), giảm `MAX_ANTS_PER_COLONY`, hoặc 
 bớt hiệu ứng hình ảnh (pheromone trail, hạt lấm tấm) qua các cờ trong
 `config.py`.
 
+## Trần dân số & Menu hiện thị
+
+- **Đã bỏ trần dân số cứng ở 200 con** - `MAX_ANTS_PER_COLONY` (config.py)
+  giờ là 5000, đủ cao để trên thực tế không bao giờ là nút thắt cổ chai
+  thật (nền kinh tế của tổ - không gian phòng/thức ăn/nước - luôn tự
+  chặn đà tăng dân số lại từ rất lâu trước đó). Đây vẫn là 1 trần CỐ ĐỊNH
+  (kiến trúc `AntColony` cấp phát sẵn mảng NumPy kích thước cố định),
+  không phải mảng "tự lớn động vô hạn" - đổi sang kiểu đó là 1 việc tái
+  cấu trúc lớn hơn hẳn.
+- **Menu hiện thị** (`hud.draw_display_menu()`/`GameState.toggle_stats_
+  visible()`/`toggle_graph()`/`toggle_layer_map_visible()`/`toggle_event_
+  log_visible()`): 1 panel nổi riêng gom nút bật/tắt cho 4 "tab" thông
+  tin - Bảng thống kê, Biểu đồ dân số, Bản đồ tầng, Nhật ký sự kiện - vào
+  1 chỗ duy nhất, thay vì rải rác (trước đây chỉ riêng biểu đồ có nút bật/
+  tắt, nằm lẫn trong mục "CONG TAC BAT/TAT" của sidebar công cụ - đã
+  chuyển hẳn sang menu này). Panel này tự hiện luôn (không có cờ ẩn riêng
+  cho chính nó, khác 4 panel nó điều khiển), và cũng kéo/thu gọn được
+  như mọi panel khác.
+
+## Sprite kiến tự nhiên hơn
+
+Sprite ảnh mặc định (`ant_worker_main`, `ant_invader`, `queen` trong
+`assets/sprites/`) đã được vẽ lại từ đầu để trông giống giải phẫu kiến
+thật hơn hẳn bản trước (vốn chỉ là các khối tròn/thoi xếp cạnh nhau khá
+trừu tượng):
+
+- **3 đốt thân rõ ràng, đúng tỉ lệ thật**: bụng (gaster) LỚN NHẤT ở phía
+  sau, EO THẮT rõ (petiole) nối sang ngực (thorax) thon dài hơn hẳn bản
+  cũ, rồi tới đầu tròn riêng biệt ở phía trước - thay vì 3 khối gần như
+  bằng nhau dính liền không rõ ranh giới.
+- **Đổ bóng 2 tông** (highlight sáng phía trên + shade tối phía dưới) cho
+  từng đốt thân - tạo cảm giác vỏ kitin bóng, có chiều sâu, thay vì màu
+  phẳng lì.
+- **Râu đơn giản nhưng rõ hướng** (2 nét chéo ra phía trước đầu) và vài
+  chấm chân nhỏ gợi ý dưới ngực, dịch nhẹ theo pha bước ở các khung đi bộ
+  (`_walk0..3.png`) - đã thử nghiệm vẽ HẲN 6 chân nhiều khớp đầy đủ giải
+  phẫu nhưng ở kích thước hiển thị thực tế trong game (thường chỉ vài
+  chục pixel) luôn bị vỡ thành mớ nét rối/đè lên đầu khi thu nhỏ (pygame
+  dùng nearest-neighbor, không làm mượt) - chấm nhỏ tối giản đọc SẠCH hơn
+  hẳn ở mọi mức zoom, đây là lựa chọn có cân nhắc đánh đổi, không phải
+  thiếu sót.
+- **Chúa** vẽ lại theo đúng bộ khung giải phẫu trên nhưng phóng to riêng
+  phần bụng (đúng đặc điểm sinh học - bụng chúa to hơn hẳn để đẻ trứng),
+  đổi từ tông hồng/tím sặc sỡ như đá quý sang NÂU ẤM tự nhiên đồng bộ với
+  màu thợ.
+- Đàn xâm lược (`ant_invader`) dùng cùng bộ khung giải phẫu, chỉ đổi tông
+  màu đỏ/nâu đỏ để vẫn phân biệt được với đàn chính.
+
+Đã kiểm tra trực quan ở 3 mức zoom (xa/vừa/gần) để đảm bảo không vỡ hình
+khi thu nhỏ. Không đổi bất kỳ hành vi/code nào - chỉ thay file ảnh, nên
+không ảnh hưởng gì tới lối chơi.

@@ -202,6 +202,7 @@ def render(state):
         hud.draw_toolbar(state, screen)
         hud.draw_layer_map(state, screen)
         hud.draw_tab_panel(state, screen)
+        hud.draw_display_menu(state, screen)
     hud.draw_toasts(state, screen)
     hud.draw_game_over(state, screen)  # luon ve SAU CUNG - nam TREN moi thu khac
     hud.draw_ui_hidden_hint(state, screen)
